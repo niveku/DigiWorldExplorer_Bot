@@ -2,6 +2,8 @@
 
 # ⚡ DigiWorldExplorer_Bot ⚡
 
+![Version](https://img.shields.io/badge/version-0.1.0-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue)
+
 ### 🦖 Automatisierte DigiWorld-Erkundung für Digimon UP
 
 **✨ RobinTh0r Guild Edition · Exclusive for Germon Members ✨**
@@ -55,6 +57,12 @@ Fehlt Python, fragt `INSTALL.cmd`, ob **Python 3.12 über `winget`** installiert
 | Pixeldichte | 240 DPI |
 | Interface-Skalierung | 100 % |
 | Android Debug Bridge | Aktiviert |
+
+> [!TIP]
+> **Empfehlung für den Betatest:** Verwendet möglichst **Botamon**. Sein kleiner,
+> farblich klarer Sprite lässt sich aktuell am zuverlässigsten erkennen. Andere
+> Digimon-Formen können funktionieren, sind in dieser Beta aber noch nicht gleich
+> gut kalibriert.
 
 ### Installation und Start
 
@@ -145,8 +153,32 @@ Diese Tests senden keine ADB-Eingaben.
 | Raster sitzt falsch | Nicht starten; Portrait, 720×1280 und 240 DPI kontrollieren |
 | Spieler wird nicht erkannt | Animation abwarten und `CHECK.cmd` erneut ausführen |
 
----
+## 📝 Versionen und Changelog
 
+Die aktuelle Version steht in `VERSION` und wird im Terminalbanner sowie über
+`python auto_digiworld_batch2.py --version` angezeigt.
+
+### v0.1.0 – 29.07.2026
+
+- 🧭 Automatische Erkennung des sichtbaren 5×5-DigiWorld-Rasters
+- 🟠 Priorisierte Sammlung von Energie und sichtbaren Items
+- 🔺 Sichere Behandlung von Pyramiden, Angriffen und Dash
+- 🛑 Sicherheitsstopps bei unsicherem Raster, Spieler oder Overlay
+- 🔧 Separater Debugstart mit Statusmeldung bei jedem Scan und jeder Neuplanung
+- ⚡ RobinTh0r-/Germon-Terminalbranding
+- 📦 Schlankes Release-ZIP mit automatischer lokaler Python-Einrichtung
+
+### Regeln für zukünftige Releases
+
+Bei jeder neuen Version werden gemeinsam aktualisiert:
+
+1. Versionsnummer in `VERSION`
+2. Changelog in dieser README
+3. Git-Tag im Format `vX.Y.Z`
+4. GitHub-Release mit demselben Changelog als Release Notes
+5. Neu gebautes ZIP ohne `.venv`, Laufdaten, Screenshots oder lokale Konfiguration
+
+---
 <div align="center">
 
 ## ⚒️ RobinTh0r × Agumon 🦖

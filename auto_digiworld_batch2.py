@@ -18,6 +18,7 @@ import digiworld_bot as bot
 
 
 DIR_DELTA = {"right": (0, 1), "left": (0, -1), "down": (1, 0), "up": (-1, 0)}
+VERSION = Path(__file__).with_name("VERSION").read_text(encoding="utf-8").strip()
 
 
 def player_cell(info):
@@ -103,6 +104,7 @@ def safe_followup_moves(info, player, first_target, direction, count, goals=None
 
 def main():
     p = argparse.ArgumentParser()
+    p.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     p.add_argument("--steps", type=int, default=10)
     p.add_argument("--interval", type=float, default=.65)
     p.add_argument("--batch-size", type=int, default=2, choices=(1, 2, 3))

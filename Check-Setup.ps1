@@ -18,7 +18,9 @@ function Show-RobinThorBanner {
         '██║  ██║╚██████╔╝██████╔╝██║██║ ╚████║   ██║   ██║  ██║╚██████╔╝██║  ██║'
         '╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝'
     )
-    $subtitle = '[ Digimon UP - DigiWorldExplorer_Bot ]'
+    $versionPath = Join-Path $PSScriptRoot 'VERSION'
+    $version = if (Test-Path -LiteralPath $versionPath) { (Get-Content -LiteralPath $versionPath -Raw).Trim() } else { 'dev' }
+    $subtitle = "[ Digimon UP - DigiWorldExplorer_Bot v$version ]"
     $guildLine = '✨ EXCLUSIVE FOR GERMON MEMBERS ✨'
     $contentWidth = ($logo | ForEach-Object Length | Measure-Object -Maximum).Maximum
 
