@@ -82,7 +82,7 @@ Fehlt Python, fragt `INSTALL.cmd`, ob **Python 3.12 über `winget`** installiert
 - 🖼️ Ob Debugscreenshots gespeichert werden sollen
 - ✅ Ob der Lauf wirklich gestartet werden soll
 
-Das Mindestintervall ist aus Sicherheitsgründen auf `0,35 Sekunden` begrenzt. Mit `Ctrl+C` kann der Bot jederzeit sofort gestoppt werden. Im normalen Modus erscheint ungefähr alle 10 % ein kompaktes Update mit Fortschritt, Laufzeit und geschätzter Restzeit. Am Ende folgen Gesamtzeit und die Anzahl der vom Bot erkannten und gezielt betretenen orangefarbenen, lilanen und grünen Items. Da der HUD-Zähler noch nicht per OCR gelesen wird, ist dies eine erkannte Bot-Zählung und keine garantierte HUD-Differenz.
+Das Mindestintervall ist aus Sicherheitsgründen auf `0,35 Sekunden` begrenzt. Mit `Ctrl+C` kann der Bot jederzeit sofort gestoppt werden. Im normalen Modus erscheint ungefähr alle 2 % ein kompaktes Update mit Fortschritt, Laufzeit und geschätzter Restzeit. Am Ende folgen Gesamtzeit, Orange-HUD-Startwert, Endwert und echte Differenz. Zusätzlich bleibt die interne Zählung der erkannten und gezielt betretenen Items sichtbar. Kann der HUD-Zähler nicht sicher gelesen werden, wird ausdrücklich `nicht sicher lesbar` angezeigt.
 
 ### 🔧 Debugmodus
 
@@ -160,8 +160,9 @@ Die aktuelle Version steht in `VERSION` und wird im Terminalbanner sowie über
 
 ### Unreleased
 
-- 🟢 Der normale Start zeigt etwa alle 10 % Fortschritt, Laufzeit und geschätzte Restzeit.
-- 📊 Am Laufende erscheinen Gesamtzeit und erkannte neu gesammelte Items nach Farbe.
+- 🟢 Der normale Start zeigt etwa alle 2 % Fortschritt, Laufzeit und geschätzte Restzeit.
+- 📊 Am Laufende erscheinen Gesamtzeit sowie Orange-HUD-Start, -Ende und echte Differenz.
+- 🔎 Die Orange-Ziffernerkennung arbeitet lokal und verwirft unsichere Werte.
 
 ### v0.1.0 – 29.07.2026
 

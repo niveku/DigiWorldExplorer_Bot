@@ -5,13 +5,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from PIL import ImageDraw
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 import auto_digiworld as strategy
 import digiworld_bot as bot
@@ -48,6 +50,94 @@ def progress_summary(current, total, elapsed_seconds):
     return (f"{current}/{total} ({percent}%) | vergangen {format_duration(elapsed_seconds)} "
             f"| ca. {format_duration(remaining)} verbleibend")
 
+_DIGIT_TEMPLATES = None
+
+
+def _normalize_glyph(mask, size=(20, 28)):
+    ys, xs = np.where(mask)
+    if not len(xs):
+        return np.zeros(size[::-1], dtype=bool)
+    crop = (mask[ys.min():ys.max()+1, xs.min():xs.max()+1] * 255).astype("uint8")
+    resized = Image.fromarray(crop).resize(size, Image.Resampling.BILINEAR)
+    return np.asarray(resized) > 100
+
+
+def _digit_templates():
+    global _DIGIT_TEMPLATES
+    if _DIGIT_TEMPLATES is not None:
+        return _DIGIT_TEMPLATES
+    result = {str(digit): [] for digit in range(10)}
+    fonts_dir = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
+    try:
+        for font_path in (fonts_dir / "arialbd.ttf", fonts_dir / "segoeuib.ttf"):
+            if not font_path.exists():
+                continue
+            for size in range(18, 25):
+                font = ImageFont.truetype(str(font_path), size)
+                for digit in result:
+                    canvas = Image.new("L", (32, 36))
+                    ImageDraw.Draw(canvas).text((2, -2), digit, font=font, fill=255)
+                    result[digit].append(_normalize_glyph(np.asarray(canvas) > 100))
+    except OSError:
+        return None
+    if not all(result.values()):
+        return None
+    _DIGIT_TEMPLATES = result
+    return result
+
+
+def read_orange_counter(image):
+    """Read the orange HUD counter conservatively; return None if uncertain."""
+    templates = _digit_templates()
+    if templates is None:
+        return None
+    rgb = np.asarray(image.convert("RGB"))
+    top = rgb[:max(1, int(rgb.shape[0] * .15))]
+    orange = ((top[:, :, 0] > 200) & (top[:, :, 1] > 55) &
+              (top[:, :, 1] < 180) & (top[:, :, 2] < 100))
+    ys, xs = np.where(orange)
+    if not len(xs):
+        return None
+    x1, y0, y1 = xs.max(), ys.min(), ys.max()
+    if y1 - y0 < 15:
+        return None
+    roi = top[y0+5:y1-5, x1+4:min(top.shape[1], x1+120)]
+    white = (roi[:, :, 0] > 215) & (roi[:, :, 1] > 215) & (roi[:, :, 2] > 215)
+    columns = white.sum(axis=0)
+    runs, start = [], None
+    for column, count in enumerate(columns):
+        if count >= 2 and start is None:
+            start = column
+        elif count < 2 and start is not None:
+            runs.append((start, column)); start = None
+    if start is not None:
+        runs.append((start, len(columns)))
+
+    digits, previous_end = [], None
+    for left, right in runs:
+        if previous_end is not None and left - previous_end > 6 and digits:
+            break
+        previous_end = right
+        glyph = white[:, left:right]
+        glyph_y, glyph_x = np.where(glyph)
+        if not len(glyph_x) or glyph_y.max() - glyph_y.min() + 1 < 9:
+            continue
+        if right - left <= 8:
+            digits.append("1"); continue
+        normalized = _normalize_glyph(glyph)
+        ranked = sorted((min(float(np.mean(normalized != item)) for item in candidates), digit)
+                        for digit, candidates in templates.items())
+        if ranked[0][0] > .16 or ranked[1][0] - ranked[0][0] < .04:
+            return None
+        digits.append(ranked[0][1])
+    if not 1 <= len(digits) <= 6:
+        return None
+    return int("".join(digits))
+
+
+def format_counter(value):
+    return f"{value:,}".replace(",", ".")
+
 def item_category(values):
     """Return the strongest visible pickup color, or None below threshold."""
     scores = {name: values.get(name, 0.0) for name in ("orange", "pink", "green")}
@@ -55,15 +145,23 @@ def item_category(values):
     return category if score > .06 else None
 
 
-def run_summary(elapsed_seconds, collected):
+def run_summary(elapsed_seconds, collected, orange_start=None, orange_end=None):
     total = sum(collected.values())
-    return (f"FERTIG | Gesamtzeit {format_duration(elapsed_seconds)} | "
-            f"erkannt gesammelt: {total} "
-            f"(Orange {collected['orange']}, Lila {collected['pink']}, Gruen {collected['green']})")
+    detected = (f"erkannt angefahren: {total} "
+                f"(Orange {collected['orange']}, Lila {collected['pink']}, Gruen {collected['green']})")
+    if orange_start is not None and orange_end is not None:
+        difference = orange_end - orange_start
+        hud = (f"Orange-HUD {format_counter(orange_start)} -> {format_counter(orange_end)} "
+               f"({difference:+d})")
+    else:
+        hud = "Orange-HUD nicht sicher lesbar"
+    return f"FERTIG | Gesamtzeit {format_duration(elapsed_seconds)} | {hud} | {detected}"
 
 
-def show_run_summary(current, total, started_at, collected, color="32"):
-    progress(current, total, run_summary(time.monotonic() - started_at, collected), color)
+def show_run_summary(current, total, started_at, collected, orange_start=None,
+                     orange_end=None, color="32"):
+    message = run_summary(time.monotonic() - started_at, collected, orange_start, orange_end)
+    progress(current, total, message, color)
 
 def plan_status(kind, direction, reason, item_count):
     if item_count:
@@ -167,6 +265,7 @@ def main():
     progress_step = max(1, (args.steps * args.progress_percent + 99) // 100) if args.progress_percent else 0
     next_progress = progress_step
     collected = {"orange": 0, "pink": 0, "green": 0}
+    orange_start = None
     attacks_enabled = True
     dashes_enabled = True
     previous_action = None
@@ -209,10 +308,14 @@ def main():
             bot.log_event(log, event)
             if args.verbose: progress(done, args.steps, "Spielfeld unsicher - neuer Scan", "33")
             if unreliable >= 5:
-                show_run_summary(done, args.steps, started_at, collected, "33")
+                show_run_summary(done, args.steps, started_at, collected, orange_start, read_orange_counter(image), "33")
                 return 2
             time.sleep(args.interval); continue
         unreliable = 0
+        if orange_start is None:
+            orange_start = read_orange_counter(image)
+            if args.verbose and orange_start is not None:
+                progress(done, args.steps, f"Orange-Startwert: {format_counter(orange_start)}", "93")
 
         if stable_board is None:
             stable_board = det.board
@@ -248,7 +351,7 @@ def main():
             if player_unreliable >= 5:
                 event["action"] = "STOP: five consecutive unreliable player frames"
                 bot.log_event(log, event)
-                show_run_summary(done, args.steps, started_at, collected, "33")
+                show_run_summary(done, args.steps, started_at, collected, orange_start, read_orange_counter(image), "33")
                 return 3
             time.sleep(max(args.interval, 1.0)); continue
         player_unreliable = 0
@@ -294,7 +397,7 @@ def main():
             event["action"] = "STOP: no safe action"
             bot.log_event(log, event)
             if args.verbose: progress(done, args.steps, "STOPP - keine sichere Aktion", "31")
-            show_run_summary(done, args.steps, started_at, collected, "33")
+            show_run_summary(done, args.steps, started_at, collected, orange_start, read_orange_counter(image), "33")
             return 4
         kind, target, direction = action
         if args.verbose:
@@ -399,10 +502,17 @@ def main():
     event = {"time_utc": datetime.now(timezone.utc).isoformat(), "status": "complete",
              "steps": done, "run_dir": str(run_dir),
              "detection": bot.asdict(final_det)}
+    orange_end = read_orange_counter(final)
     event["collected_detected"] = dict(collected)
+    event["orange_hud"] = {
+        "start": orange_start,
+        "end": orange_end,
+        "difference": (orange_end - orange_start
+                       if orange_start is not None and orange_end is not None else None),
+    }
     event["elapsed_seconds"] = round(time.monotonic() - started_at, 3)
     bot.log_event(log, event)
-    show_run_summary(done, args.steps, started_at, collected)
+    show_run_summary(done, args.steps, started_at, collected, orange_start, orange_end)
     return 0
 
 

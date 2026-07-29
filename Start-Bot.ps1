@@ -104,7 +104,7 @@ if ($DebugScreenshots) {
 if ($DebugMode) {
     $arguments += '--verbose'
 } else {
-    $arguments += @('--progress-percent', '10')
+    $arguments += @('--progress-percent', '2')
 }
 
 if ($DebugMode) {

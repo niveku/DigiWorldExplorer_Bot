@@ -80,8 +80,12 @@ class BatchTests(unittest.TestCase):
     def test_run_summary_contains_time_and_pickup_totals(self):
         text = runner.run_summary(125, {"orange": 3, "pink": 2, "green": 1})
         self.assertIn("Gesamtzeit 02:05", text)
-        self.assertIn("erkannt gesammelt: 6", text)
+        self.assertIn("erkannt angefahren: 6", text)
         self.assertIn("Orange 3", text)
+
+    def test_run_summary_reports_exact_orange_hud_difference(self):
+        text = runner.run_summary(125, {"orange": 3, "pink": 2, "green": 1}, 7180, 7525)
+        self.assertIn("Orange-HUD 7.180 -> 7.525 (+345)", text)
     def test_compact_progress_includes_percent_and_eta(self):
         text = runner.progress_summary(20, 200, 100)
         self.assertIn("20/200 (10%)", text)
