@@ -35,6 +35,19 @@ def progress(current, total, message, color="36"):
     print(f"\033[{color}m{current}/{total}: {message}\033[0m", flush=True)
 
 
+def format_duration(seconds):
+    total = max(0, int(round(seconds)))
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:d}:{minutes:02d}:{secs:02d}" if hours else f"{minutes:02d}:{secs:02d}"
+
+
+def progress_summary(current, total, elapsed_seconds):
+    percent = round(current * 100 / total) if total else 100
+    remaining = (elapsed_seconds / current * (total - current)) if current else 0
+    return (f"{current}/{total} ({percent}%) | vergangen {format_duration(elapsed_seconds)} "
+            f"| ca. {format_duration(remaining)} verbleibend")
+
 def plan_status(kind, direction, reason, item_count):
     if item_count:
         return f"Energie gesichtet! {item_count} Item(s) - Route wird neu berechnet"
@@ -110,6 +123,7 @@ def main():
     p.add_argument("--batch-size", type=int, default=2, choices=(1, 2, 3))
     p.add_argument("--debug-screenshots", action="store_true")
     p.add_argument("--verbose", action="store_true", help="human-readable status for every scan")
+    p.add_argument("--progress-percent", type=int, default=0, help="compact update interval in percent")
     p.add_argument("--min-confidence", type=float, default=.80)
     p.add_argument("--adb", default=bot.ADB_DEFAULT)
     p.add_argument("--serial", default=bot.SERIAL_DEFAULT)
@@ -132,6 +146,9 @@ def main():
     if args.verbose:
         progress(0, args.steps, "Debuglauf gestartet - erster Scan", "32")
     done = 0
+    started_at = time.monotonic()
+    progress_step = max(1, (args.steps * args.progress_percent + 99) // 100) if args.progress_percent else 0
+    next_progress = progress_step
     attacks_enabled = True
     dashes_enabled = True
     previous_action = None

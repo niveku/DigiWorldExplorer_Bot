@@ -82,7 +82,7 @@ Fehlt Python, fragt `INSTALL.cmd`, ob **Python 3.12 über `winget`** installiert
 - 🖼️ Ob Debugscreenshots gespeichert werden sollen
 - ✅ Ob der Lauf wirklich gestartet werden soll
 
-Das Mindestintervall ist aus Sicherheitsgründen auf `0,35 Sekunden` begrenzt. Mit `Ctrl+C` kann der Bot jederzeit sofort gestoppt werden.
+Das Mindestintervall ist aus Sicherheitsgründen auf `0,35 Sekunden` begrenzt. Mit `Ctrl+C` kann der Bot jederzeit sofort gestoppt werden. Im normalen Modus erscheint ungefähr alle 10 % ein kompaktes Update mit Fortschritt, Laufzeit und geschätzter Restzeit.
 
 ### 🔧 Debugmodus
 
@@ -157,6 +157,10 @@ Diese Tests senden keine ADB-Eingaben.
 
 Die aktuelle Version steht in `VERSION` und wird im Terminalbanner sowie über
 `python auto_digiworld_batch2.py --version` angezeigt.
+
+### Unreleased
+
+- 🟢 Der normale Start zeigt etwa alle 10 % Fortschritt, Laufzeit und geschätzte Restzeit.
 
 ### v0.1.0 – 29.07.2026
 

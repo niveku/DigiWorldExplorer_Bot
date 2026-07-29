@@ -73,6 +73,11 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(runner.adaptive_batch_limit(2, {(1, 4)}), 2)
         self.assertEqual(runner.adaptive_batch_limit(1, set()), 1)
 
+    def test_compact_progress_includes_percent_and_eta(self):
+        text = runner.progress_summary(20, 200, 100)
+        self.assertIn("20/200 (10%)", text)
+        self.assertIn("01:40", text)
+        self.assertIn("15:00", text)
     def test_debug_status_prioritizes_visible_energy(self):
         text = runner.plan_status("move", "right", "explore right", 2)
         self.assertIn("Energie gesichtet", text)
