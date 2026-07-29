@@ -48,6 +48,23 @@ def progress_summary(current, total, elapsed_seconds):
     return (f"{current}/{total} ({percent}%) | vergangen {format_duration(elapsed_seconds)} "
             f"| ca. {format_duration(remaining)} verbleibend")
 
+def item_category(values):
+    """Return the strongest visible pickup color, or None below threshold."""
+    scores = {name: values.get(name, 0.0) for name in ("orange", "pink", "green")}
+    category, score = max(scores.items(), key=lambda pair: pair[1])
+    return category if score > .06 else None
+
+
+def run_summary(elapsed_seconds, collected):
+    total = sum(collected.values())
+    return (f"FERTIG | Gesamtzeit {format_duration(elapsed_seconds)} | "
+            f"erkannt gesammelt: {total} "
+            f"(Orange {collected['orange']}, Lila {collected['pink']}, Gruen {collected['green']})")
+
+
+def show_run_summary(current, total, started_at, collected, color="32"):
+    progress(current, total, run_summary(time.monotonic() - started_at, collected), color)
+
 def plan_status(kind, direction, reason, item_count):
     if item_count:
         return f"Energie gesichtet! {item_count} Item(s) - Route wird neu berechnet"
@@ -149,6 +166,7 @@ def main():
     started_at = time.monotonic()
     progress_step = max(1, (args.steps * args.progress_percent + 99) // 100) if args.progress_percent else 0
     next_progress = progress_step
+    collected = {"orange": 0, "pink": 0, "green": 0}
     attacks_enabled = True
     dashes_enabled = True
     previous_action = None
@@ -191,6 +209,7 @@ def main():
             bot.log_event(log, event)
             if args.verbose: progress(done, args.steps, "Spielfeld unsicher - neuer Scan", "33")
             if unreliable >= 5:
+                show_run_summary(done, args.steps, started_at, collected, "33")
                 return 2
             time.sleep(args.interval); continue
         unreliable = 0
@@ -228,7 +247,9 @@ def main():
             if args.verbose: progress(done, args.steps, "Spielerposition unsicher - neuer Scan", "33")
             if player_unreliable >= 5:
                 event["action"] = "STOP: five consecutive unreliable player frames"
-                bot.log_event(log, event); return 3
+                bot.log_event(log, event)
+                show_run_summary(done, args.steps, started_at, collected, "33")
+                return 3
             time.sleep(max(args.interval, 1.0)); continue
         player_unreliable = 0
         item_goals = {cell for cell, values in info.items()
@@ -273,6 +294,7 @@ def main():
             event["action"] = "STOP: no safe action"
             bot.log_event(log, event)
             if args.verbose: progress(done, args.steps, "STOPP - keine sichere Aktion", "31")
+            show_run_summary(done, args.steps, started_at, collected, "33")
             return 4
         kind, target, direction = action
         if args.verbose:
@@ -328,6 +350,9 @@ def main():
             x, y = bot.cell_center(det.board, *target)
             bot.adb(args.adb, args.serial, "shell", "input", "tap", str(x), str(y))
             sent.append({"type": kind, "target_cell": list(target), "adb_xy": [x, y]})
+            pickup = item_category(info[target]) if kind == "move" else None
+            if pickup:
+                collected[pickup] += 1
 
             # Never batch through an attack or an orange pickup animation.
             first_has_item = info[target]["item"] > .06
@@ -343,12 +368,21 @@ def main():
                     bot.adb(args.adb, args.serial, "shell", "input", "tap", str(x2), str(y2))
                     sent.append({"type": "move", "target_cell": list(screen_target),
                                  "validated_from_cell": list(checked), "adb_xy": [x2, y2]})
+                    pickup = item_category(info[checked])
+                    if pickup:
+                        collected[pickup] += 1
 
         event["action"] = sent
+        event["collected_detected"] = dict(collected)
         bot.log_event(log, event)
         done += len(sent)
         if args.verbose:
             progress(done, args.steps, f"{len(sent)} Aktion(en) ausgefuehrt - neuer Scan", "32")
+        elif progress_step and (done >= next_progress or done >= args.steps):
+            elapsed = time.monotonic() - started_at
+            progress(done, args.steps, progress_summary(done, args.steps, elapsed), "32")
+            while next_progress <= done:
+                next_progress += progress_step
         previous_action = kind
         previous_attack_target = target if kind == "attack" else None
         if kind == "dash":
@@ -365,8 +399,10 @@ def main():
     event = {"time_utc": datetime.now(timezone.utc).isoformat(), "status": "complete",
              "steps": done, "run_dir": str(run_dir),
              "detection": bot.asdict(final_det)}
+    event["collected_detected"] = dict(collected)
+    event["elapsed_seconds"] = round(time.monotonic() - started_at, 3)
     bot.log_event(log, event)
-    if args.verbose: progress(done, args.steps, "Lauf erfolgreich abgeschlossen", "32")
+    show_run_summary(done, args.steps, started_at, collected)
     return 0
 
 

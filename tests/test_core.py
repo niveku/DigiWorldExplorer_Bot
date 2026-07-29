@@ -73,6 +73,15 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(runner.adaptive_batch_limit(2, {(1, 4)}), 2)
         self.assertEqual(runner.adaptive_batch_limit(1, set()), 1)
 
+    def test_item_category_uses_strongest_visible_color(self):
+        self.assertEqual(runner.item_category({"orange": .09, "pink": .07, "green": .01}), "orange")
+        self.assertIsNone(runner.item_category({"orange": .02, "pink": .03, "green": .01}))
+
+    def test_run_summary_contains_time_and_pickup_totals(self):
+        text = runner.run_summary(125, {"orange": 3, "pink": 2, "green": 1})
+        self.assertIn("Gesamtzeit 02:05", text)
+        self.assertIn("erkannt gesammelt: 6", text)
+        self.assertIn("Orange 3", text)
     def test_compact_progress_includes_percent_and_eta(self):
         text = runner.progress_summary(20, 200, 100)
         self.assertIn("20/200 (10%)", text)
