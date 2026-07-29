@@ -13,22 +13,38 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
 $python = Join-Path $projectRoot '.venv\Scripts\python.exe'
 function Show-RobinThorBanner {
+    try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new() } catch {}
+
+    $logo = @(
+        '██████╗  ██████╗ ██████╗ ██╗███╗   ██╗████████╗██╗  ██╗ ██████╗ ██████╗ '
+        '██╔══██╗██╔═══██╗██╔══██╗██║████╗  ██║╚══██╔══╝██║  ██║██╔═══██╗██╔══██╗'
+        '██████╔╝██║   ██║██████╔╝██║██╔██╗ ██║   ██║   ███████║██║   ██║██████╔╝'
+        '██╔══██╗██║   ██║██╔══██╗██║██║╚██╗██║   ██║   ██╔══██║██║   ██║██╔══██╗'
+        '██║  ██║╚██████╔╝██████╔╝██║██║ ╚████║   ██║   ██║  ██║╚██████╔╝██║  ██║'
+        '╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝'
+    )
+    $subtitle = '[ Digimon UP - DigiWorldExplorer_Bot ]'
+    $guildLine = '✨ EXCLUSIVE FOR GERMON MEMBERS ✨'
+    $contentWidth = ($logo | ForEach-Object Length | Measure-Object -Maximum).Maximum
+
+    function Center-BannerText([string]$Text) {
+        $left = [Math]::Max(0, [Math]::Floor(($contentWidth - $Text.Length) / 2))
+        return ((' ' * $left) + $Text).PadRight($contentWidth)
+    }
+
     Write-Host ''
-    Write-Host '  * * *  DigiWorldExplorer_Bot  * * *' -ForegroundColor Yellow
-    Write-Host '          exclusive for Germon Members' -ForegroundColor DarkYellow
-    Write-Host @"
-            __                 /\
-        ___/  \___        _____||_____
-       /  _    _  \      |  RobinTh0r |==========>
-      /  (o)  (o)  \     |____________|
-      \      ^     /           ||
-       \  \____/  /        AGUMON + MJOELNIR
-        '-.____.-'
-"@ -ForegroundColor Yellow
-    Write-Host '  Guild build - automation at your own risk.' -ForegroundColor DarkYellow
+    Write-Host ('╔' + ('═' * ($contentWidth + 2)) + '╗') -ForegroundColor Yellow
+    Write-Host ('║ ' + (' ' * $contentWidth) + ' ║') -ForegroundColor Yellow
+    foreach ($line in $logo) {
+        Write-Host ('║ ' + $line.PadRight($contentWidth) + ' ║') -ForegroundColor Yellow
+    }
+    Write-Host ('║ ' + (' ' * $contentWidth) + ' ║') -ForegroundColor Yellow
+    Write-Host ('║ ' + (Center-BannerText $subtitle) + ' ║') -ForegroundColor Cyan
+    Write-Host ('║ ' + (Center-BannerText $guildLine) + ' ║') -ForegroundColor Yellow
+    Write-Host ('║ ' + (' ' * $contentWidth) + ' ║') -ForegroundColor Yellow
+    Write-Host ('╚' + ('═' * ($contentWidth + 2)) + '╝') -ForegroundColor Yellow
     Write-Host ''
 }
-
 Show-RobinThorBanner
 
 if (-not (Test-Path -LiteralPath $python)) {

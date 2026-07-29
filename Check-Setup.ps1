@@ -7,6 +7,40 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
+function Show-RobinThorBanner {
+    try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new() } catch {}
+
+    $logo = @(
+        '██████╗  ██████╗ ██████╗ ██╗███╗   ██╗████████╗██╗  ██╗ ██████╗ ██████╗ '
+        '██╔══██╗██╔═══██╗██╔══██╗██║████╗  ██║╚══██╔══╝██║  ██║██╔═══██╗██╔══██╗'
+        '██████╔╝██║   ██║██████╔╝██║██╔██╗ ██║   ██║   ███████║██║   ██║██████╔╝'
+        '██╔══██╗██║   ██║██╔══██╗██║██║╚██╗██║   ██║   ██╔══██║██║   ██║██╔══██╗'
+        '██║  ██║╚██████╔╝██████╔╝██║██║ ╚████║   ██║   ██║  ██║╚██████╔╝██║  ██║'
+        '╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝'
+    )
+    $subtitle = '[ Digimon UP - DigiWorldExplorer_Bot ]'
+    $guildLine = '✨ EXCLUSIVE FOR GERMON MEMBERS ✨'
+    $contentWidth = ($logo | ForEach-Object Length | Measure-Object -Maximum).Maximum
+
+    function Center-BannerText([string]$Text) {
+        $left = [Math]::Max(0, [Math]::Floor(($contentWidth - $Text.Length) / 2))
+        return ((' ' * $left) + $Text).PadRight($contentWidth)
+    }
+
+    Write-Host ''
+    Write-Host ('╔' + ('═' * ($contentWidth + 2)) + '╗') -ForegroundColor Yellow
+    Write-Host ('║ ' + (' ' * $contentWidth) + ' ║') -ForegroundColor Yellow
+    foreach ($line in $logo) {
+        Write-Host ('║ ' + $line.PadRight($contentWidth) + ' ║') -ForegroundColor Yellow
+    }
+    Write-Host ('║ ' + (' ' * $contentWidth) + ' ║') -ForegroundColor Yellow
+    Write-Host ('║ ' + (Center-BannerText $subtitle) + ' ║') -ForegroundColor Cyan
+    Write-Host ('║ ' + (Center-BannerText $guildLine) + ' ║') -ForegroundColor Yellow
+    Write-Host ('║ ' + (' ' * $contentWidth) + ' ║') -ForegroundColor Yellow
+    Write-Host ('╚' + ('═' * ($contentWidth + 2)) + '╝') -ForegroundColor Yellow
+    Write-Host ''
+}
+Show-RobinThorBanner
 $python = Join-Path $projectRoot '.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python)) {
     throw 'Die lokale Python-Umgebung fehlt. Zuerst INSTALL.cmd ausfuehren.'
