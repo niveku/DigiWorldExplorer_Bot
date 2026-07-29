@@ -2,7 +2,7 @@
 
 # ⚡ DigiWorldExplorer_Bot ⚡
 
-![Version](https://img.shields.io/badge/version-0.1.0-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue)
+![Version](https://img.shields.io/badge/version-0.2.0-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 
 ### 🦖 Automatisierte DigiWorld-Erkundung für Digimon UP
 
@@ -75,14 +75,9 @@ Fehlt Python, fragt `INSTALL.cmd`, ob **Python 3.12 über `winget`** installiert
 
 ## 🎮 Interaktiver Start
 
-`START.cmd` fragt bei jedem normalen Start:
+`START.cmd` fragt zuerst nach der Aktionszahl und danach nur kurz, ob experimentelle Einstellungen verwendet werden sollen. Standard ist `N`: Der Bot startet sofort mit dem sicheren Intervall `0,50 Sekunden` und ohne Debugbilder. Nur bei `J` werden Intervall und Diagnosebilder zusätzlich abgefragt. Nach Laufende kann direkt ein weiterer Lauf gestartet werden; dabei beginnt die Abfrage wieder bei der Schrittzahl.
 
-- 🔢 Wie viele Aktionen ausgeführt werden sollen – Standard: `100`
-- ⏱️ Welches Intervall verwendet wird – Standard: `0,50 Sekunden`
-- 🖼️ Ob Debugscreenshots gespeichert werden sollen
-- ✅ Ob der Lauf wirklich gestartet werden soll
-
-Das Mindestintervall ist aus Sicherheitsgründen auf `0,35 Sekunden` begrenzt. Mit `Ctrl+C` kann der Bot jederzeit sofort gestoppt werden. Im normalen Modus erscheint ungefähr alle 2 % ein kompaktes Update mit Fortschritt, Laufzeit und geschätzter Restzeit. Am Ende folgen Gesamtzeit, Orange-HUD-Startwert, Endwert und echte Differenz. Zusätzlich bleibt die interne Zählung der erkannten und gezielt betretenen Items sichtbar. Kann der HUD-Zähler nicht sicher gelesen werden, wird ausdrücklich `nicht sicher lesbar` angezeigt.
+Das Mindestintervall ist aus Sicherheitsgründen auf `0,35 Sekunden` begrenzt. Mit `Ctrl+C` kann der Bot jederzeit sofort gestoppt werden. Im normalen Modus erscheint ungefähr alle 2 % ein kompaktes Update mit Fortschritt, Laufzeit und geschätzter Restzeit. Am Ende folgen Gesamtzeit, Energie-Startwert, Endwert, echte Differenz sowie Energie pro Minute und hochgerechnet pro Stunde. Zusätzlich bleibt die interne Zählung der erkannten und gezielt betretenen Items sichtbar. Kann der HUD-Zähler nicht sicher gelesen werden, wird ausdrücklich **nicht sicher lesbar** angezeigt.
 
 ### 🔧 Debugmodus
 
@@ -160,9 +155,16 @@ Die aktuelle Version steht in `VERSION` und wird im Terminalbanner sowie über
 
 ### Unreleased
 
+- Noch keine Änderungen.
+
+### v0.2.0 – 29.07.2026
+
 - 🟢 Der normale Start zeigt etwa alle 2 % Fortschritt, Laufzeit und geschätzte Restzeit.
-- 📊 Am Laufende erscheinen Gesamtzeit sowie Orange-HUD-Start, -Ende und echte Differenz.
-- 🔎 Die Orange-Ziffernerkennung arbeitet lokal und verwirft unsichere Werte.
+- 📊 Am Laufende erscheinen Gesamtzeit sowie Energie-Start, -Ende und echte Differenz.
+- 🔎 Die Energie-Ziffernerkennung arbeitet lokal und verwirft unsichere Werte.
+- 🚀 Nach der Schrittzahl startet der sichere Standard mit nur einer kurzen Experimental-Abfrage.
+- 🔁 Nach Laufende kann direkt ein weiterer Lauf mit neuer Schrittzahl gestartet werden.
+- ⚡ Die Abschlussstatistik zeigt Energie pro Minute und hochgerechnet pro Stunde.
 
 ### v0.1.0 – 29.07.2026
 

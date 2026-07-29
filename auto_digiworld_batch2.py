@@ -86,7 +86,7 @@ def _digit_templates():
     return result
 
 
-def read_orange_counter(image):
+def read_energy_counter(image):
     """Read the orange HUD counter conservatively; return None if uncertain."""
     templates = _digit_templates()
     if templates is None:
@@ -145,22 +145,30 @@ def item_category(values):
     return category if score > .06 else None
 
 
-def run_summary(elapsed_seconds, collected, orange_start=None, orange_end=None):
+def format_rate(value):
+    return f"{value:,.1f}".replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+def run_summary(elapsed_seconds, collected, energy_start=None, energy_end=None):
     total = sum(collected.values())
     detected = (f"erkannt angefahren: {total} "
-                f"(Orange {collected['orange']}, Lila {collected['pink']}, Gruen {collected['green']})")
-    if orange_start is not None and orange_end is not None:
-        difference = orange_end - orange_start
-        hud = (f"Orange-HUD {format_counter(orange_start)} -> {format_counter(orange_end)} "
+                f"(Energie {collected['orange']}, Lila {collected['pink']}, Gruen {collected['green']})")
+    if energy_start is not None and energy_end is not None:
+        difference = energy_end - energy_start
+        hud = (f"Energie {format_counter(energy_start)} -> {format_counter(energy_end)} "
                f"({difference:+d})")
+        if elapsed_seconds > 0:
+            per_minute = difference * 60 / elapsed_seconds
+            per_hour = difference * 3600 / elapsed_seconds
+            hud += f" | {format_rate(per_minute)}/Min | {format_rate(per_hour)}/Std"
     else:
-        hud = "Orange-HUD nicht sicher lesbar"
+        hud = "Energie-Zähler nicht sicher lesbar"
     return f"FERTIG | Gesamtzeit {format_duration(elapsed_seconds)} | {hud} | {detected}"
 
 
-def show_run_summary(current, total, started_at, collected, orange_start=None,
-                     orange_end=None, color="32"):
-    message = run_summary(time.monotonic() - started_at, collected, orange_start, orange_end)
+def show_run_summary(current, total, started_at, collected, energy_start=None,
+                     energy_end=None, color="32"):
+    message = run_summary(time.monotonic() - started_at, collected, energy_start, energy_end)
     progress(current, total, message, color)
 
 def plan_status(kind, direction, reason, item_count):
@@ -265,7 +273,7 @@ def main():
     progress_step = max(1, (args.steps * args.progress_percent + 99) // 100) if args.progress_percent else 0
     next_progress = progress_step
     collected = {"orange": 0, "pink": 0, "green": 0}
-    orange_start = None
+    energy_start = None
     attacks_enabled = True
     dashes_enabled = True
     previous_action = None
@@ -308,14 +316,14 @@ def main():
             bot.log_event(log, event)
             if args.verbose: progress(done, args.steps, "Spielfeld unsicher - neuer Scan", "33")
             if unreliable >= 5:
-                show_run_summary(done, args.steps, started_at, collected, orange_start, read_orange_counter(image), "33")
+                show_run_summary(done, args.steps, started_at, collected, energy_start, read_energy_counter(image), "33")
                 return 2
             time.sleep(args.interval); continue
         unreliable = 0
-        if orange_start is None:
-            orange_start = read_orange_counter(image)
-            if args.verbose and orange_start is not None:
-                progress(done, args.steps, f"Orange-Startwert: {format_counter(orange_start)}", "93")
+        if energy_start is None:
+            energy_start = read_energy_counter(image)
+            if args.verbose and energy_start is not None:
+                progress(done, args.steps, f"Energie-Startwert: {format_counter(energy_start)}", "93")
 
         if stable_board is None:
             stable_board = det.board
@@ -351,7 +359,7 @@ def main():
             if player_unreliable >= 5:
                 event["action"] = "STOP: five consecutive unreliable player frames"
                 bot.log_event(log, event)
-                show_run_summary(done, args.steps, started_at, collected, orange_start, read_orange_counter(image), "33")
+                show_run_summary(done, args.steps, started_at, collected, energy_start, read_energy_counter(image), "33")
                 return 3
             time.sleep(max(args.interval, 1.0)); continue
         player_unreliable = 0
@@ -397,7 +405,7 @@ def main():
             event["action"] = "STOP: no safe action"
             bot.log_event(log, event)
             if args.verbose: progress(done, args.steps, "STOPP - keine sichere Aktion", "31")
-            show_run_summary(done, args.steps, started_at, collected, orange_start, read_orange_counter(image), "33")
+            show_run_summary(done, args.steps, started_at, collected, energy_start, read_energy_counter(image), "33")
             return 4
         kind, target, direction = action
         if args.verbose:
@@ -502,17 +510,17 @@ def main():
     event = {"time_utc": datetime.now(timezone.utc).isoformat(), "status": "complete",
              "steps": done, "run_dir": str(run_dir),
              "detection": bot.asdict(final_det)}
-    orange_end = read_orange_counter(final)
+    energy_end = read_energy_counter(final)
     event["collected_detected"] = dict(collected)
-    event["orange_hud"] = {
-        "start": orange_start,
-        "end": orange_end,
-        "difference": (orange_end - orange_start
-                       if orange_start is not None and orange_end is not None else None),
+    event["energy_hud"] = {
+        "start": energy_start,
+        "end": energy_end,
+        "difference": (energy_end - energy_start
+                       if energy_start is not None and energy_end is not None else None),
     }
     event["elapsed_seconds"] = round(time.monotonic() - started_at, 3)
     bot.log_event(log, event)
-    show_run_summary(done, args.steps, started_at, collected, orange_start, orange_end)
+    show_run_summary(done, args.steps, started_at, collected, energy_start, energy_end)
     return 0
 
 

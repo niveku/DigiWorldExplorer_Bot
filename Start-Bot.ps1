@@ -52,71 +52,81 @@ Show-RobinThorBanner
 if (-not (Test-Path -LiteralPath $python)) {
     throw 'Die lokale Python-Umgebung fehlt. Zuerst INSTALL.cmd ausfuehren.'
 }
-if ($Steps -le 0) {
-    $answer = Read-Host 'Wie viele Aktionen soll der Bot ausfuehren? [100]'
-    if ([string]::IsNullOrWhiteSpace($answer)) {
-        $Steps = 100
-    } elseif (-not [int]::TryParse($answer, [ref]$Steps) -or $Steps -le 0) {
-        throw 'Die Schrittzahl muss eine positive ganze Zahl sein.'
-    }
-}
-if ($Interval -le 0) {
-    $intervalAnswer = Read-Host 'Pause zwischen Aktionen in Sekunden? [0,50]'
-    if ([string]::IsNullOrWhiteSpace($intervalAnswer)) { $Interval = 0.50 }
-    else {
-        $normalizedInterval = $intervalAnswer.Replace(',', '.')
-        if (-not [double]::TryParse($normalizedInterval, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$Interval)) {
-            throw 'Das Intervall muss eine Zahl sein, zum Beispiel 0,50.'
+$nextSteps = $Steps
+$lastStatus = 0
+
+do {
+    $runSteps = $nextSteps
+    $nextSteps = 0
+    if ($runSteps -le 0) {
+        $answer = Read-Host 'Wie viele Aktionen soll der Bot ausfuehren? [100]'
+        if ([string]::IsNullOrWhiteSpace($answer)) {
+            $runSteps = 100
+        } elseif (-not [int]::TryParse($answer, [ref]$runSteps) -or $runSteps -le 0) {
+            throw 'Die Schrittzahl muss eine positive ganze Zahl sein.'
         }
     }
-}
-if ($Interval -lt 0.35) {
-    throw 'Intervalle unter 0,35 Sekunden sind aus Sicherheitsgruenden gesperrt.'
-}
 
-if ($DebugMode) {
-    $DebugScreenshots = $true
-} elseif (-not $PSBoundParameters.ContainsKey('DebugScreenshots')) {
-    $debugAnswer = Read-Host 'Diagnosebilder fuer jeden Planungsschritt speichern? [j/N]'
-    $DebugScreenshots = $debugAnswer -match '^(j|ja|y|yes)$'
-}
-Write-Host ''
-Write-Host "Geplant: $Steps Aktionen | Intervall: $($Interval.ToString('0.00')) s | Debugbilder: $DebugScreenshots" -ForegroundColor Yellow
-$confirmation = Read-Host 'Bot jetzt starten? [J/n]'
-if (-not [string]::IsNullOrWhiteSpace($confirmation) -and $confirmation -notmatch '^(j|ja|y|yes)$') {
-    Write-Host 'Start abgebrochen. Es wurden keine Eingaben gesendet.' -ForegroundColor Yellow
-    exit 0
-}
+    $experimentalAnswer = Read-Host 'Experimentelle Einstellungen verwenden? [j/N]'
+    $experimental = $experimentalAnswer -match '^(j|ja|y|yes)$'
+    $runInterval = 0.50
+    $runDebugScreenshots = [bool]$DebugMode
 
-Set-Location -LiteralPath $projectRoot
-$arguments = @(
-    (Join-Path $projectRoot 'auto_digiworld_batch2.py'),
-    '--steps', $Steps,
-    '--interval', $Interval.ToString([Globalization.CultureInfo]::InvariantCulture),
-    '--min-confidence', '0.80',
-    '--adb', $Adb,
-    '--serial', $Serial,
-    '--out', (Join-Path $projectRoot 'runs')
-)
-if ($DebugScreenshots) {
-    $arguments += '--debug-screenshots'
-}
-if ($DebugMode) {
-    $arguments += '--verbose'
-} else {
-    $arguments += @('--progress-percent', '2')
-}
+    if ($experimental) {
+        $defaultInterval = if ($Interval -gt 0) { $Interval } else { 0.50 }
+        $intervalAnswer = Read-Host "Pause zwischen Aktionen in Sekunden? [$($defaultInterval.ToString('0.00'))]"
+        if ([string]::IsNullOrWhiteSpace($intervalAnswer)) {
+            $runInterval = $defaultInterval
+        } else {
+            $normalizedInterval = $intervalAnswer.Replace(',', '.')
+            if (-not [double]::TryParse($normalizedInterval, [Globalization.NumberStyles]::Float,
+                    [Globalization.CultureInfo]::InvariantCulture, [ref]$runInterval)) {
+                throw 'Das Intervall muss eine Zahl sein, zum Beispiel 0,50.'
+            }
+        }
+        if (-not $DebugMode) {
+            $debugAnswer = Read-Host 'Diagnosebilder speichern? [j/N]'
+            $runDebugScreenshots = $debugAnswer -match '^(j|ja|y|yes)$'
+        }
+    } elseif ($DebugScreenshots) {
+        $runDebugScreenshots = $true
+    }
 
-if ($DebugMode) {
-    Write-Host "DEBUG LÄUFT - Status bei jedem Scan und jeder Neuplanung" -ForegroundColor Cyan
-} else {
-    Write-Host "● BOT LÄUFT ...  ($Steps Aktionen)" -ForegroundColor Green
-}
-& $python @arguments
-$status = $LASTEXITCODE
-if ($status -eq 0) {
-    Write-Host 'Bot regulaer beendet.' -ForegroundColor Green
-} else {
-    Write-Host "Bot mit Exit-Code $status beendet. Keine weiteren Eingaben werden gesendet." -ForegroundColor Yellow
-}
-exit $status
+    if ($runInterval -lt 0.35) {
+        throw 'Intervalle unter 0,35 Sekunden sind aus Sicherheitsgruenden gesperrt.'
+    }
+
+    Set-Location -LiteralPath $projectRoot
+    $arguments = @(
+        (Join-Path $projectRoot 'auto_digiworld_batch2.py'),
+        '--steps', $runSteps,
+        '--interval', $runInterval.ToString([Globalization.CultureInfo]::InvariantCulture),
+        '--min-confidence', '0.80',
+        '--adb', $Adb,
+        '--serial', $Serial,
+        '--out', (Join-Path $projectRoot 'runs')
+    )
+    if ($runDebugScreenshots) { $arguments += '--debug-screenshots' }
+    if ($DebugMode) { $arguments += '--verbose' }
+    else { $arguments += @('--progress-percent', '2') }
+
+    Write-Host ''
+    if ($DebugMode) {
+        Write-Host "DEBUG LÄUFT - Status bei jedem Scan und jeder Neuplanung" -ForegroundColor Cyan
+    } else {
+        Write-Host "● BOT LÄUFT ...  ($runSteps Aktionen)" -ForegroundColor Green
+    }
+    & $python @arguments
+    $lastStatus = $LASTEXITCODE
+    if ($lastStatus -eq 0) {
+        Write-Host 'Bot regulär beendet.' -ForegroundColor Green
+    } else {
+        Write-Host "Bot mit Exit-Code $lastStatus beendet. Keine weiteren Eingaben werden gesendet." -ForegroundColor Yellow
+    }
+
+    Write-Host ''
+    $againAnswer = Read-Host 'Bot noch einmal neu ausführen? [j/N]'
+    $again = $againAnswer -match '^(j|ja|y|yes)$'
+} while ($again)
+
+exit $lastStatus
