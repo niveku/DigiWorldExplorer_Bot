@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$Adb = 'auto',
     [string]$Serial = 'auto'
