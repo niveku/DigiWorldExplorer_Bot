@@ -1,0 +1,153 @@
+<div align="center">
+
+# ⚡ DigiWorldExplorer_Bot ⚡
+
+### 🦖 Automatisierte DigiWorld-Erkundung für Digimon UP
+
+**✨ RobinTh0r Guild Edition · Exclusive for Germon Members ✨**
+
+`Lokal` · `Deterministisch` · `ADB-only` · `Keine Cloud-KI` · `Safety first`
+
+</div>
+
+> [!WARNING]
+> Dieses private Fanprojekt ist nicht mit den Entwicklern von Digimon UP verbunden. Spielautomatisierung kann gegen Spielregeln verstoßen. Nutzung ausschließlich auf eigene Verantwortung und ohne Gewährleistung.
+
+## 🌟 Was macht der Bot?
+
+Der DigiWorldExplorer_Bot beobachtet das Spielfeld direkt über Android Debug Bridge (ADB), erkennt das sichtbare **5×5-Raster** und plant sichere Bewegungen. Alle Eingaben werden relativ zum automatisch erkannten Spielfeld berechnet – unabhängig davon, wo das BlueStacks-Fenster auf dem Desktop liegt.
+
+Der Bot versucht möglichst lange zu erkunden und priorisiert dabei:
+
+1. 🟠 orange Teile
+2. 🟣 lilane und 🟢 grüne Items auf sinnvollen Wegen
+3. ➡️ sichere Erkundung nach rechts
+4. 🔺 Umwege oder Angriffe bei Pyramiden
+5. 💨 Dash nur bei mindestens zwei direkt aufeinanderfolgenden Hindernissen
+
+## 🛡️ Sicherheitsprinzip
+
+- 📸 Vor Entscheidungen wird ein neuer ADB-Screenshot ausgewertet.
+- 🧭 Keine festen Windows-, Maus- oder Fensterkoordinaten.
+- 🛑 Bei unklarem Raster, Overlay oder unsicherer Spielererkennung wird gewartet oder gestoppt.
+- 🔁 Nach Angriffen, Dash und Animationen wird erneut geprüft.
+- 🚫 Ein wirkungsloser Angriff oder Dash wird für den restlichen Lauf deaktiviert.
+- 👁️ `CHECK.cmd` ist reiner Beobachtungsmodus und sendet garantiert keine Taps.
+- ☁️ Keine Cloud-API und kein KI-Modell während der Laufzeit.
+
+## 🚀 Schnellstart
+
+### Voraussetzungen
+
+- Windows 10 oder 11
+- BlueStacks 5
+- Digimon UP
+- Python 3.10 oder neuer
+
+Fehlt Python, fragt `INSTALL.cmd`, ob **Python 3.12 über `winget`** installiert werden darf. Ohne Bestätigung wird nichts installiert.
+
+### BlueStacks einstellen
+
+| Einstellung | Empfohlener Wert |
+|---|---:|
+| Ausrichtung | Portrait |
+| Auflösung | 720 × 1280 |
+| Pixeldichte | 240 DPI |
+| Interface-Skalierung | 100 % |
+| Android Debug Bridge | Aktiviert |
+
+### Installation und Start
+
+1. Repository herunterladen oder klonen.
+2. `INSTALL.cmd` doppelklicken.
+3. BlueStacks starten und DigiWorld vollständig öffnen.
+4. `CHECK.cmd` ausführen – dabei erfolgen **keine Eingaben**.
+5. Diagnosebild unter `runs/checks/` prüfen: Das grüne Raster muss alle 25 Felder korrekt umrahmen.
+6. `START.cmd` ausführen.
+
+## 🎮 Interaktiver Start
+
+`START.cmd` fragt bei jedem normalen Start:
+
+- 🔢 Wie viele Aktionen ausgeführt werden sollen – Standard: `100`
+- ⏱️ Welches Intervall verwendet wird – Standard: `0,50 Sekunden`
+- 🖼️ Ob Debugscreenshots gespeichert werden sollen
+- ✅ Ob der Lauf wirklich gestartet werden soll
+
+Das Mindestintervall ist aus Sicherheitsgründen auf `0,35 Sekunden` begrenzt. Mit `Ctrl+C` kann der Bot jederzeit sofort gestoppt werden.
+
+## 🧠 Entscheidungsablauf
+
+```text
+ADB-Screenshot
+      ↓
+5×5-Spielfeld automatisch erkennen
+      ↓
+Spieler, Items, Wege und Pyramiden bewerten
+      ↓
+Sicherste Aktion relativ zum Raster wählen
+      ↓
+ADB-Tap senden
+      ↓
+Wirkung und neuen Zustand erneut prüfen
+```
+
+Bei sichtbaren Items plant der Controller höchstens zwei Aktionen bis zum nächsten Screenshot. Ohne sichtbares Item sind bis zu drei sichere Aktionen möglich. Angriff und Dash erzwingen immer sofort eine neue Prüfung.
+
+## 📂 Übersichtliche Projektstruktur
+
+| Datei | Aufgabe |
+|---|---|
+| `INSTALL.cmd` | Einfache Installation starten |
+| `CHECK.cmd` | ADB und Raster ohne Eingaben prüfen |
+| `START.cmd` | Gebrandeten interaktiven Bot starten |
+| `Setup.ps1` | Python prüfen und lokale Umgebung einrichten |
+| `Check-Setup.ps1` | Sicheren Diagnosemodus ausführen |
+| `Start-Bot.ps1` | Startoptionen abfragen und Lauf starten |
+| `digiworld_bot.py` | ADB, Screenshots, Rastererkennung und Taps |
+| `auto_digiworld.py` | Spieler-, Item- und Hinderniserkennung |
+| `auto_digiworld_batch2.py` | Adaptive Planung und Sicherheitskontrolle |
+| `tests/test_core.py` | Offline-Regressionstests ohne Spieleingaben |
+| `requirements.txt` | Minimale Python-Abhängigkeiten |
+
+## 📦 Warum kein riesiges Portable-Paket?
+
+Python, NumPy und Pillow vollständig mitzuliefern wäre technisch möglich, würde das Release aber deutlich größer und wartungsintensiver machen. Stattdessen bleibt der Download klein:
+
+- `INSTALL.cmd` erzeugt lokal eine `.venv`.
+- Nur NumPy und Pillow werden installiert.
+- `.venv`, Screenshots, Logs und Entwicklungsdaten landen niemals in Git.
+- Auf einem neuen PC wird die Umgebung reproduzierbar neu aufgebaut.
+
+## 🧪 Offline testen
+
+Nach erfolgreicher Installation:
+
+```powershell
+.\.venv\Scripts\python.exe -m py_compile digiworld_bot.py auto_digiworld.py auto_digiworld_batch2.py
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Diese Tests senden keine ADB-Eingaben.
+
+## 🧯 Häufige Probleme
+
+| Problem | Lösung |
+|---|---|
+| Python fehlt | `INSTALL.cmd` starten und die optionale `winget`-Installation bestätigen |
+| ADB nicht gefunden | In BlueStacks unter **Einstellungen → Erweitert** ADB aktivieren |
+| Kein Gerät gefunden | BlueStacks vollständig starten und danach `CHECK.cmd` erneut ausführen |
+| Raster sitzt falsch | Nicht starten; Portrait, 720×1280 und 240 DPI kontrollieren |
+| Spieler wird nicht erkannt | Animation abwarten und `CHECK.cmd` erneut ausführen |
+
+---
+
+<div align="center">
+
+## ⚒️ RobinTh0r × Agumon 🦖
+
+**✨ Built for the guild · Exclusive for Germon Members ✨**
+
+*Explore smart. Stop safe. Collect everything.*
+
+</div>

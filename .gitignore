@@ -1,0 +1,29 @@
+# Local Python environment
+.venv/
+__pycache__/
+*.py[cod]
+
+# Runtime data and historical development captures
+runs/
+outputs/
+work/
+dist/
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local overrides
+.env
+config.local.*
+
+# Local Codex handoff and development notes
+AGENTS.md
+CONTEXT_FOR_CODEX.md
+NEXT_SESSION.md
+CHANGELOG.md
+VERSION
+docs/

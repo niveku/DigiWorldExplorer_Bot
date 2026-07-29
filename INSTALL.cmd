@@ -1,0 +1,11 @@
+@echo off
+setlocal
+title RobinTh0r - DigiWorldExplorer_Bot Installer
+color 0E
+cd /d "%~dp0"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0Setup.ps1"
+set "exit_code=%ERRORLEVEL%"
+echo.
+if not "%exit_code%"=="0" echo Installation fehlgeschlagen. Lies README.md, Abschnitt Fehlerbehebung.
+pause
+exit /b %exit_code%
