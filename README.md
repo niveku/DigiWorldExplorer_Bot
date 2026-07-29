@@ -76,6 +76,10 @@ Fehlt Python, fragt `INSTALL.cmd`, ob **Python 3.12 über `winget`** installiert
 
 Das Mindestintervall ist aus Sicherheitsgründen auf `0,35 Sekunden` begrenzt. Mit `Ctrl+C` kann der Bot jederzeit sofort gestoppt werden.
 
+### 🔧 Debugmodus
+
+`START_DEBUG.cmd` aktiviert Diagnosebilder und zeigt bei jedem Scan beziehungsweise jeder Neuplanung eine kompakte Statuszeile, zum Beispiel `10/100: Energie gesichtet! Route wird neu berechnet`. Die vollständigen Maschinendaten stehen weiterhin in `runs/<Lauf-ID>/events.jsonl`.
+
 ## 🧠 Entscheidungsablauf
 
 ```text
@@ -100,7 +104,8 @@ Bei sichtbaren Items plant der Controller höchstens zwei Aktionen bis zum näch
 |---|---|
 | `INSTALL.cmd` | Einfache Installation starten |
 | `CHECK.cmd` | ADB und Raster ohne Eingaben prüfen |
-| `START.cmd` | Gebrandeten interaktiven Bot starten |
+| `START.cmd` | Ruhigen, gebrandeten Botmodus starten |
+| `START_DEBUG.cmd` | Entwicklerlauf mit Status je Scan und Diagnosebildern |
 | `Setup.ps1` | Python prüfen und lokale Umgebung einrichten |
 | `Check-Setup.ps1` | Sicheren Diagnosemodus ausführen |
 | `Start-Bot.ps1` | Startoptionen abfragen und Lauf starten |

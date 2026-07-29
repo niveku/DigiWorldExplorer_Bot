@@ -73,6 +73,15 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(runner.adaptive_batch_limit(2, {(1, 4)}), 2)
         self.assertEqual(runner.adaptive_batch_limit(1, set()), 1)
 
+    def test_debug_status_prioritizes_visible_energy(self):
+        text = runner.plan_status("move", "right", "explore right", 2)
+        self.assertIn("Energie gesichtet", text)
+        self.assertIn("2 Item(s)", text)
+
+    def test_debug_status_describes_exploration_direction(self):
+        text = runner.plan_status("move", "right", "explore right", 0)
+        self.assertIn("Erkunde nach rechts", text)
+
     def test_followup_stops_before_pyramid(self):
         info = empty_grid()
         info[(2, 4)]["pyramid"] = 0.25

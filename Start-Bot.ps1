@@ -3,6 +3,7 @@ param(
     [int]$Steps = 0,
     [double]$Interval = 0,
     [switch]$DebugScreenshots,
+    [switch]$DebugMode,
     [string]$Adb = 'auto',
     [string]$Serial = 'auto'
 )
@@ -55,7 +56,9 @@ if ($Interval -lt 0.35) {
     throw 'Intervalle unter 0,35 Sekunden sind aus Sicherheitsgruenden gesperrt.'
 }
 
-if (-not $PSBoundParameters.ContainsKey('DebugScreenshots')) {
+if ($DebugMode) {
+    $DebugScreenshots = $true
+} elseif (-not $PSBoundParameters.ContainsKey('DebugScreenshots')) {
     $debugAnswer = Read-Host 'Diagnosebilder fuer jeden Planungsschritt speichern? [j/N]'
     $DebugScreenshots = $debugAnswer -match '^(j|ja|y|yes)$'
 }
@@ -80,8 +83,15 @@ $arguments = @(
 if ($DebugScreenshots) {
     $arguments += '--debug-screenshots'
 }
+if ($DebugMode) {
+    $arguments += '--verbose'
+}
 
-Write-Host "Starte $Steps Aktionen; 2er-Planung bei Items, sonst bis zu 3..." -ForegroundColor Cyan
+if ($DebugMode) {
+    Write-Host "DEBUG LÄUFT - Status bei jedem Scan und jeder Neuplanung" -ForegroundColor Cyan
+} else {
+    Write-Host "● BOT LÄUFT ...  ($Steps Aktionen)" -ForegroundColor Green
+}
 & $python @arguments
 $status = $LASTEXITCODE
 if ($status -eq 0) {

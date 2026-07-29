@@ -29,6 +29,22 @@ def adaptive_batch_limit(requested, item_goals):
     return 3 if requested == 2 and not item_goals else requested
 
 
+def progress(current, total, message, color="36"):
+    """Print one compact, colored status line for interactive debug runs."""
+    print(f"\033[{color}m{current}/{total}: {message}\033[0m", flush=True)
+
+
+def plan_status(kind, direction, reason, item_count):
+    if item_count:
+        return f"Energie gesichtet! {item_count} Item(s) - Route wird neu berechnet"
+    if kind == "dash":
+        return "Dash geplant - mehrere Hindernisse voraus"
+    if kind == "attack":
+        return "Pyramide gesichtet - sicherer Angriff wird ausgefuehrt"
+    labels = {"right": "rechts", "left": "links", "up": "oben", "down": "unten"}
+    return f"Erkunde nach {labels.get(direction, direction)} - {reason}"
+
+
 def consecutive_right_obstacles(info, player):
     count = 0
     for col in range(player[1] + 1, 5):
@@ -91,6 +107,7 @@ def main():
     p.add_argument("--interval", type=float, default=.65)
     p.add_argument("--batch-size", type=int, default=2, choices=(1, 2, 3))
     p.add_argument("--debug-screenshots", action="store_true")
+    p.add_argument("--verbose", action="store_true", help="human-readable status for every scan")
     p.add_argument("--min-confidence", type=float, default=.80)
     p.add_argument("--adb", default=bot.ADB_DEFAULT)
     p.add_argument("--serial", default=bot.SERIAL_DEFAULT)
@@ -110,10 +127,8 @@ def main():
     run_dir = args.out / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     log = run_dir / "events.jsonl"
-    print(json.dumps({"status": "starting", "run_id": run_id,
-                      "run_dir": str(run_dir), "adb": args.adb,
-                      "serial": args.serial, "requested_steps": args.steps},
-                     ensure_ascii=False))
+    if args.verbose:
+        progress(0, args.steps, "Debuglauf gestartet - erster Scan", "32")
     done = 0
     attacks_enabled = True
     dashes_enabled = True
@@ -133,6 +148,8 @@ def main():
         det = bot.classify(image)
         stamp = datetime.now(timezone.utc).isoformat()
         event = {"time_utc": stamp, "next_index": done, "detection": bot.asdict(det)}
+        if args.verbose:
+            progress(done, args.steps, "Scanne Spielfeld und berechne neu ...", "90")
 
         if bot.tutorial_overlay_center(image) is not None:
             if previous_action == "attack":
@@ -145,12 +162,15 @@ def main():
                 event["action"] = "WAIT: dashes disabled after rejection"
             else:
                 event["action"] = "WAIT: overlay visible"
-            bot.log_event(log, event); print(json.dumps(event)); time.sleep(args.interval); continue
+            bot.log_event(log, event)
+            if args.verbose: progress(done, args.steps, str(event["action"]), "33")
+            time.sleep(args.interval); continue
 
         if det.state != "digiworld" or not det.board or det.confidence < args.min_confidence:
             unreliable += 1
             event["action"] = f"WAIT: unreliable board ({unreliable}/5)"
-            bot.log_event(log, event); print(json.dumps(event))
+            bot.log_event(log, event)
+            if args.verbose: progress(done, args.steps, "Spielfeld unsicher - neuer Scan", "33")
             if unreliable >= 5:
                 return 2
             time.sleep(args.interval); continue
@@ -178,14 +198,15 @@ def main():
                 wait_path = run_dir / f"animation_wait_{done:04d}_{safe_stamp}.png"
                 bot.diagnostic(image, det).save(wait_path)
                 event["debug"] = str(wait_path)
-            bot.log_event(log, event); print(json.dumps(event))
+            bot.log_event(log, event)
             time.sleep(max(args.interval, 1.0)); continue
         item_burst_waits = 0
         player, player_score = player_cell(info)
         if player_score < .08:
             player_unreliable += 1
             event["action"] = f"WAIT: player score {player_score:.3f} ({player_unreliable}/5)"
-            bot.log_event(log, event); print(json.dumps(event))
+            bot.log_event(log, event)
+            if args.verbose: progress(done, args.steps, "Spielerposition unsicher - neuer Scan", "33")
             if player_unreliable >= 5:
                 event["action"] = "STOP: five consecutive unreliable player frames"
                 bot.log_event(log, event); return 3
@@ -231,8 +252,13 @@ def main():
                                          attacks_enabled, dashes_enabled)
         if action is None:
             event["action"] = "STOP: no safe action"
-            bot.log_event(log, event); print(json.dumps(event)); return 4
+            bot.log_event(log, event)
+            if args.verbose: progress(done, args.steps, "STOPP - keine sichere Aktion", "31")
+            return 4
         kind, target, direction = action
+        if args.verbose:
+            color = "93" if item_goals else "36"
+            progress(done, args.steps, plan_status(kind, direction, reason, len(item_goals)), color)
         event["reason"] = reason
         event["batch_limit"] = effective_batch_size
         if effective_batch_size == 3 and args.batch_size == 2:
@@ -273,7 +299,9 @@ def main():
             if control is None:
                 dashes_enabled = False
                 event["action"] = "WAIT: dash button missing"
-                bot.log_event(log, event); continue
+                bot.log_event(log, event)
+                if args.verbose: progress(done, args.steps, "Dash nicht verfuegbar - plane neu", "33")
+                continue
             bot.adb(args.adb, args.serial, "shell", "input", "tap",
                     str(control[0]), str(control[1]))
             sent.append({"type": "dash", "adb_xy": list(control)})
@@ -298,8 +326,10 @@ def main():
                                  "validated_from_cell": list(checked), "adb_xy": [x2, y2]})
 
         event["action"] = sent
-        bot.log_event(log, event); print(json.dumps(event, ensure_ascii=False))
+        bot.log_event(log, event)
         done += len(sent)
+        if args.verbose:
+            progress(done, args.steps, f"{len(sent)} Aktion(en) ausgefuehrt - neuer Scan", "32")
         previous_action = kind
         previous_attack_target = target if kind == "attack" else None
         if kind == "dash":
@@ -316,7 +346,9 @@ def main():
     event = {"time_utc": datetime.now(timezone.utc).isoformat(), "status": "complete",
              "steps": done, "run_dir": str(run_dir),
              "detection": bot.asdict(final_det)}
-    bot.log_event(log, event); print(json.dumps(event)); return 0
+    bot.log_event(log, event)
+    if args.verbose: progress(done, args.steps, "Lauf erfolgreich abgeschlossen", "32")
+    return 0
 
 
 if __name__ == "__main__":
