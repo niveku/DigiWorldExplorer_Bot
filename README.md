@@ -15,6 +15,10 @@
 > [!WARNING]
 > Dieses private Fanprojekt ist nicht mit den Entwicklern von Digimon UP verbunden. Spielautomatisierung kann gegen Spielregeln verstoßen. Nutzung ausschließlich auf eigene Verantwortung und ohne Gewährleistung.
 
+> [!NOTE]
+> 🔗 Schwesterprojekt: [DigiWorldExplorer_Android](https://github.com/RobinTh0r/DigiWorldExplorer_Android)
+> ist die native Android-Portierung – läuft direkt auf dem Gerät ohne PC, BlueStacks oder ADB.
+
 ## 🌟 Was macht der Bot?
 
 Der DigiWorldExplorer_Bot beobachtet das Spielfeld direkt über Android Debug Bridge (ADB), erkennt das sichtbare **5×5-Raster** und plant sichere Bewegungen. Alle Eingaben werden relativ zum automatisch erkannten Spielfeld berechnet – unabhängig davon, wo das BlueStacks-Fenster auf dem Desktop liegt.
@@ -185,6 +189,13 @@ Bei jeder neuen Version werden gemeinsam aktualisiert:
 3. Git-Tag im Format `vX.Y.Z`
 4. GitHub-Release mit demselben Changelog als Release Notes
 5. Neu gebautes ZIP ohne `.venv`, Laufdaten, Screenshots oder lokale Konfiguration
+
+## 🔗 Verwandtes Projekt
+
+| Projekt | Plattform | Repo |
+| --- | --- | --- |
+| DigiWorldExplorer_Bot (dieses Repo) | Windows + BlueStacks, ADB | – |
+| DigiWorldExplorer Android Bot | Android, nativ, ADB-frei | [RobinTh0r/DigiWorldExplorer_Android](https://github.com/RobinTh0r/DigiWorldExplorer_Android) |
 
 ---
 <div align="center">
