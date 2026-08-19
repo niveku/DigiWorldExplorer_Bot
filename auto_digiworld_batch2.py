@@ -182,6 +182,29 @@ def plan_status(kind, direction, reason, item_count):
     return f"Erkunde nach {labels.get(direction, direction)} - {reason}"
 
 
+def attack_result(cell_values):
+    """Classify the cell of the previous attack: pyramid gone? drop revealed?"""
+    if strategy.is_obstacle(cell_values):
+        return {"broken": False, "revealed": None}
+    return {"broken": True, "revealed": item_category(cell_values)}
+
+
+def dash_path_report(info, player, length=3):
+    """Count pyramids and visible pickups in the rightward dash range."""
+    report = {"pyramids": 0, "visible_items": 0, "cells_seen": []}
+    for step in range(1, length + 1):
+        cell = (player[0], player[1] + step)
+        if cell[1] > 4:
+            break
+        values = info[cell]
+        if strategy.is_obstacle(values):
+            report["pyramids"] += 1
+        elif item_category(values):
+            report["visible_items"] += 1
+        report["cells_seen"].append(list(cell))
+    return report
+
+
 def consecutive_right_obstacles(info, player):
     count = 0
     for col in range(player[1] + 1, 5):
@@ -280,6 +303,7 @@ def main():
     previous_attack_target = None
     previous_dash_player = None
     previous_dash_obstacles = 0
+    pending_dash = None
     previous_direction = None
     stable_board = None
     unreliable = 0
@@ -303,6 +327,7 @@ def main():
             elif previous_action == "dash":
                 dashes_enabled = False
                 previous_action = None
+                pending_dash = None
                 event["action"] = "WAIT: dashes disabled after rejection"
             else:
                 event["action"] = "WAIT: overlay visible"
@@ -369,18 +394,33 @@ def main():
         # to three cells. Any visible pickup immediately restores the more
         # careful two-click limit.
         effective_batch_size = adaptive_batch_limit(args.batch_size, item_goals)
-        if (previous_action == "attack" and previous_attack_target is not None and
-                strategy.is_obstacle(info.get(previous_attack_target, {
-                    "pyramid": 0, "item": 0
-                }))):
-            attacks_enabled = False
-            previous_action = None
-            event["attack_state"] = {
-                "status": "disabled: previous attack had no visual effect",
-                "target_cell": list(previous_attack_target),
-            }
+        if previous_action == "attack" and previous_attack_target is not None:
+            result = attack_result(info[previous_attack_target])
+            event["pyramid_result"] = dict(result,
+                                           target_cell=list(previous_attack_target),
+                                           scores=info[previous_attack_target])
+            if not result["broken"]:
+                attacks_enabled = False
+                previous_action = None
+                event["attack_state"] = {
+                    "status": "disabled: previous attack had no visual effect",
+                    "target_cell": list(previous_attack_target),
+                }
             previous_attack_target = None
         if previous_action == "dash" and previous_dash_player is not None:
+            if pending_dash is not None:
+                energy_after = read_energy_counter(image)
+                energy_before = pending_dash["energy_before"]
+                event["dash_result"] = {
+                    "pyramids_in_path": pending_dash["path"]["pyramids"],
+                    "visible_items_in_path": pending_dash["path"]["visible_items"],
+                    "energy_before": energy_before,
+                    "energy_after": energy_after,
+                    "energy_delta": (energy_after - energy_before
+                                     if energy_before is not None and energy_after is not None
+                                     else None),
+                }
+                pending_dash = None
             current_right_obstacles = consecutive_right_obstacles(info, player)
             if (player == previous_dash_player and
                     previous_dash_obstacles >= 2 and current_right_obstacles >= 2):
@@ -454,6 +494,10 @@ def main():
                 bot.log_event(log, event)
                 if args.verbose: progress(done, args.steps, "Dash nicht verfuegbar - plane neu", "33")
                 continue
+            dash_path = dash_path_report(info, player)
+            event["dash_path"] = dash_path
+            pending_dash = {"path": dash_path,
+                            "energy_before": read_energy_counter(image)}
             bot.adb(args.adb, args.serial, "shell", "input", "tap",
                     str(control[0]), str(control[1]))
             sent.append({"type": "dash", "adb_xy": list(control)})
