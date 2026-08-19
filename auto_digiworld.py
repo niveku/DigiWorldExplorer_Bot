@@ -105,11 +105,49 @@ def shortest_action(info, player, targets, allow_obstacles=True):
     return None
 
 
+def nearest_dash_wall(info, player):
+    """Launch cell left of the nearest run of >=3 pyramids, or None.
+
+    A dash always travels three cells to the right and destroys everything in
+    its path, so a wall of three is the cheapest possible pyramid breaker.
+    Walls touching the left board edge have no launch cell and are skipped.
+    """
+    best = None
+    for row in range(5):
+        col = 0
+        while col < 5:
+            if not is_obstacle(info[(row, col)]):
+                col += 1
+                continue
+            start = col
+            while col < 5 and is_obstacle(info[(row, col)]):
+                col += 1
+            if col - start >= 3 and start >= 1:
+                launch = (row, start - 1)
+                distance = abs(player[0] - row) + abs(player[1] - launch[1])
+                if best is None or distance < best[0]:
+                    best = (distance, launch)
+    return best[1] if best else None
+
+
 def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True):
     player, pscore = max(((p, v["player"]) for p, v in info.items()),
                          key=lambda q: q[1])
     if pscore < .08:
         return None, f"player confidence too low ({pscore:.3f})"
+
+    # A visible wall of three pyramids is irresistible while dashes remain:
+    # align with its launch cell and dash through it. Two in a row stay an
+    # opportunistic dash (handled below) and never justify a detour.
+    if dashes_enabled:
+        launch = nearest_dash_wall(info, player)
+        if launch == player:
+            return ("dash", player, "right"), "3+ pyramid wall: dash"
+        if launch is not None:
+            step = shortest_action(info, player, {launch}, allow_obstacles=False)
+            if step:
+                target, _, direction = step
+                return ("move", target, direction), f"approach dash wall via {launch}"
 
     orange_items = {p for p, v in info.items() if v["orange"] > .06 and p != player}
     other_items = {p for p, v in info.items() if v["item"] > .06 and p != player}

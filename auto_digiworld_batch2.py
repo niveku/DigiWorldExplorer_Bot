@@ -199,6 +199,8 @@ def show_run_summary(current, total, started_at, collected, energy_start=None,
     progress(current, total, message, color)
 
 def plan_status(kind, direction, reason, item_count):
+    if reason.startswith("approach dash wall"):
+        return "Pyramidenwand gesichtet - Anlauf zum Dash"
     if item_count:
         return f"Energie gesichtet! {item_count} Item(s) - Route wird neu berechnet"
     if kind == "dash":
@@ -491,9 +493,13 @@ def main():
             event["batch_mode"] = "adaptive-3: no visible items"
         sent = []
 
+        # Approach moves toward a dash wall go one cell per screenshot so a
+        # vertical approach can never batch past the wall's row.
+        approaching_wall = reason.startswith("approach dash wall")
+
         # Precompute and visualize the batch before sending any input.
         planned = [target]
-        if kind == "move" and info[target]["item"] <= .06:
+        if kind == "move" and not approaching_wall and info[target]["item"] <= .06:
             remaining = (0 if loop_guard else
                          min(effective_batch_size - 1, args.steps - done - 1))
             planned.extend(p[0] for p in safe_followup_moves(
@@ -547,7 +553,8 @@ def main():
 
             # Never batch through an attack or an orange pickup animation.
             first_has_item = info[target]["item"] > .06
-            if kind == "move" and not first_has_item and done + 1 < args.steps:
+            if (kind == "move" and not approaching_wall and not first_has_item
+                    and done + 1 < args.steps):
                 remaining = min(effective_batch_size - 1, args.steps - done - 1)
                 if loop_guard:
                     remaining = 0
