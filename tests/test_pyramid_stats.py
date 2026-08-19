@@ -56,6 +56,38 @@ class DashPathReportTests(unittest.TestCase):
         self.assertEqual(report["cells_seen"], [[0, 4]])
 
 
+class JitterTests(unittest.TestCase):
+    def test_minimum_is_the_configured_interval(self):
+        self.assertEqual(runner.jittered_delay(0.5, 0.35, rand=lambda: 0.0), 0.5)
+
+    def test_maximum_adds_the_full_jitter(self):
+        self.assertAlmostEqual(runner.jittered_delay(0.5, 0.35, rand=lambda: 1.0), 0.85)
+
+    def test_zero_jitter_keeps_exact_interval(self):
+        self.assertEqual(runner.jittered_delay(0.65, 0.0, rand=lambda: 0.7), 0.65)
+
+
+class EnergyConsensusTests(unittest.TestCase):
+    def test_two_equal_reads_confirm_the_value(self):
+        self.assertEqual(runner.confirmed_energy(3805, 3805), 3805)
+
+    def test_disagreeing_reads_are_rejected(self):
+        self.assertIsNone(runner.confirmed_energy(3555, 3805))
+
+    def test_first_read_alone_is_not_enough(self):
+        self.assertIsNone(runner.confirmed_energy(None, 3805))
+
+    def test_unreadable_second_frame_is_rejected(self):
+        self.assertIsNone(runner.confirmed_energy(3805, None))
+
+    def test_small_increase_between_frames_is_accepted(self):
+        self.assertEqual(runner.confirmed_energy(3805, 3815), 3815)
+
+    def test_digit_confusion_sized_jump_is_rejected(self):
+        self.assertIsNone(runner.confirmed_energy(3555, 3805))
+        self.assertIsNone(runner.confirmed_energy(3805, 3555))
+
+
 class WilsonIntervalTests(unittest.TestCase):
     def test_matches_known_value_for_eight_of_ten(self):
         low, high = analyze_breaks.wilson_interval(8, 10)

@@ -67,23 +67,22 @@ do {
         }
     }
 
+    $defaultInterval = if ($Interval -gt 0) { $Interval } else { 0.50 }
+    $runInterval = $defaultInterval
+    $intervalAnswer = Read-Host "Pause zwischen Aktionen in Sekunden? [$($defaultInterval.ToString('0.00'))]"
+    if (-not [string]::IsNullOrWhiteSpace($intervalAnswer)) {
+        $normalizedInterval = $intervalAnswer.Replace(',', '.')
+        if (-not [double]::TryParse($normalizedInterval, [Globalization.NumberStyles]::Float,
+                [Globalization.CultureInfo]::InvariantCulture, [ref]$runInterval)) {
+            throw 'Das Intervall muss eine Zahl sein, zum Beispiel 0,50.'
+        }
+    }
+
     $experimentalAnswer = Read-Host 'Experimentelle Einstellungen verwenden? [j/N]'
     $experimental = $experimentalAnswer -match '^(j|ja|y|yes)$'
-    $runInterval = 0.50
     $runDebugScreenshots = [bool]$DebugMode
 
     if ($experimental) {
-        $defaultInterval = if ($Interval -gt 0) { $Interval } else { 0.50 }
-        $intervalAnswer = Read-Host "Pause zwischen Aktionen in Sekunden? [$($defaultInterval.ToString('0.00'))]"
-        if ([string]::IsNullOrWhiteSpace($intervalAnswer)) {
-            $runInterval = $defaultInterval
-        } else {
-            $normalizedInterval = $intervalAnswer.Replace(',', '.')
-            if (-not [double]::TryParse($normalizedInterval, [Globalization.NumberStyles]::Float,
-                    [Globalization.CultureInfo]::InvariantCulture, [ref]$runInterval)) {
-                throw 'Das Intervall muss eine Zahl sein, zum Beispiel 0,50.'
-            }
-        }
         if (-not $DebugMode) {
             $debugAnswer = Read-Host 'Diagnosebilder speichern? [j/N]'
             $runDebugScreenshots = $debugAnswer -match '^(j|ja|y|yes)$'

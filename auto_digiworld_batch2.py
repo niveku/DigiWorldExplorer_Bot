@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import subprocess
 import sys
 import time
@@ -21,6 +22,23 @@ import digiworld_bot as bot
 
 DIR_DELTA = {"right": (0, 1), "left": (0, -1), "down": (1, 0), "up": (-1, 0)}
 VERSION = Path(__file__).with_name("VERSION").read_text(encoding="utf-8").strip()
+# Two consecutive HUD reads may differ by a small legitimate gain while the
+# bot keeps moving; anything larger looks like a template misread (5<->8).
+ENERGY_READ_TOLERANCE = 40
+
+
+def jittered_delay(base, jitter, rand=random.random):
+    """Base delay plus a small random extra so taps do not tick uniformly."""
+    return base + rand() * jitter
+
+
+def confirmed_energy(previous, current):
+    """Accept a HUD reading only when two consecutive reads roughly agree."""
+    if previous is None or current is None:
+        return None
+    if abs(current - previous) <= ENERGY_READ_TOLERANCE:
+        return current
+    return None
 
 
 def player_cell(info):
@@ -86,8 +104,12 @@ def _digit_templates():
     return result
 
 
-def read_energy_counter(image):
-    """Read the orange HUD counter conservatively; return None if uncertain."""
+def read_energy_counter(image, dump_path=None):
+    """Read the orange HUD counter conservatively; return None if uncertain.
+
+    With dump_path set, the digit region is saved as a small PNG so misreads
+    can be audited against the real game glyphs afterwards.
+    """
     templates = _digit_templates()
     if templates is None:
         return None
@@ -102,6 +124,11 @@ def read_energy_counter(image):
     if y1 - y0 < 15:
         return None
     roi = top[y0+5:y1-5, x1+4:min(top.shape[1], x1+120)]
+    if dump_path is not None:
+        try:
+            Image.fromarray(roi).save(dump_path)
+        except OSError:
+            pass
     white = (roi[:, :, 0] > 215) & (roi[:, :, 1] > 215) & (roi[:, :, 2] > 215)
     columns = white.sum(axis=0)
     runs, start = [], None
@@ -266,6 +293,8 @@ def main():
     p.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     p.add_argument("--steps", type=int, default=10)
     p.add_argument("--interval", type=float, default=.65)
+    p.add_argument("--jitter", type=float, default=.35,
+                   help="random extra seconds added to each action pause")
     p.add_argument("--batch-size", type=int, default=2, choices=(1, 2, 3))
     p.add_argument("--debug-screenshots", action="store_true")
     p.add_argument("--verbose", action="store_true", help="human-readable status for every scan")
@@ -297,6 +326,7 @@ def main():
     next_progress = progress_step
     collected = {"orange": 0, "pink": 0, "green": 0}
     energy_start = None
+    last_energy_read = None
     attacks_enabled = True
     dashes_enabled = True
     previous_action = None
@@ -346,7 +376,9 @@ def main():
             time.sleep(args.interval); continue
         unreliable = 0
         if energy_start is None:
-            energy_start = read_energy_counter(image)
+            current_read = read_energy_counter(image, run_dir / "energy_roi_start.png")
+            energy_start = confirmed_energy(last_energy_read, current_read)
+            last_energy_read = current_read
             if args.verbose and energy_start is not None:
                 progress(done, args.steps, f"Energie-Startwert: {format_counter(energy_start)}", "93")
 
@@ -409,7 +441,9 @@ def main():
             previous_attack_target = None
         if previous_action == "dash" and previous_dash_player is not None:
             if pending_dash is not None:
-                energy_after = read_energy_counter(image)
+                after_dump = (run_dir / f"energy_roi_dash_{done:04d}_after.png"
+                              if args.debug_screenshots else None)
+                energy_after = read_energy_counter(image, after_dump)
                 energy_before = pending_dash["energy_before"]
                 event["dash_result"] = {
                     "pyramids_in_path": pending_dash["path"]["pyramids"],
@@ -496,8 +530,10 @@ def main():
                 continue
             dash_path = dash_path_report(info, player)
             event["dash_path"] = dash_path
+            dash_dump = (run_dir / f"energy_roi_dash_{done:04d}_before.png"
+                         if args.debug_screenshots else None)
             pending_dash = {"path": dash_path,
-                            "energy_before": read_energy_counter(image)}
+                            "energy_before": read_energy_counter(image, dash_dump)}
             bot.adb(args.adb, args.serial, "shell", "input", "tap",
                     str(control[0]), str(control[1]))
             sent.append({"type": "dash", "adb_xy": list(control)})
@@ -518,7 +554,7 @@ def main():
                 followups = safe_followup_moves(
                     info, player, target, direction, remaining, item_goals)
                 for screen_target, checked in followups:
-                    time.sleep(args.interval)
+                    time.sleep(jittered_delay(args.interval, args.jitter))
                     x2, y2 = bot.cell_center(det.board, *screen_target)
                     bot.adb(args.adb, args.serial, "shell", "input", "tap", str(x2), str(y2))
                     sent.append({"type": "move", "target_cell": list(screen_target),
@@ -544,7 +580,9 @@ def main():
             previous_dash_player = player
             previous_dash_obstacles = consecutive_right_obstacles(info, player)
         previous_direction = direction
-        time.sleep(max(args.interval, 2.0 if kind in ("dash", "attack") else args.interval))
+        time.sleep(jittered_delay(
+            max(args.interval, 2.0 if kind in ("dash", "attack") else args.interval),
+            args.jitter))
 
     final = bot.screenshot(args.adb, args.serial)
     final_det = bot.classify(final)
@@ -554,7 +592,7 @@ def main():
     event = {"time_utc": datetime.now(timezone.utc).isoformat(), "status": "complete",
              "steps": done, "run_dir": str(run_dir),
              "detection": bot.asdict(final_det)}
-    energy_end = read_energy_counter(final)
+    energy_end = read_energy_counter(final, run_dir / "energy_roi_end.png")
     event["collected_detected"] = dict(collected)
     event["energy_hud"] = {
         "start": energy_start,
