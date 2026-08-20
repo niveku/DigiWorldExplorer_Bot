@@ -114,6 +114,16 @@ class LargePlayerTests(unittest.TestCase):
         self.assertEqual(cell, (3, 1))
         self.assertGreaterEqual(score, 0.08)
 
+    def test_red_card_shading_in_item_cells_is_ignored(self):
+        image = board_image(lambda r, c: None)
+        image[150:380, 60:200] = RED_ARMOR          # FM around (1-3, 1)
+        image[330:370, 320:360] = (200, 50, 30)     # dark-red item card edge at (3, 3)
+        with_ghost = strategy.find_large_player(image, (0, 0, 500, 500))
+        clean = strategy.find_large_player(image, (0, 0, 500, 500),
+                                           item_cells={(3, 3)})
+        self.assertIsNotNone(clean)
+        self.assertEqual(clean[0], (3, 1))
+
     def test_a_few_stray_pixels_are_not_a_player(self):
         image = board_image(lambda r, c: None)
         image[200:205, 100:110] = RED_ARMOR

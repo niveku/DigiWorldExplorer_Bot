@@ -543,6 +543,7 @@ def main():
     player_unreliable = 0
     item_burst_waits = 0
     overlay_waits = 0
+    rejected_streak = 0
     recent_states = []
 
     while done < args.steps:
@@ -573,6 +574,22 @@ def main():
                     expected_player = expected_rollback
                     event["expected_rollback"] = list(expected_rollback)
                     expected_rollback = None
+                    rejected_streak += 1
+                    if rejected_streak >= 5:
+                        # Five straight rejected taps mean the believed cell
+                        # is wrong in a way no locator is correcting; stop
+                        # with evidence instead of burning the step budget.
+                        event["action"] = "STOP: moves repeatedly rejected"
+                        try:
+                            evidence_path = run_dir / "rejected_moves_evidence.png"
+                            image.save(evidence_path)
+                            event["evidence"] = str(evidence_path)
+                        except OSError:
+                            pass
+                        bot.log_event(log, event)
+                        show_run_summary(done, args.steps, started_at, collected,
+                                         energy_start, read_energy_counter(image), "33")
+                        return 6
                 overlay_waits += 1
                 event["action"] = f"WAIT: overlay visible ({overlay_waits}/15)"
                 if overlay_waits >= 15:
@@ -594,6 +611,9 @@ def main():
             time.sleep(args.interval); continue
 
         overlay_waits = 0
+        if previous_action == "move" and expected_rollback is not None:
+            # The last move was not followed by a rejection toast: it landed.
+            rejected_streak = 0
         if det.state != "digiworld" or not det.board or det.confidence < args.min_confidence:
             unreliable += 1
             event["action"] = f"WAIT: unreliable board ({unreliable}/5)"
@@ -649,7 +669,10 @@ def main():
         # The red sprite blob proved the most stable locator for oversized
         # partners; it also vetoes item-glow false positives that sneak just
         # over the vision threshold. The buggy highlight cross stays last.
-        large = strategy.find_large_player(image, det.board)
+        large = strategy.find_large_player(
+            image, det.board,
+            item_cells={cell for cell, values in info.items()
+                        if values["item"] > .06})
         player, player_score, player_source = veto_with_blob(
             player, player_score, player_source, large)
         if player_source == "vision" and player_score < .08:

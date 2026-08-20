@@ -111,7 +111,7 @@ def shortest_action(info, player, targets, allow_obstacles=True):
     return None
 
 
-def find_large_player(image, board, min_pixels=120):
+def find_large_player(image, board, min_pixels=120, item_cells=()):
     """Locate an oversized partner sprite spanning several cells.
 
     Big partners (e.g. Imperialdramon Fighter Mode) dilute every per-cell
@@ -133,7 +133,17 @@ def find_large_player(image, board, min_pixels=120):
     # Orange pickup cards pass the red filter and stretch the bounding box
     # far enough to disqualify the whole blob; mask them out.
     orange = (r > 180) & (g > 55) & (g < 190) & (b < 100)
-    ys, xs = np.where(red & ~orange)
+    mask = red & ~orange
+    # A card's dark-red edge shading survives the orange filter (g ~ 50) and
+    # once produced a 0.05-score ghost blob beside the item that dragged the
+    # bot across the board. Cells already classified as items contribute no
+    # sprite pixels.
+    cell_w, cell_h = (x1 - x0) / 5, (y1 - y0) / 5
+    for row, col in item_cells:
+        ya, yb = int(row * cell_h), int((row + 1) * cell_h)
+        xa, xb = int(col * cell_w), int((col + 1) * cell_w)
+        mask[ya:yb, xa:xb] = False
+    ys, xs = np.where(mask)
     if len(xs) < min_pixels:
         return None
     x_lo, x_hi = np.percentile(xs, [5, 95])
