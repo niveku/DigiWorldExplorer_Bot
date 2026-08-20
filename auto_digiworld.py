@@ -99,6 +99,15 @@ def cells(image, board):
                 "pink": float(pink_mask.mean()),
                 "green": float(green_mask.mean()),
                 "item": float(max(orange_mask.mean(), pink_mask.mean(), green_mask.mean())),
+                # Type discriminators (run 20260820T041234): the purple
+                # ticket's white card body separates it from the steps paws
+                # (white .096 vs .002), and the green ticket's saturated
+                # card green separates it from the pale dash orb (.089 vs
+                # .000). The HUD counters proved the values: paws +5 steps,
+                # orb +1 dash, tickets +1 each.
+                "white": float(((r > 215) & (g > 215) & (b > 215)).mean()),
+                "card_green": float(((g > 140) & (g < 200) & (r < 110) &
+                                     (g.astype(int) > b.astype(int) + 40)).mean()),
                 "pyramid": float(((pb > 70) & (pr > 45) &
                                   (pb.astype(int) > pg.astype(int)+10)).mean()),
                 "highlight": float(highlight_mask.mean()),
@@ -177,6 +186,26 @@ def find_large_player(image, board, min_pixels=120, item_cells=()):
     col = min(max(int(center_x // cell_w), 0), 4)
     score = min(float(len(xs)) / (cell_w * cell_h), 1.0)
     return (row, col), score
+
+
+def pickup_type(values):
+    """Classify a pickup cell into its economic type, or None.
+
+    Measured values (run 20260820T041234 HUD deltas): orange +20 energy,
+    claw +1 garra (200 shards), dash orb +1 dash (400), paws +5 steps
+    (200), tickets +1 ticket (negligible).
+    """
+    if values.get("claw", 0.0) > .10:
+        return "claw"
+    if values.get("orange", 0.0) > .06:
+        return "orange"
+    if values.get("green", 0.0) > .06:
+        return ("green_ticket" if values.get("card_green", 0.0) > .03
+                else "dash_orb")
+    if values.get("pink", 0.0) > .06:
+        return ("purple_ticket" if values.get("white", 0.0) > .05
+                else "steps")
+    return None
 
 
 def suppress_sprite_leaks(info, player):
@@ -326,12 +355,15 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                     if v["orange"] > .06 and p != player and p not in ignored}
     other_items = {p for p, v in info.items()
                    if v["item"] > .06 and p != player and p not in ignored}
-    # A claw pickup refunds a 200-shard garra: below energy priority, above
-    # ticket pickups (the generic item score peaks at ~0.023 on them, so
-    # they need their own mask and threshold).
+    # Mid-tier pickups sit between energy and tickets: claw +1 garra (200
+    # shards), dash orb +1 dash (400), paws +5 steps (200). Tickets (+1,
+    # negligible per the user) stay in the lowest tier and never justify
+    # passing up a mid-tier target.
     claw_items = {p for p, v in info.items()
                   if v.get("claw", 0.0) > .10 and v["item"] <= .06
                   and p != player and p not in ignored}
+    mid_items = claw_items | {p for p in other_items
+                              if pickup_type(info[p]) in ("dash_orb", "steps")}
 
     # An adjacent pickup costs a single step; grab it before anything else so
     # the bot never has to walk back for it afterwards.
@@ -378,7 +410,9 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         # firing first and spent the dash on 2 pyramids while a 3-wall sat
         # one row away (long run 20260820T033221).
         full_wall = nearest_dash_wall(info, player, preview=preview)
-        at_risk = {cell for cell in (orange_items | other_items | claw_items)
+        # Tickets are worth ~nothing: only energy and mid-tier pickups may
+        # veto a dash over scroll loss.
+        at_risk = {cell for cell in (orange_items | mid_items)
                    if cell not in path and cell[1] <= 2}
         if (path_pyramids >= 2 and not at_risk
                 and (full_wall is None or path_pyramids >= 3)):
@@ -421,7 +455,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         target = (player[0], player[1] + 1)
         return ("move", target, "right"), f"direct horizontal item={direct_item}"
 
-    targets = orange_items or claw_items or other_items
+    targets = orange_items or mid_items or other_items
     if orange_items:
         # The scroll erodes the left side first: with several oranges on
         # board the leftmost band dies first, so it is collected first (the
@@ -434,7 +468,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         if step:
             target, obstacle, direction = step
             kind = ("orange" if orange_items else
-                    "claw" if claw_items else "item")
+                    "claw" if mid_items else "item")
             return ("attack" if obstacle else "move", target, direction), f"{kind} targets={sorted(targets)}"
 
     # Per game behavior confirmed by the user, Dash always goes right. A dash

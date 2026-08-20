@@ -372,16 +372,13 @@ def format_counter(value):
     return f"{value:,}".replace(",", ".")
 
 def item_category(values):
-    """Return the strongest visible pickup color, or None below threshold."""
-    scores = {name: values.get(name, 0.0) for name in ("orange", "pink", "green")}
-    category, score = max(scores.items(), key=lambda pair: pair[1])
-    if score > .06:
-        return category
-    # Claw pickups never reach the generic item threshold (slashes cover
-    # ~5% of the cell); their dedicated score identifies them instead.
-    if values.get("claw", 0.0) > .10:
-        return "claw"
-    return None
+    """Return the pickup's economic type, or None below threshold.
+
+    Delegates to strategy.pickup_type so the collected stats distinguish
+    the four pickups the color masks used to conflate (paws vs purple
+    ticket, dash orb vs green ticket).
+    """
+    return strategy.pickup_type(values)
 
 
 def format_rate(value):
@@ -390,9 +387,13 @@ def format_rate(value):
 
 def run_summary(elapsed_seconds, collected, energy_start=None, energy_end=None):
     total = sum(collected.values())
+    tickets = (collected.get("green_ticket", 0) + collected.get("purple_ticket", 0)
+               + collected.get("pink", 0) + collected.get("green", 0))
     detected = (f"erkannt angefahren: {total} "
-                f"(Energie {collected['orange']}, Lila {collected['pink']}, "
-                f"Gruen {collected['green']}, Garras {collected.get('claw', 0)})")
+                f"(Energie {collected.get('orange', 0)}, "
+                f"Garras {collected.get('claw', 0)}, "
+                f"Dash-Orbs {collected.get('dash_orb', 0)}, "
+                f"Schritte {collected.get('steps', 0)}, Tickets {tickets})")
     if energy_start is not None and energy_end is not None:
         difference = energy_end - energy_start
         hud = (f"Energie {format_counter(energy_start)} -> {format_counter(energy_end)} "
@@ -640,7 +641,8 @@ def main():
     started_at = time.monotonic()
     progress_step = max(1, (args.steps * args.progress_percent + 99) // 100) if args.progress_percent else 0
     next_progress = progress_step
-    collected = {"orange": 0, "pink": 0, "green": 0, "claw": 0}
+    collected = {"orange": 0, "claw": 0, "dash_orb": 0, "steps": 0,
+                 "green_ticket": 0, "purple_ticket": 0}
     energy_start = None
     last_energy_read = None
     inventory_start = None
@@ -693,14 +695,17 @@ def main():
         else:
             chest_point = milestone_chest_ready(image)
             if chest_point is not None:
+                # Fast claim: tap (Reward opens), short beat, tap (closes).
+                # No extra screenshots - the per-frame energy log captures
+                # the credit, which lands on the next scroll anyway.
                 claim = {"tap_xy": list(chest_point),
                          "energy_before": read_energy_counter(image)}
-                for _ in range(2):
-                    bot.adb(args.adb, args.serial, "shell", "input", "tap",
-                            str(chest_point[0]), str(chest_point[1]))
-                    time.sleep(1.2)
-                claim["energy_after"] = read_energy_counter(
-                    bot.screenshot(args.adb, args.serial))
+                bot.adb(args.adb, args.serial, "shell", "input", "tap",
+                        str(chest_point[0]), str(chest_point[1]))
+                time.sleep(.6)
+                bot.adb(args.adb, args.serial, "shell", "input", "tap",
+                        str(chest_point[0]), str(chest_point[1]))
+                time.sleep(.4)
                 event["action"] = "CLAIM: milestone chest"
                 event["milestone_claim"] = claim
                 chest_cooldown = 20
@@ -708,7 +713,6 @@ def main():
                 if args.verbose:
                     progress(done, args.steps,
                              "Meilenstein-Truhe eingesammelt", "32")
-                time.sleep(args.interval)
                 continue
 
         if bot.tutorial_overlay_center(image) is not None:

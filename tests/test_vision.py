@@ -62,6 +62,31 @@ class InventoryOcrTests(unittest.TestCase):
         self.assertEqual(runner.read_inventory_counters(image),
                          {"steps": 127, "attacks": 59, "dashes": 25})
 
+    def test_pickup_types_are_distinguished(self):
+        # Run 20260820T041234 proved the HUD counters move differently per
+        # pickup: paws +5 steps, dash orb +1 dash, tickets +1 each. The
+        # user-flagged confusion: paws and the purple ticket both read as
+        # 'pink', the dash orb and the green ticket both as 'green'. The
+        # separators: white card body (ticket 0.096 vs paws 0.002) and
+        # saturated card green (ticket 0.089 vs orb 0.000).
+        cases = [
+            ("pickup_dash_orb.png", (77, 424, 625, 875), (3, 4), "dash_orb"),
+            ("pickup_green_ticket.png", (74, 424, 625, 875), (0, 4), "green_ticket"),
+            ("pickup_paws.png", (77, 426, 625, 871), (3, 4), "steps"),
+            ("pickup_purple_ticket.png", (77, 336, 625, 783), (4, 4), "purple_ticket"),
+        ]
+        for name, board, cell, expected in cases:
+            with self.subTest(pickup=expected):
+                info = strategy.cells(Image.open(FIXTURES / name), board)
+                self.assertEqual(strategy.pickup_type(info[cell]), expected)
+
+    def test_claw_and_orange_pickup_types(self):
+        info = strategy.cells(Image.open(FIXTURES / "claw_board.png"),
+                              (74, 425, 626, 871))
+        self.assertEqual(strategy.pickup_type(info[(0, 3)]), "claw")
+        self.assertEqual(strategy.pickup_type(info[(3, 3)]), "orange")
+        self.assertIsNone(strategy.pickup_type(info[(1, 4)]))
+
     def test_milestone_chest_badge_signals_a_claim(self):
         # User captures 2026-08-20: at each 1,000m milestone the chest by
         # the progress bar gains a magenta '!' badge. After claiming, the

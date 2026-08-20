@@ -263,6 +263,54 @@ class LeftmostOrangeTests(unittest.TestCase):
         self.assertEqual(action[2], "right")
 
 
+class PickupPriorityTests(unittest.TestCase):
+    """Measured values per pickup: dash orb +1 dash (400 shards), paws +5
+    steps (200), claw +1 garra (200), tickets +1 (negligible). Mid-tier
+    pickups sit between energy and tickets; tickets never veto a dash."""
+
+    def test_dash_orb_outranks_a_nearer_ticket(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(4, 2)].update(item=0.10, green=0.10)             # orb, distance 3
+        info[(0, 1)].update(item=0.10, green=0.10, card_green=0.09)  # ticket, distance 2
+        action, reason = strategy.choose(info)
+        self.assertIn("(4, 2)", reason)
+        self.assertNotEqual(action[2], "up")
+
+    def test_paws_outrank_a_nearer_ticket(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(4, 2)].update(item=0.10, pink=0.10)              # paws, distance 3
+        info[(0, 1)].update(item=0.10, pink=0.10, white=0.09)  # purple ticket, distance 2
+        action, reason = strategy.choose(info)
+        self.assertIn("(4, 2)", reason)
+        self.assertNotEqual(action[2], "up")
+
+    def test_orange_still_outranks_the_orb(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(4, 1)].update(item=0.10, green=0.10)
+        info[(2, 4)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(info)
+        self.assertTrue(reason.startswith(("orange", "direct")))
+
+    def test_a_ticket_does_not_veto_the_pair_dash(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 2, (2, 3))
+        info[(4, 1)].update(item=0.10, green=0.10, card_green=0.09)  # ticket at risk
+        action, reason = strategy.choose(info)
+        self.assertEqual(action, ("dash", (2, 1), "right"))
+
+    def test_a_left_band_orb_still_vetoes_the_pair_dash(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 2, (2, 3))
+        info[(4, 1)].update(item=0.10, green=0.10)  # dash orb at risk
+        action, reason = strategy.choose(info)
+        self.assertNotEqual(action[0], "dash")
+
+
 class ClawPickupTests(unittest.TestCase):
     """A claw pickup refunds a 200-shard garra: worth collecting below
     energy priority but above ticket pickups (user-confirmed sightings the
