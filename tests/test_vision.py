@@ -62,6 +62,18 @@ class InventoryOcrTests(unittest.TestCase):
         self.assertEqual(runner.read_inventory_counters(image),
                          {"steps": 127, "attacks": 59, "dashes": 25})
 
+    def test_claw_pickup_gets_its_own_score(self):
+        # Live capture 2026-08-20: claw pickup at (0,3) (yellow slashes on a
+        # dark disc, RGB ~254,223,50). The generic item score only reached
+        # 0.023, below the 0.06 threshold, so the bot skipped every claw.
+        # The orange energy's white bolt must stay below the claw threshold.
+        image = Image.open(FIXTURES / "claw_board.png")
+        info = strategy.cells(image, (74, 425, 626, 871))
+        self.assertGreater(info[(0, 3)]["claw"], 0.10)
+        self.assertLess(info[(3, 3)]["claw"], 0.10)    # orange energy bolt
+        self.assertLess(info[(1, 4)]["claw"], 0.005)   # empty dark cell
+        self.assertLess(info[(0, 2)]["claw"], 0.005)   # pyramid
+
     def test_energy_counter_still_reads_after_font_changes(self):
         image = Image.open(FIXTURES / "hud_29_74_32.png")
         self.assertEqual(runner.read_energy_counter(image), 5760)

@@ -263,6 +263,44 @@ class LeftmostOrangeTests(unittest.TestCase):
         self.assertEqual(action[2], "right")
 
 
+class ClawPickupTests(unittest.TestCase):
+    """A claw pickup refunds a 200-shard garra: worth collecting below
+    energy priority but above ticket pickups (user-confirmed sightings the
+    bot skipped; classifier gave them item=0.023, invisible at 0.06)."""
+
+    def test_lone_claw_is_routed_to(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 3)]["claw"] = 0.15
+        action, reason = strategy.choose(info)
+        self.assertEqual(action, ("move", (2, 2), "right"))
+        self.assertIn("claw", reason)
+
+    def test_orange_still_outranks_the_claw(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 3)]["claw"] = 0.15
+        info[(4, 3)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(info)
+        self.assertTrue(reason.startswith("orange"))
+
+    def test_claw_outranks_a_ticket_pickup(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(4, 1)]["claw"] = 0.15
+        info[(1, 3)].update(item=0.10, green=0.10)
+        action, reason = strategy.choose(info)
+        self.assertIn("claw", reason)
+
+    def test_adjacent_claw_is_grabbed_first(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(3, 1)]["claw"] = 0.15
+        info[(2, 4)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(info)
+        self.assertEqual(action, ("move", (3, 1), "down"))
+
+
 class OutOfStepsTests(unittest.TestCase):
     """Run 20260820T030401 burned five rejected taps and a generic exit 6
     after the stamina counter hit 0; a confirmed empty counter plus bouncing

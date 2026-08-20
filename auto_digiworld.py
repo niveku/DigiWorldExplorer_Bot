@@ -76,9 +76,25 @@ def cells(image, board):
             # still fills its own cell's upper half completely.
             zp = z[:max(1, int(z.shape[0] * .55))]
             pr, pg, pb = zp[:, :, 0], zp[:, :, 1], zp[:, :, 2]
+            # Claw pickups (garra refund, 200 shards) are yellow slashes on a
+            # dark disc: bright saturated yellow (live capture ~254,223,50).
+            # Gatomon's own yellow paws bleed into neighbor cells, but that
+            # bleed either touches the cell border (the paw reaches in from
+            # outside) or stays under ~0.07 in the interior, while a real
+            # claw's centered slashes score ~0.13 with a clean border.
+            claw_mask = (r > 200) & (g > 170) & (b < 120)
+            ch_, cw_ = claw_mask.shape
+            bh, bw = max(2, int(ch_ * .12)), max(2, int(cw_ * .12))
+            claw_border = np.zeros_like(claw_mask)
+            claw_border[:bh, :] = claw_border[-bh:, :] = True
+            claw_border[:, :bw] = claw_border[:, -bw:] = True
+            claw_score = float(claw_mask[~claw_border].mean())
+            if float(claw_mask[claw_border].mean()) > .01:
+                claw_score = 0.0
             result[(row, col)] = {
                 "player": float(max(red_player.mean(), bright_neutral_player.mean(),
                                     shadow_player_score)),
+                "claw": claw_score,
                 "orange": float(orange_mask.mean()),
                 "pink": float(pink_mask.mean()),
                 "green": float(green_mask.mean()),
@@ -174,7 +190,8 @@ def suppress_sprite_leaks(info, player):
     cleaned = {}
     for cell, values in info.items():
         if (max(abs(cell[0] - player[0]), abs(cell[1] - player[1])) <= 1):
-            values = dict(values, orange=0.0, pink=0.0, green=0.0, item=0.0)
+            values = dict(values, orange=0.0, pink=0.0, green=0.0, item=0.0,
+                          claw=0.0)
         cleaned[cell] = values
     return cleaned
 
@@ -309,12 +326,20 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                     if v["orange"] > .06 and p != player and p not in ignored}
     other_items = {p for p, v in info.items()
                    if v["item"] > .06 and p != player and p not in ignored}
+    # A claw pickup refunds a 200-shard garra: below energy priority, above
+    # ticket pickups (the generic item score peaks at ~0.023 on them, so
+    # they need their own mask and threshold).
+    claw_items = {p for p, v in info.items()
+                  if v.get("claw", 0.0) > .10 and v["item"] <= .06
+                  and p != player and p not in ignored}
 
     # An adjacent pickup costs a single step; grab it before anything else so
     # the bot never has to walk back for it afterwards.
     for dr, dc, direction in DIRS:
         cell = (player[0] + dr, player[1] + dc)
-        if 0 <= cell[0] < 5 and 0 <= cell[1] < 5 and cell in other_items:
+        if not (0 <= cell[0] < 5 and 0 <= cell[1] < 5):
+            continue
+        if cell in other_items or cell in claw_items:
             return ("move", cell, direction), f"adjacent item={cell}"
 
     # The world only scrolls forward: an orange in the left two columns is
@@ -353,7 +378,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         # firing first and spent the dash on 2 pyramids while a 3-wall sat
         # one row away (long run 20260820T033221).
         full_wall = nearest_dash_wall(info, player, preview=preview)
-        at_risk = {cell for cell in (orange_items | other_items)
+        at_risk = {cell for cell in (orange_items | other_items | claw_items)
                    if cell not in path and cell[1] <= 2}
         if (path_pyramids >= 2 and not at_risk
                 and (full_wall is None or path_pyramids >= 3)):
@@ -396,7 +421,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         target = (player[0], player[1] + 1)
         return ("move", target, "right"), f"direct horizontal item={direct_item}"
 
-    targets = orange_items or other_items
+    targets = orange_items or claw_items or other_items
     if orange_items:
         # The scroll erodes the left side first: with several oranges on
         # board the leftmost band dies first, so it is collected first (the
@@ -408,7 +433,8 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         step = shortest_action(info, player, targets, allow_obstacles=attacks_enabled)
         if step:
             target, obstacle, direction = step
-            kind = "orange" if orange_items else "item"
+            kind = ("orange" if orange_items else
+                    "claw" if claw_items else "item")
             return ("attack" if obstacle else "move", target, direction), f"{kind} targets={sorted(targets)}"
 
     # Per game behavior confirmed by the user, Dash always goes right. A dash

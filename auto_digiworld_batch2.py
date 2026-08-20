@@ -351,7 +351,13 @@ def item_category(values):
     """Return the strongest visible pickup color, or None below threshold."""
     scores = {name: values.get(name, 0.0) for name in ("orange", "pink", "green")}
     category, score = max(scores.items(), key=lambda pair: pair[1])
-    return category if score > .06 else None
+    if score > .06:
+        return category
+    # Claw pickups never reach the generic item threshold (slashes cover
+    # ~5% of the cell); their dedicated score identifies them instead.
+    if values.get("claw", 0.0) > .10:
+        return "claw"
+    return None
 
 
 def format_rate(value):
@@ -361,7 +367,8 @@ def format_rate(value):
 def run_summary(elapsed_seconds, collected, energy_start=None, energy_end=None):
     total = sum(collected.values())
     detected = (f"erkannt angefahren: {total} "
-                f"(Energie {collected['orange']}, Lila {collected['pink']}, Gruen {collected['green']})")
+                f"(Energie {collected['orange']}, Lila {collected['pink']}, "
+                f"Gruen {collected['green']}, Garras {collected.get('claw', 0)})")
     if energy_start is not None and energy_end is not None:
         difference = energy_end - energy_start
         hud = (f"Energie {format_counter(energy_start)} -> {format_counter(energy_end)} "
@@ -609,7 +616,7 @@ def main():
     started_at = time.monotonic()
     progress_step = max(1, (args.steps * args.progress_percent + 99) // 100) if args.progress_percent else 0
     next_progress = progress_step
-    collected = {"orange": 0, "pink": 0, "green": 0}
+    collected = {"orange": 0, "pink": 0, "green": 0, "claw": 0}
     energy_start = None
     last_energy_read = None
     inventory_start = None
