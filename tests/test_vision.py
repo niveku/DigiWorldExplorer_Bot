@@ -87,6 +87,14 @@ class LargePlayerTests(unittest.TestCase):
         self.assertIsNotNone(located)
         self.assertEqual(located[0], (3, 1))
 
+    def test_orange_items_do_not_stretch_the_blob(self):
+        import digiworld_bot as bot
+        image = Image.open(FIXTURES / "fm_at_1_1.png")
+        det = bot.classify(image)
+        located = strategy.find_large_player(np.asarray(image.convert("RGB")), det.board)
+        self.assertIsNotNone(located)
+        self.assertEqual(located[0], (1, 1))
+
     def test_oversized_sprite_is_anchored_at_its_feet(self):
         image = board_image(lambda r, c: None)
         # A 2x2.3-cell red sprite like Imperialdramon FM centered on col 1,
@@ -142,6 +150,32 @@ class HighlightCrossTests(unittest.TestCase):
             for row in range(5) for col in range(5)
         }
         self.assertIsNone(strategy.player_from_highlights(info))
+
+
+class BlobVetoTests(unittest.TestCase):
+    def test_weak_vision_yields_to_the_blob(self):
+        result = runner.veto_with_blob((3, 3), 0.05, "vision", ((1, 1), 0.10))
+        self.assertEqual(result, ((1, 1), 0.10, "large-sprite"))
+
+    def test_marginal_vision_far_from_a_blob_is_a_false_positive(self):
+        result = runner.veto_with_blob((3, 3), 0.095, "vision", ((1, 1), 0.10))
+        self.assertEqual(result, ((1, 1), 0.10, "large-sprite"))
+
+    def test_confident_vision_survives_a_distant_blob(self):
+        result = runner.veto_with_blob((3, 3), 0.22, "vision", ((1, 1), 0.10))
+        self.assertEqual(result, ((3, 3), 0.22, "vision"))
+
+    def test_vision_near_the_blob_is_trusted(self):
+        result = runner.veto_with_blob((1, 2), 0.10, "vision", ((1, 1), 0.10))
+        self.assertEqual(result, ((1, 2), 0.10, "vision"))
+
+    def test_memory_sources_are_untouched(self):
+        result = runner.veto_with_blob((2, 1), 0.05, "memory", ((1, 1), 0.10))
+        self.assertEqual(result, ((2, 1), 0.05, "memory"))
+
+    def test_no_blob_changes_nothing(self):
+        result = runner.veto_with_blob((3, 3), 0.05, "vision", None)
+        self.assertEqual(result, ((3, 3), 0.05, "vision"))
 
 
 class ResolvedPlayerOverrideTests(unittest.TestCase):

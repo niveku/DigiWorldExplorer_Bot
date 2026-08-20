@@ -130,7 +130,10 @@ def find_large_player(image, board, min_pixels=120):
     r, g, b = z[:, :, 0], z[:, :, 1], z[:, :, 2]
     red = ((r > 110) & (r.astype(int) > g.astype(int) + 45) &
            (r.astype(int) > b.astype(int) + 25))
-    ys, xs = np.where(red)
+    # Orange pickup cards pass the red filter and stretch the bounding box
+    # far enough to disqualify the whole blob; mask them out.
+    orange = (r > 180) & (g > 55) & (g < 190) & (b < 100)
+    ys, xs = np.where(red & ~orange)
     if len(xs) < min_pixels:
         return None
     x_lo, x_hi = np.percentile(xs, [5, 95])

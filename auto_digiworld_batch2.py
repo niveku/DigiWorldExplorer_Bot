@@ -383,6 +383,23 @@ def resolve_player(info, expected):
     return best, score, "vision"
 
 
+def veto_with_blob(player, score, source, blob):
+    """Let a real sprite blob override weak or implausible vision.
+
+    Item glows can score just above the acting threshold on the wrong cell
+    (a green ticket at (3,3) hit 0.095 in run 20260820T014121 while FM stood
+    at (1,1)). When a sprite blob exists, vision only survives if it is
+    either confident or near the blob.
+    """
+    if blob is None or source != "vision":
+        return player, score, source
+    blob_cell, blob_score = blob
+    distance = abs(player[0] - blob_cell[0]) + abs(player[1] - blob_cell[1])
+    if score < .08 or (distance > 2 and score < .15):
+        return blob_cell, blob_score, "large-sprite"
+    return player, score, source
+
+
 def attack_result(cell_values):
     """Classify the cell of the previous attack: pyramid gone? drop revealed?"""
     if strategy.is_obstacle(cell_values):
@@ -627,18 +644,16 @@ def main():
             time.sleep(max(args.interval, 1.0)); continue
         item_burst_waits = 0
         player, player_score, player_source = resolve_player(info, expected_player)
+        # The red sprite blob proved the most stable locator for oversized
+        # partners; it also vetoes item-glow false positives that sneak just
+        # over the vision threshold. The buggy highlight cross stays last.
+        large = strategy.find_large_player(image, det.board)
+        player, player_score, player_source = veto_with_blob(
+            player, player_score, player_source, large)
         if player_source == "vision" and player_score < .08:
-            # Oversized partners (Imperialdramon FM) dilute per-cell scores.
-            # The red sprite blob proved the most stable locator (the lit
-            # movable/trail cells flicker); the highlight cross backs it up
-            # for partners without red in their palette.
-            large = strategy.find_large_player(image, det.board)
-            if large is not None:
-                (player, player_score), player_source = large, "large-sprite"
-            else:
-                cross = strategy.player_from_highlights(info, expected=expected_player)
-                if cross is not None:
-                    player, player_score, player_source = cross, .30, "highlight-cross"
+            cross = strategy.player_from_highlights(info, expected=expected_player)
+            if cross is not None:
+                player, player_score, player_source = cross, .30, "highlight-cross"
         memory_streak = memory_streak + 1 if player_source == "memory" else 0
         if player_source != "vision":
             event["player_resolution"] = {"cell": list(player), "source": player_source,
