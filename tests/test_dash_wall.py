@@ -493,6 +493,44 @@ class WallStatusTests(unittest.TestCase):
         self.assertIn("Muro de pirámides", text)
 
 
+class WallDashRescueTests(unittest.TestCase):
+    """Run 20260820T191232 events 47-53: the bot stood ADJACENT to an
+    orange at (4,2), but the wall rule hijacked it two cells up and the
+    wall dash's 3-column scroll deleted that orange and the paws at
+    (3,2) - about 300 shards of value for a 400-shard dash with zero
+    items in its path. The pair dash already defers to at-risk pickups;
+    the wall dash and its approach must too. Walls survive the rescue."""
+
+    def wall_board(self):
+        info = empty_grid()
+        wall(info, 2, (2, 3, 4))
+        return info
+
+    def test_wall_dash_defers_to_left_band_pickups(self):
+        info = self.wall_board()
+        info[(2, 1)]["player"] = 0.2   # standing on the launch cell
+        info[(4, 2)].update(item=0.09, orange=0.09)
+        action, reason = strategy.choose(info, hunt_walls=True)
+        self.assertNotEqual(action[0], "dash")
+
+    def test_wall_approach_defers_to_an_adjacent_orange(self):
+        info = self.wall_board()
+        info[(4, 1)]["player"] = 0.2
+        info[(4, 2)].update(item=0.09, orange=0.09)
+        action, reason = strategy.choose(info, hunt_walls=True)
+        self.assertEqual(action, ("move", (4, 2), "right"))
+
+    def test_wall_dash_still_fires_with_right_side_pickups(self):
+        # A pickup at column 3+ survives the 3-column scroll shifted to
+        # column 0 and stays rescuable after the dash.
+        info = self.wall_board()
+        info[(2, 1)]["player"] = 0.2
+        info[(4, 3)].update(item=0.09, orange=0.09)
+        action, reason = strategy.choose(info, hunt_walls=True)
+        self.assertEqual(action[0], "dash")
+        self.assertIn("wall", reason)
+
+
 class SuspectAppearanceTests(unittest.TestCase):
     """Items cannot appear mid-board: they scroll in from the right edge
     or get revealed by breaking a pyramid. Anything else is animation

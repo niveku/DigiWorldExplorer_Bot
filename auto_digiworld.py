@@ -406,6 +406,19 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     # consecutive frames; opportunistic same-row dashes are unaffected.
     if dashes_enabled and hunt_walls:
         launch = nearest_dash_wall(info, player, preview=preview)
+        if launch is not None:
+            # The wall dash's 3-column scroll deletes every off-path
+            # pickup in the left three columns, so it defers to them
+            # exactly like the pair dash does (run 20260820T191232
+            # events 47-53 dashed away an adjacent orange plus paws,
+            # ~300 shards, for a path with zero items). The wall
+            # survives the rescue; normal routing resumes after it.
+            wall_path = {(launch[0], col)
+                         for col in range(launch[1] + 1, min(5, launch[1] + 4))}
+            wall_risk = {cell for cell in (orange_items | mid_items)
+                         if cell not in wall_path and cell[1] <= 2}
+            if wall_risk:
+                launch = None
         if launch == player:
             return ("dash", player, "right"), "3+ pyramid wall: dash"
         if launch is not None:
