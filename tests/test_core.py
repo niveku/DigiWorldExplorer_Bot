@@ -60,6 +60,28 @@ class StrategyTests(unittest.TestCase):
         # may claim it, and both produce the same move.
         self.assertTrue(reason.startswith(("adjacent item", "direct horizontal item")))
 
+    def test_explorer_prefers_a_free_cell_over_attacking_sideways(self):
+        # A garra costs 200 shards vs 40 for a step: with no goal in sight
+        # the explorer must not break a non-blocking pyramid below when a
+        # free vertical cell exists (long run 20260820T033221, 5 explore
+        # attacks). The forward blocker is still worth attacking.
+        info = empty_grid()
+        info[(2, 4)]["player"] = 0.2   # right edge: no rightward candidate
+        info[(3, 4)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, dashes_enabled=False)
+        self.assertEqual(action[0], "move")
+        self.assertEqual(action[2], "up")
+
+    def test_explorer_still_attacks_the_forward_blocker(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 2)]["pyramid"] = 0.9
+        info[(1, 2)]["pyramid"] = 0.9
+        info[(3, 2)]["pyramid"] = 0.9
+        action, _ = strategy.choose(info, dashes_enabled=False)
+        self.assertEqual(action[0], "attack")
+        self.assertEqual(action[1], (2, 2))
+
     def test_blocked_right_route_uses_vertical_detour(self):
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2

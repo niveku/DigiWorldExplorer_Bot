@@ -182,6 +182,87 @@ class PairDashTests(unittest.TestCase):
         self.assertNotEqual(action[0], "dash")
 
 
+class PairDashDefersToWallTests(unittest.TestCase):
+    """A same-row pair must not preempt a visible wall of three: the wall
+    needs two stable frames before hunting engages, and the instant pair
+    dash was firing first (long run 20260820T033221: dash on 2 while a
+    3-wall sat one row away)."""
+
+    def test_pair_waits_when_a_full_wall_is_visible_elsewhere(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 2, (2, 3))
+        wall(info, 0, (2, 3, 4))
+        action, reason = strategy.choose(info, hunt_walls=False)
+        self.assertNotIn("pair", reason)
+
+    def test_own_row_wall_grade_pair_still_fires(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 2, (2, 3, 4))
+        wall(info, 0, (2, 3, 4))
+        action, reason = strategy.choose(info, hunt_walls=False)
+        self.assertEqual(action, ("dash", (2, 1), "right"))
+
+    def test_stable_wall_still_outranks_the_pair(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 2, (2, 3))
+        wall(info, 0, (2, 3, 4))
+        action, reason = strategy.choose(info)
+        self.assertTrue(reason.startswith("approach dash wall"))
+
+
+class PairLaunchApproachTests(unittest.TestCase):
+    """One vertical step to a pair launch: the user watched the bot skip
+    dashes it could reach by moving a single cell up or down."""
+
+    def test_moves_one_row_down_to_a_pair_launch(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 3, (2, 3))
+        action, reason = strategy.choose(info)
+        self.assertEqual(action, ("move", (3, 1), "down"))
+        self.assertIn("pair launch", reason)
+
+    def test_blocked_launch_cell_is_not_approached(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 3, (1, 2, 3))  # (3,1) itself is a pyramid, not a launch
+        action, reason = strategy.choose(info)
+        self.assertNotIn("pair launch", reason)
+
+    def test_at_risk_pickup_blocks_the_approach_too(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 3, (2, 3))
+        info[(0, 1)].update(item=0.10, green=0.10)
+        action, reason = strategy.choose(info)
+        self.assertNotIn("pair launch", reason)
+
+
+class LeftmostOrangeTests(unittest.TestCase):
+    """The scroll erodes the left side: with several oranges on board the
+    leftmost dies first, so it is collected first (the long run leaked
+    left-edge oranges while collecting to the right)."""
+
+    def test_left_band_orange_is_collected_before_a_nearer_right_one(self):
+        info = empty_grid()
+        info[(0, 2)]["player"] = 0.2
+        info[(0, 4)].update(item=0.10, orange=0.10)
+        info[(3, 2)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(info)
+        self.assertEqual(action[2], "down")
+
+    def test_all_oranges_on_the_right_keep_nearest_first(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 3)].update(item=0.10, orange=0.10)
+        info[(0, 4)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(info)
+        self.assertEqual(action[2], "right")
+
+
 class OutOfStepsTests(unittest.TestCase):
     """Run 20260820T030401 burned five rejected taps and a generic exit 6
     after the stamina counter hit 0; a confirmed empty counter plus bouncing

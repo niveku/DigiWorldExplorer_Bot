@@ -338,21 +338,48 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     # deletes off-path pickups in the left three columns after the dash, so
     # any such pickup vetoes it and the normal routing takes over.
     if dashes_enabled:
+        def dash_path_pyramids(row, col):
+            count = sum(1 for c in range(col + 1, min(5, col + 4))
+                        if is_obstacle(info[(row, c)]))
+            if col + 3 >= 5 and preview is not None and preview[row]:
+                count += 1
+            return count
+
         path = [(player[0], col)
                 for col in range(player[1] + 1, min(5, player[1] + 4))]
-        path_pyramids = sum(1 for cell in path if is_obstacle(info[cell]))
-        if player[1] + 3 >= 5 and preview is not None and preview[player[0]]:
-            path_pyramids += 1
-        if path_pyramids >= 2:
-            at_risk = {cell for cell in (orange_items | other_items)
-                       if cell not in path and cell[1] <= 2}
-            if not at_risk:
-                return ("dash", player, "right"), \
-                    f"dash pair: {path_pyramids} pyramids in path"
+        path_pyramids = dash_path_pyramids(*player)
+        # A visible wall of three outranks a pair even while its detection
+        # is still stabilizing (hunt_walls False): the instant pair dash was
+        # firing first and spent the dash on 2 pyramids while a 3-wall sat
+        # one row away (long run 20260820T033221).
+        full_wall = nearest_dash_wall(info, player, preview=preview)
+        at_risk = {cell for cell in (orange_items | other_items)
+                   if cell not in path and cell[1] <= 2}
+        if (path_pyramids >= 2 and not at_risk
+                and (full_wall is None or path_pyramids >= 3)):
+            return ("dash", player, "right"), \
+                f"dash pair: {path_pyramids} pyramids in path"
+        # A single vertical step that lands on a pair launch is worth taking:
+        # the pair rule fires from there on the next frame. Only when no
+        # full wall is in sight and no left-band pickup would pay for it.
+        if path_pyramids < 2 and not at_risk and full_wall is None:
+            for dr in (-1, 1):
+                launch = (player[0] + dr, player[1])
+                if not 0 <= launch[0] < 5:
+                    continue
+                if launch in ignored or is_obstacle(info[launch]):
+                    continue
+                if dash_path_pyramids(*launch) >= 2:
+                    return ("move", launch, "up" if dr == -1 else "down"), \
+                        f"pair launch at {launch}"
 
     # Never walk around a green/purple pickup that already lies on the clear
     # horizontal route to the right. This costs no detour and still preserves
     # orange priority for targets elsewhere on the board.
+    # ... unless an orange in the left board half is about to be eroded by
+    # the very scroll this rightward move advances: the long run lost a
+    # left orange exactly this way while grabbing a same-row pickup.
+    left_band_orange = any(cell[1] <= 2 for cell in orange_items)
     direct_item = None
     for col in range(player[1] + 1, 5):
         cell = (player[0], col)
@@ -361,6 +388,8 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             break
         if is_obstacle(info[cell]):
             break
+    if direct_item is not None and left_band_orange and direct_item[1] > 2:
+        direct_item = None
     if direct_item is not None:
         # Pickup graphics can themselves have a high pyramid color score. All
         # preceding cells were checked as clear, so advance one cell right.
@@ -368,6 +397,13 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         return ("move", target, "right"), f"direct horizontal item={direct_item}"
 
     targets = orange_items or other_items
+    if orange_items:
+        # The scroll erodes the left side first: with several oranges on
+        # board the leftmost band dies first, so it is collected first (the
+        # long run leaked left-edge oranges while collecting to the right).
+        min_col = min(cell[1] for cell in orange_items)
+        if min_col <= 2:
+            targets = {cell for cell in orange_items if cell[1] <= min_col + 1}
     if targets:
         step = shortest_action(info, player, targets, allow_obstacles=attacks_enabled)
         if step:
@@ -404,6 +440,11 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             continue
         base = {"right": 100, "down": 12, "up": 10, "left": -40}[direction]
         score = base + 20*v["highlight"]
+        # A garra costs 200 shards against 40 for a step: while exploring,
+        # a sideways pyramid loses to any free cell; the forward blocker
+        # keeps its lead and is still attacked.
+        if obstacle:
+            score -= 25
         if previous_direction and {previous_direction, direction} in ({"left","right"},{"up","down"}):
             score -= 30
         candidates.append((score, nxt, obstacle, direction))
