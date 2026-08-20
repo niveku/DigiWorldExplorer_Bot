@@ -67,6 +67,12 @@ def cells(image, board):
                 # The bottom board frame can occlude roughly a quarter of this
                 # tiny form, so keep enough margin for row 4 detections.
                 shadow_player_score = float(yellow_accent.mean() * 8)
+            # A pyramid's tall apex bleeds into the bottom of the cell above
+            # it. Sampling only the upper part of each crop keeps that bleed
+            # from reading as a phantom obstacle there, while a real pyramid
+            # still fills its own cell's upper half completely.
+            zp = z[:max(1, int(z.shape[0] * .55))]
+            pr, pg, pb = zp[:, :, 0], zp[:, :, 1], zp[:, :, 2]
             result[(row, col)] = {
                 "player": float(max(red_player.mean(), bright_neutral_player.mean(),
                                     shadow_player_score)),
@@ -74,8 +80,8 @@ def cells(image, board):
                 "pink": float(pink_mask.mean()),
                 "green": float(green_mask.mean()),
                 "item": float(max(orange_mask.mean(), pink_mask.mean(), green_mask.mean())),
-                "pyramid": float(((b > 70) & (r > 45) &
-                                  (b.astype(int) > g.astype(int)+10)).mean()),
+                "pyramid": float(((pb > 70) & (pr > 45) &
+                                  (pb.astype(int) > pg.astype(int)+10)).mean()),
                 "highlight": float(highlight_mask.mean()),
             }
     return result

@@ -105,7 +105,8 @@ class AggregateTests(unittest.TestCase):
                         {"type": "move", "target_cell": [2, 3]}]},
             {"action": [{"type": "attack", "target_cell": [2, 4]}],
              "pyramid_result": None},
-            {"pyramid_result": {"broken": True, "revealed": "orange"},
+            {"pyramid_result": {"broken": True, "revealed": "orange",
+                                "attacks_before": 74, "attacks_after": 74},
              "action": [{"type": "move", "target_cell": [2, 4]}]},
             {"pyramid_result": {"broken": True, "revealed": None},
              "action": "WAIT: overlay visible"},
@@ -115,7 +116,9 @@ class AggregateTests(unittest.TestCase):
              "dash_path": {"pyramids": 2, "visible_items": 1, "cells_seen": []}},
             {"dash_result": {"pyramids_in_path": 2, "visible_items_in_path": 1,
                              "energy_before": 100, "energy_after": 108,
-                             "energy_delta": 8}},
+                             "energy_delta": 8,
+                             "inventory_before": {"steps": 29, "attacks": 70, "dashes": 33},
+                             "inventory_after": {"steps": 29, "attacks": 72, "dashes": 32}}},
             {"dash_result": {"pyramids_in_path": 1, "visible_items_in_path": 0,
                              "energy_before": None, "energy_after": 120,
                              "energy_delta": None}},
@@ -129,6 +132,9 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(stats["dash_energy_deltas"], [8])
         self.assertEqual(stats["actions"], {"move": 3, "attack": 1, "dash": 1})
         self.assertEqual(stats["shards_estimate"], 3*40 + 1*200 + 1*400)
+        self.assertEqual(stats["attack_inventory_deltas"], [0])
+        self.assertEqual(stats["dash_attack_deltas"], [2])
+        self.assertEqual(stats["dash_dash_deltas"], [-1])
 
 
 if __name__ == "__main__":

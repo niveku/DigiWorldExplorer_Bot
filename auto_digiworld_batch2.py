@@ -106,7 +106,10 @@ def _digit_templates():
     result = {str(digit): [] for digit in range(10)}
     fonts_dir = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
     try:
-        for font_path in (fonts_dir / "arialbd.ttf", fonts_dir / "segoeuib.ttf"):
+        # Verdana/Tahoma bold cover the game's wide "1" (flag plus full base
+        # bar), which the Arial/Segoe narrow "1" cannot match.
+        for font_path in (fonts_dir / "arialbd.ttf", fonts_dir / "segoeuib.ttf",
+                          fonts_dir / "verdanab.ttf", fonts_dir / "tahomabd.ttf"):
             if not font_path.exists():
                 continue
             for size in range(18, 25):
@@ -149,7 +152,12 @@ def read_energy_counter(image, dump_path=None):
         except OSError:
             pass
     white = (roi[:, :, 0] > 215) & (roi[:, :, 1] > 215) & (roi[:, :, 2] > 215)
-    columns = white.sum(axis=0)
+    return _decode_digit_runs(white, templates)
+
+
+def _decode_digit_runs(mask, templates):
+    """Split a boolean glyph mask into digit runs and template-match them."""
+    columns = mask.sum(axis=0)
     runs, start = [], None
     for column, count in enumerate(columns):
         if count >= 2 and start is None:
@@ -164,11 +172,14 @@ def read_energy_counter(image, dump_path=None):
         if previous_end is not None and left - previous_end > 6 and digits:
             break
         previous_end = right
-        glyph = white[:, left:right]
+        glyph = mask[:, left:right]
         glyph_y, glyph_x = np.where(glyph)
         if not len(glyph_x) or glyph_y.max() - glyph_y.min() + 1 < 9:
             continue
-        if right - left <= 8:
+        # A "1" is the only glyph much narrower than it is tall; judging by
+        # aspect ratio keeps the rule valid across HUD font sizes.
+        glyph_height = glyph_y.max() - glyph_y.min() + 1
+        if right - left <= max(4, glyph_height * .45):
             digits.append("1"); continue
         normalized = _normalize_glyph(glyph)
         ranked = sorted((min(float(np.mean(normalized != item)) for item in candidates), digit)
@@ -179,6 +190,53 @@ def read_energy_counter(image, dump_path=None):
     if not 1 <= len(digits) <= 6:
         return None
     return int("".join(digits))
+
+
+def read_inventory_counters(image, dump_path=None):
+    """Read the bottom-left HUD counters: stamina steps, garras, dashes.
+
+    Each icon (pink paws, yellow claws, green dash orb) is located by color;
+    the dark digits to its right are template-matched. Unreadable counters
+    come back as None, never as a guess.
+    """
+    empty = {"steps": None, "attacks": None, "dashes": None}
+    templates = _digit_templates()
+    if templates is None:
+        return dict(empty)
+    rgb = np.asarray(image.convert("RGB"))
+    height, width = rgb.shape[:2]
+    region = rgb[int(height * .80):, :int(width * .45)]
+    r = region[:, :, 0].astype(int)
+    g = region[:, :, 1].astype(int)
+    b = region[:, :, 2].astype(int)
+    icon_masks = {
+        "steps": (r > 200) & (b > 150) & (g < 190) & (r > g + 40),
+        "attacks": (r > 200) & (g > 160) & (b < 120),
+        "dashes": (g > 180) & (r < 180) & (g > b + 40),
+    }
+    result = dict(empty)
+    for name, mask in icon_masks.items():
+        ys, xs = np.where(mask)
+        if not len(xs):
+            continue
+        x1 = xs.max()
+        # The pink timers left of the icons share its color; only pixels near
+        # the icon's right edge define the counter's vertical band.
+        near_icon = xs > x1 - 40
+        y0, y1 = ys[near_icon].min(), ys[near_icon].max()
+        if y1 - y0 < 12:
+            continue
+        roi = region[max(0, y0 - 4):y1 + 6, x1 + 4:min(region.shape[1], x1 + 96)]
+        dark = ((roi[:, :, 0] < 150) & (roi[:, :, 1] < 160) & (roi[:, :, 2] < 175))
+        if dump_path is not None:
+            try:
+                base = Path(dump_path)
+                Image.fromarray((dark * 255).astype("uint8")).save(
+                    base.with_name(f"{base.stem}_{name}{base.suffix}"))
+            except OSError:
+                pass
+        result[name] = _decode_digit_runs(dark, templates)
+    return result
 
 
 def format_counter(value):
@@ -228,6 +286,40 @@ def plan_status(kind, direction, reason, item_count):
         return "Pyramide gesichtet - sicherer Angriff wird ausgefuehrt"
     labels = {"right": "rechts", "left": "links", "up": "oben", "down": "unten"}
     return f"Erkunde nach {labels.get(direction, direction)} - {reason}"
+
+
+def expected_after_move(screen_target, direction):
+    """On-screen cell where the player should appear after a committed move.
+
+    Entering zero-based column 2 scrolls the world left, so a rightward move
+    into column >=2 leaves the player rendered one column to the left.
+    """
+    row, col = screen_target
+    if direction == "right" and col >= 2:
+        return (row, col - 1)
+    return (row, col)
+
+
+def resolve_player(info, expected):
+    """Blend vision with dead reckoning: veto teleports, bridge weak frames.
+
+    Vision wins while it is confident and physically plausible. A confident
+    detection more than two cells from the expected position is treated as a
+    misdetection when the expected cell still shows any player signal, and a
+    weak frame falls back to the expected position instead of stalling.
+    """
+    best, score = player_cell(info)
+    memory_score = (info[expected]["player"]
+                    if expected is not None and expected in info else 0.0)
+    if score >= .08:
+        if expected is not None and memory_score >= .02:
+            jump = abs(best[0] - expected[0]) + abs(best[1] - expected[1])
+            if jump > 2:
+                return expected, memory_score, "memory-veto"
+        return best, score, "vision"
+    if expected is not None and memory_score >= .02:
+        return expected, memory_score, "memory"
+    return best, score, "vision"
 
 
 def attack_result(cell_values):
@@ -348,6 +440,10 @@ def main():
     collected = {"orange": 0, "pink": 0, "green": 0}
     energy_start = None
     last_energy_read = None
+    inventory_start = None
+    pending_attack_inv = None
+    expected_player = None
+    memory_streak = 0
     attacks_enabled = True
     dashes_enabled = True
     attacks_disabled_at = None
@@ -409,6 +505,11 @@ def main():
             last_energy_read = current_read
             if args.verbose and energy_start is not None:
                 progress(done, args.steps, f"Energie-Startwert: {format_counter(energy_start)}", "93")
+        if inventory_start is None:
+            reading = read_inventory_counters(image)
+            if any(value is not None for value in reading.values()):
+                inventory_start = reading
+                event["inventory_start"] = reading
 
         if stable_board is None:
             stable_board = det.board
@@ -435,8 +536,12 @@ def main():
             bot.log_event(log, event)
             time.sleep(max(args.interval, 1.0)); continue
         item_burst_waits = 0
-        player, player_score = player_cell(info)
-        if player_score < .08:
+        player, player_score, player_source = resolve_player(info, expected_player)
+        memory_streak = memory_streak + 1 if player_source == "memory" else 0
+        if player_source != "vision":
+            event["player_resolution"] = {"cell": list(player), "source": player_source,
+                                          "score": round(player_score, 3)}
+        if (player_source == "vision" and player_score < .08) or memory_streak > 2:
             player_unreliable += 1
             event["action"] = f"WAIT: player score {player_score:.3f} ({player_unreliable}/5)"
             bot.log_event(log, event)
@@ -456,9 +561,14 @@ def main():
         effective_batch_size = adaptive_batch_limit(args.batch_size, item_goals)
         if previous_action == "attack" and previous_attack_target is not None:
             result = attack_result(info[previous_attack_target])
+            inv_after = (read_inventory_counters(image)
+                         if pending_attack_inv is not None else None)
             event["pyramid_result"] = dict(result,
                                            target_cell=list(previous_attack_target),
-                                           scores=info[previous_attack_target])
+                                           scores=info[previous_attack_target],
+                                           attacks_before=(pending_attack_inv or {}).get("attacks"),
+                                           attacks_after=(inv_after or {}).get("attacks"))
+            pending_attack_inv = None
             if not result["broken"]:
                 attacks_enabled = False
                 attacks_disabled_at = done
@@ -482,6 +592,8 @@ def main():
                     "energy_delta": (energy_after - energy_before
                                      if energy_before is not None and energy_after is not None
                                      else None),
+                    "inventory_before": pending_dash.get("inventory_before"),
+                    "inventory_after": read_inventory_counters(image),
                 }
                 pending_dash = None
             current_right_obstacles = consecutive_right_obstacles(info, player)
@@ -593,13 +705,19 @@ def main():
                          if args.debug_screenshots else None)
             pending_dash = {"path": dash_path,
                             "energy_before": read_energy_counter(image, dash_dump)}
+            pending_dash["inventory_before"] = read_inventory_counters(image)
             bot.adb(args.adb, args.serial, "shell", "input", "tap",
                     str(control[0]), str(control[1]))
             sent.append({"type": "dash", "adb_xy": list(control)})
+            expected_player = None
         else:
             x, y = bot.cell_center(det.board, *target)
+            if kind == "attack":
+                pending_attack_inv = read_inventory_counters(image)
             bot.adb(args.adb, args.serial, "shell", "input", "tap", str(x), str(y))
             sent.append({"type": kind, "target_cell": list(target), "adb_xy": [x, y]})
+            expected_player = (player if kind == "attack"
+                               else expected_after_move(target, direction))
             pickup = item_category(info[target]) if kind == "move" else None
             if pickup:
                 collected[pickup] += 1
@@ -619,6 +737,7 @@ def main():
                     bot.adb(args.adb, args.serial, "shell", "input", "tap", str(x2), str(y2))
                     sent.append({"type": "move", "target_cell": list(screen_target),
                                  "validated_from_cell": list(checked), "adb_xy": [x2, y2]})
+                    expected_player = expected_after_move(screen_target, direction)
                     pickup = item_category(info[checked])
                     if pickup:
                         collected[pickup] += 1
@@ -653,6 +772,8 @@ def main():
              "steps": done, "run_dir": str(run_dir),
              "detection": bot.asdict(final_det)}
     energy_end = read_energy_counter(final, run_dir / "energy_roi_end.png")
+    event["inventory_hud"] = {"start": inventory_start,
+                              "end": read_inventory_counters(final)}
     event["collected_detected"] = dict(collected)
     event["energy_hud"] = {
         "start": energy_start,

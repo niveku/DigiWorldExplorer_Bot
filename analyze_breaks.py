@@ -42,6 +42,9 @@ def aggregate(events):
         "dashes": 0,
         "dash_pyramids": 0,
         "dash_energy_deltas": [],
+        "attack_inventory_deltas": [],
+        "dash_attack_deltas": [],
+        "dash_dash_deltas": [],
         "actions": {"move": 0, "attack": 0, "dash": 0},
         "shards_estimate": 0,
     }
@@ -52,12 +55,21 @@ def aggregate(events):
             if result["broken"]:
                 stats["broken"] += 1
                 stats["revealed"][result["revealed"] or "none"] += 1
+            before, after = result.get("attacks_before"), result.get("attacks_after")
+            if before is not None and after is not None:
+                stats["attack_inventory_deltas"].append(after - before)
         dash = event.get("dash_result")
         if dash:
             stats["dashes"] += 1
             stats["dash_pyramids"] += dash.get("pyramids_in_path", 0)
             if dash.get("energy_delta") is not None:
                 stats["dash_energy_deltas"].append(dash["energy_delta"])
+            inv_before = dash.get("inventory_before") or {}
+            inv_after = dash.get("inventory_after") or {}
+            for key, dest in (("attacks", "dash_attack_deltas"),
+                              ("dashes", "dash_dash_deltas")):
+                if inv_before.get(key) is not None and inv_after.get(key) is not None:
+                    stats[dest].append(inv_after[key] - inv_before[key])
         action = event.get("action")
         if isinstance(action, list):
             for sent in action:
@@ -121,6 +133,20 @@ def main():
               f"(valores: {deltas})")
     else:
         print("  Δ energía HUD: sin lecturas fiables todavía")
+    print()
+    print("— Drops de consumibles (deltas de inventario HUD) —")
+    attack_deltas = stats["attack_inventory_deltas"]
+    if attack_deltas:
+        drops = [delta + 1 for delta in attack_deltas]  # each attack consumes one garra
+        print(f"  Garras alrededor de ataques (n={len(attack_deltas)}): "
+              f"drops netos {sum(drops):+d} (deltas {attack_deltas})")
+    else:
+        print("  Garras alrededor de ataques: sin lecturas todavía")
+    if stats["dash_attack_deltas"] or stats["dash_dash_deltas"]:
+        print(f"  Alrededor de dashes: garras {stats['dash_attack_deltas']}, "
+              f"dashes {stats['dash_dash_deltas']} (un dash consume 1)")
+    else:
+        print("  Alrededor de dashes: sin lecturas todavía")
     print()
     print("— Gasto estimado (Data Shards) —")
     actions = stats["actions"]
