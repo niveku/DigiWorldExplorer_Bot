@@ -282,6 +282,30 @@ def adaptive_batch_limit(requested, item_goals):
     return 3 if requested == 2 and not item_goals else requested
 
 
+def is_pickup(values):
+    """Any collectible cell: color-mask items or the yellow claw.
+
+    The claw scores low on the color "item" mask (it has its own mask), so
+    checking only values["item"] left claw-only boards looking item-free:
+    batches grew to 3 moves and overshot the turn cell toward the claw."""
+    return values["item"] > .06 or values.get("claw", 0.0) > .10
+
+
+def pickup_goals(info, player):
+    """All collectible cells except the player's own."""
+    return {cell for cell, values in info.items()
+            if is_pickup(values) and cell != player}
+
+
+def is_single_step_approach(reason):
+    """Dash approaches advance one verified cell per screenshot.
+
+    Blind follow-ups batched past the launch row on both approach kinds
+    (wall approach, and "pair launch" in run 20260820T180814 events 33-35,
+    which ping-ponged around row 3 instead of launching)."""
+    return reason.startswith(("approach dash wall", "pair launch"))
+
+
 def progress(current, total, message, color="36"):
     """Print one compact, colored status line for interactive debug runs."""
     print(f"\033[{color}m{current}/{total}: {message}\033[0m", flush=True)
@@ -297,8 +321,8 @@ def format_duration(seconds):
 def progress_summary(current, total, elapsed_seconds):
     percent = round(current * 100 / total) if total else 100
     remaining = (elapsed_seconds / current * (total - current)) if current else 0
-    return (f"{current}/{total} ({percent}%) | vergangen {format_duration(elapsed_seconds)} "
-            f"| ca. {format_duration(remaining)} verbleibend")
+    return (f"{current}/{total} ({percent}%) | transcurrido {format_duration(elapsed_seconds)} "
+            f"| quedan ~{format_duration(remaining)}")
 
 _DIGIT_TEMPLATES = None
 
@@ -691,8 +715,8 @@ def safe_followup_moves(info, player, first_target, direction, count, goals=None
                 break
             previous_distance = distance
         results.append((screen_target, checked_cell))
-        # Never plan beyond an item because its pickup animation changes the frame.
-        if cell["item"] > .06:
+        # Never plan beyond a pickup because its animation changes the frame.
+        if is_pickup(cell):
             break
         if direction == "right" and screen_target[1] >= 2:
             offset += 1
@@ -733,7 +757,7 @@ def main():
     run_dir.mkdir(parents=True, exist_ok=False)
     log = run_dir / "events.jsonl"
     if args.verbose:
-        progress(0, args.steps, "Debuglauf gestartet - erster Scan", "32")
+        progress(0, args.steps, "Debug iniciado - primer escaneo", "32")
     done = 0
     started_at = time.monotonic()
     progress_step = max(1, (args.steps * args.progress_percent + 99) // 100) if args.progress_percent else 0
@@ -954,7 +978,7 @@ def main():
             player_unreliable += 1
             event["action"] = f"WAIT: player score {player_score:.3f} ({player_unreliable}/5)"
             bot.log_event(log, event)
-            if args.verbose: progress(done, args.steps, "Spielerposition unsicher - neuer Scan", "33")
+            if args.verbose: progress(done, args.steps, "Posición del jugador insegura - nuevo escaneo", "33")
             if player_unreliable >= 5:
                 event["action"] = "STOP: five consecutive unreliable player frames"
                 try:
@@ -1006,8 +1030,7 @@ def main():
         preview = strategy.sixth_column_preview(image, det.board)
         if preview is not None and any(preview):
             event["sixth_column"] = preview
-        item_goals = {cell for cell, values in info.items()
-                      if values["item"] > .06 and cell != player}
+        item_goals = pickup_goals(info, player)
         # Batch-2 is adaptive: on an item-free board it may safely advance up
         # to three cells. Any visible pickup immediately restores the more
         # careful two-click limit.
@@ -1141,13 +1164,13 @@ def main():
             event["batch_mode"] = "adaptive-3: no visible items"
         sent = []
 
-        # Approach moves toward a dash wall go one cell per screenshot so a
-        # vertical approach can never batch past the wall's row.
-        approaching_wall = reason.startswith("approach dash wall")
+        # Approach moves toward a dash launch go one cell per screenshot so a
+        # vertical approach can never batch past the launch row.
+        approaching_wall = is_single_step_approach(reason)
 
         # Precompute and visualize the batch before sending any input.
         planned = [target]
-        if kind == "move" and not approaching_wall and info[target]["item"] <= .06:
+        if kind == "move" and not approaching_wall and not is_pickup(info[target]):
             remaining = (0 if loop_guard else
                          min(effective_batch_size - 1, args.steps - done - 1))
             planned.extend(p[0] for p in safe_followup_moves(
@@ -1217,8 +1240,8 @@ def main():
             if pickup:
                 collected[pickup] += 1
 
-            # Never batch through an attack or an orange pickup animation.
-            first_has_item = info[target]["item"] > .06
+            # Never batch through an attack or a pickup animation.
+            first_has_item = is_pickup(info[target])
             if (kind == "move" and not approaching_wall and not first_has_item
                     and done + 1 < args.steps):
                 remaining = min(effective_batch_size - 1, args.steps - done - 1)

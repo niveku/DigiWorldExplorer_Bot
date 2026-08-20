@@ -91,6 +91,59 @@ class StrategyTests(unittest.TestCase):
         self.assertIn(action[2], ("up", "down"))
 
 
+class ClawBatchingTests(unittest.TestCase):
+    """Run 20260820T180814: with a claw as the only visible pickup the
+    runner's item_goals stayed empty (claw scores low on the color "item"
+    mask), so 3-move batches overshot the turn cell and the bot ping-ponged
+    vertically in column 1 around a claw at (2, 2) for 11 straight moves."""
+
+    def claw_board(self):
+        info = empty_grid()
+        for values in info.values():
+            values["claw"] = 0.0
+        info[(2, 2)]["claw"] = 0.2
+        return info
+
+    def test_claw_counts_as_pickup_goal(self):
+        info = self.claw_board()
+        self.assertEqual(runner.pickup_goals(info, (0, 1)), {(2, 2)})
+
+    def test_color_items_still_count_as_pickup_goals(self):
+        info = self.claw_board()
+        info[(1, 4)].update(item=0.09, orange=0.09)
+        self.assertEqual(runner.pickup_goals(info, (0, 1)), {(2, 2), (1, 4)})
+
+    def test_player_cell_is_never_a_goal(self):
+        info = self.claw_board()
+        self.assertEqual(runner.pickup_goals(info, (2, 2)), set())
+
+    def test_followups_stop_at_the_turn_toward_the_claw(self):
+        # Player (0,1) heading down for the claw at (2,2): the batch must
+        # stop at (2,1) - the turn cell - instead of overshooting to (3,1).
+        info = self.claw_board()
+        goals = runner.pickup_goals(info, (0, 1))
+        moves = runner.safe_followup_moves(
+            info, (0, 1), (1, 1), "down", 2, goals)
+        self.assertEqual([m[0] for m in moves], [(2, 1)])
+
+    def test_dash_approaches_move_one_cell_per_screenshot(self):
+        # Run 20260820T180814 events 33-35: "pair launch at (3,1)" batched
+        # past the launch row ((3,1) then (4,1), then back up beyond it).
+        # Both dash approaches must advance one verified cell at a time.
+        self.assertTrue(runner.is_single_step_approach("approach dash wall via (3, 2)"))
+        self.assertTrue(runner.is_single_step_approach("pair launch at (3, 1)"))
+        self.assertFalse(runner.is_single_step_approach("explore right"))
+        self.assertFalse(runner.is_single_step_approach("claw targets=[(2, 2)]"))
+
+    def test_followups_never_plan_beyond_a_claw(self):
+        # Even without goals the batch must not plan past a claw cell,
+        # because its pickup animation changes the frame.
+        info = self.claw_board()
+        moves = runner.safe_followup_moves(
+            info, (0, 2), (1, 2), "down", 3, None)
+        self.assertEqual([m[0] for m in moves], [(2, 2)])
+
+
 class BatchTests(unittest.TestCase):
     def test_batch_three_only_without_items(self):
         self.assertEqual(runner.adaptive_batch_limit(2, set()), 3)
@@ -117,6 +170,13 @@ class BatchTests(unittest.TestCase):
         self.assertIn("20/200 (10%)", text)
         self.assertIn("01:40", text)
         self.assertIn("15:00", text)
+
+    def test_compact_progress_speaks_spanish(self):
+        # The every-2% status line still said "vergangen/verbleibend"
+        # after the Spanish pass (user report 2026-08-20).
+        text = runner.progress_summary(20, 200, 100)
+        self.assertIn("transcurrido", text)
+        self.assertIn("quedan", text)
     def test_debug_status_prioritizes_visible_energy(self):
         text = runner.plan_status("move", "right", "explore right", 2)
         self.assertIn("Energía a la vista", text)
