@@ -50,8 +50,8 @@ class ExploreBanTests(unittest.TestCase):
     def test_banned_cell_is_avoided_during_exploration(self):
         info = empty_grid()
         info[(3, 1)]["player"] = 0.2
-        info[(3, 2)]["pyramid"] = 0.25
-        info[(2, 1)]["pyramid"] = 0.25
+        info[(3, 2)]["pyramid"] = 0.9
+        info[(2, 1)]["pyramid"] = 0.9
         action, reason = strategy.choose(info, attacks_enabled=False,
                                          dashes_enabled=False,
                                          ignored_targets={(3, 0)})
@@ -61,9 +61,9 @@ class ExploreBanTests(unittest.TestCase):
     def test_fully_banned_pocket_still_moves_instead_of_stalling(self):
         info = empty_grid()
         info[(3, 1)]["player"] = 0.2
-        info[(3, 2)]["pyramid"] = 0.25
-        info[(2, 1)]["pyramid"] = 0.25
-        info[(4, 1)]["pyramid"] = 0.25
+        info[(3, 2)]["pyramid"] = 0.9
+        info[(2, 1)]["pyramid"] = 0.9
+        info[(4, 1)]["pyramid"] = 0.9
         action, reason = strategy.choose(info, attacks_enabled=False,
                                          dashes_enabled=False,
                                          ignored_targets={(3, 0)})

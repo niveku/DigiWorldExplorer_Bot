@@ -264,8 +264,8 @@ class PreviewWallTests(unittest.TestCase):
 
     def test_two_wall_at_the_edge_plus_preview_is_a_dash_wall(self):
         info = self.grid()
-        info[(1, 3)]["pyramid"] = 0.25
-        info[(1, 4)]["pyramid"] = 0.25
+        info[(1, 3)]["pyramid"] = 0.9
+        info[(1, 4)]["pyramid"] = 0.9
         preview = [False, True, False, False, False]
         self.assertIsNone(strategy.nearest_dash_wall(info, (1, 0)))
         self.assertEqual(strategy.nearest_dash_wall(info, (1, 0), preview=preview),
@@ -273,8 +273,8 @@ class PreviewWallTests(unittest.TestCase):
 
     def test_preview_elsewhere_does_not_fake_walls(self):
         info = self.grid()
-        info[(1, 3)]["pyramid"] = 0.25
-        info[(1, 4)]["pyramid"] = 0.25
+        info[(1, 3)]["pyramid"] = 0.9
+        info[(1, 4)]["pyramid"] = 0.9
         preview = [True, False, False, False, False]
         self.assertIsNone(strategy.nearest_dash_wall(info, (1, 0), preview=preview))
 

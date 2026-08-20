@@ -20,7 +20,10 @@ import digiworld_bot as bot
 # Right is preferred for exploration, but left remains available for real
 # targets behind the Digimon and as a last safe route around blockers.
 DIRS = ((0, 1, "right"), (1, 0, "down"), (-1, 0, "up"), (0, -1, "left"))
-PYRAMID_THRESHOLD = .18
+# Measured across every ground-truth frame: real pyramids score 0.88-0.99,
+# while border decor, sprite parts, and apex remnants stay at or below 0.24.
+# The old 0.18 threshold sat inside the noise band and flickered constantly.
+PYRAMID_THRESHOLD = .45
 
 
 def is_obstacle(values):
@@ -198,7 +201,9 @@ def sixth_column_preview(image, board, min_strip=8):
         pr, pg, pb = zp[:, :, 0], zp[:, :, 1], zp[:, :, 2]
         pyramid = ((pb > 70) & (pr > 45) &
                    (pb.astype(int) > pg.astype(int) + 10)).mean()
-        result.append(bool(pyramid > .15))
+        # The board's own frame decor keeps the strip at 0.12-0.24 on every
+        # measured frame; a real incoming pyramid reads 0.93-1.0.
+        result.append(bool(pyramid > .5))
     return result
 
 
@@ -337,15 +342,20 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             kind = "orange" if orange_items else "item"
             return ("attack" if obstacle else "move", target, direction), f"{kind} targets={sorted(targets)}"
 
-    # Per game behavior confirmed by the user, Dash always goes right. Spend
-    # it only when at least two consecutive pyramids block that row.
+    # Per game behavior confirmed by the user, Dash always goes right. A dash
+    # costs 400 shards and measured drops average +14 energy, so spend it
+    # only on three consecutive pyramids (the sixth-column preview may
+    # supply the third when the run reaches the right edge).
     right_obstacles = 0
     for col in range(player[1] + 1, 5):
         if is_obstacle(info[(player[0], col)]):
             right_obstacles += 1
         else:
             break
-    if dashes_enabled and right_obstacles >= 2:
+    if (right_obstacles and player[1] + 1 + right_obstacles == 5 and
+            preview is not None and preview[player[0]]):
+        right_obstacles += 1
+    if dashes_enabled and right_obstacles >= 3:
         return ("dash", player, "right"), f"{right_obstacles} consecutive right obstacles"
 
     # Fast exploration: keep moving right. If blocked, destroy the obstacle;

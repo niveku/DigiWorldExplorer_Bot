@@ -22,7 +22,7 @@ def empty_grid():
 
 def wall(info, row, cols):
     for col in cols:
-        info[(row, col)]["pyramid"] = 0.25
+        info[(row, col)]["pyramid"] = 0.9
 
 
 class NearestDashWallTests(unittest.TestCase):

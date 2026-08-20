@@ -22,7 +22,7 @@ def empty_grid():
 
 class AttackResultTests(unittest.TestCase):
     def test_surviving_pyramid_is_not_broken(self):
-        values = {"pyramid": 0.25, "item": 0.02, "orange": 0.0, "pink": 0.0, "green": 0.0}
+        values = {"pyramid": 0.90, "item": 0.02, "orange": 0.0, "pink": 0.0, "green": 0.0}
         self.assertEqual(runner.attack_result(values),
                          {"broken": False, "revealed": None})
 
@@ -40,8 +40,8 @@ class AttackResultTests(unittest.TestCase):
 class DashPathReportTests(unittest.TestCase):
     def test_counts_pyramids_and_items_in_dash_range(self):
         info = empty_grid()
-        info[(2, 2)]["pyramid"] = 0.25
-        info[(2, 3)]["pyramid"] = 0.25
+        info[(2, 2)]["pyramid"] = 0.9
+        info[(2, 3)]["pyramid"] = 0.9
         info[(2, 4)].update(item=0.09, orange=0.09)
         report = runner.dash_path_report(info, (2, 1))
         self.assertEqual(report["pyramids"], 2)
@@ -50,7 +50,7 @@ class DashPathReportTests(unittest.TestCase):
 
     def test_path_is_clipped_at_board_edge(self):
         info = empty_grid()
-        info[(0, 4)]["pyramid"] = 0.25
+        info[(0, 4)]["pyramid"] = 0.9
         report = runner.dash_path_report(info, (0, 3))
         self.assertEqual(report["pyramids"], 1)
         self.assertEqual(report["cells_seen"], [[0, 4]])

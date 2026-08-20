@@ -47,7 +47,7 @@ class StrategyTests(unittest.TestCase):
         self.assertFalse(strategy.is_obstacle({"pyramid": 0.60, "item": 0.09}))
 
     def test_clipped_pyramid_is_blocked(self):
-        self.assertTrue(strategy.is_obstacle({"pyramid": 0.22, "item": 0.02}))
+        self.assertTrue(strategy.is_obstacle({"pyramid": 0.90, "item": 0.02}))
 
     def test_direct_horizontal_item_beats_distant_orange(self):
         info = empty_grid()
@@ -63,7 +63,7 @@ class StrategyTests(unittest.TestCase):
     def test_blocked_right_route_uses_vertical_detour(self):
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
-        info[(2, 2)]["pyramid"] = 0.25
+        info[(2, 2)]["pyramid"] = 0.9
         action, _ = strategy.choose(info, attacks_enabled=False,
                                     dashes_enabled=False)
         self.assertIn(action[2], ("up", "down"))
@@ -106,7 +106,7 @@ class BatchTests(unittest.TestCase):
 
     def test_followup_stops_before_pyramid(self):
         info = empty_grid()
-        info[(2, 4)]["pyramid"] = 0.25
+        info[(2, 4)]["pyramid"] = 0.9
         moves = runner.safe_followup_moves(
             info, (2, 1), (2, 2), "right", 2, set()
         )
