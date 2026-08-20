@@ -171,25 +171,46 @@ def items_flickering(current, previous):
     return bool(best_missing)
 
 
-def items_bursting(current, previous):
-    """True when too many item cells appeared at once for it to be real.
+def suspect_appearances(current, previous, shift=None, attack_cell=None):
+    """Item cells that appeared where nothing can appear.
 
-    The +20 confetti right after collecting an orange splatters 6-9
-    phantom orange cells across the board for exactly one frame (run
-    20260820T183527 events 32/36/55/159), and the bot chased them one
-    step left after nearly every pickup. A scroll reveals at most a
-    column's worth of genuinely new cells, so three or more arrivals
-    that no shift of the previous frame explains are an animation.
+    Items only enter the board two ways: scrolling in from the right
+    edge, or revealed at a cell whose pyramid was just broken. Any other
+    arrival is animation residue - the +20 confetti painted 6-9 phantom
+    oranges per pickup (run 20260820T183527) and two ghosts still leaked
+    past the burst WAIT (run 20260820T184744 events 105/136). Suspects
+    are ignored as targets for one frame; a real item survives into the
+    next frame's previous-set and stops being suspect.
     """
     if not previous:
-        return False
-    best_new = None
-    for shift in (0, 1, 2, 3):
+        return set()
+    if shift is None:
+        # Fallback when the caller cannot count the scroll: guess the
+        # shift that explains the most cells. A wrong guess can hide a
+        # ghost behind a coincidental mapping - prefer the exact count.
+        best_new = None
+        for guess in (0, 1, 2, 3):
+            shifted = {(row, col - guess) for row, col in previous}
+            new = set(current) - shifted
+            if best_new is None or len(new) < len(best_new):
+                best_new = new
+    else:
         shifted = {(row, col - shift) for row, col in previous}
-        new = set(current) - shifted
-        if best_new is None or len(new) < len(best_new):
-            best_new = new
-    return len(best_new) >= 3
+        best_new = set(current) - shifted
+    legit = {tuple(attack_cell)} if attack_cell else set()
+    return {cell for cell in best_new if cell[1] < 4 and cell not in legit}
+
+
+def combined_suspects(fresh, previous_fresh, current):
+    """Suspects for this frame: fresh arrivals plus last frame's fresh
+    arrivals that are still visible.
+
+    The pickup confetti spans two frames (it starts on the pickup frame
+    itself, run 20260820T184744 event 136), so a 1-frame check saw the
+    second frame as a survivor. Carrying over only the FRESH set caps
+    the suspicion at two frames: a real item unlocks on frame three.
+    """
+    return set(fresh) | (set(previous_fresh) & set(current))
 
 
 def prune_remembered_items(remembered, done, player, ttl_by_category=None):
@@ -821,6 +842,11 @@ def main():
     banned_targets = {}
     ban_history = set()
     remembered_items = {}
+    # Columns scrolled since the last decision frame: the exact shift for
+    # the phantom-appearance check (guessing it let ghosts hide behind
+    # coincidental mappings, run 20260820T184744 events 105/136).
+    scrolls_since_frame = 0
+    prev_fresh_suspects = set()
     committed_wall = None
     last_dash = None
     chest_cooldown = 0
@@ -1060,10 +1086,22 @@ def main():
         # two frames on every re-plan burned ~25s of wall clock in one run.
         current_item_cells = frozenset(visible_items)
         flickering = items_flickering(current_item_cells, prev_item_cells)
-        bursting = items_bursting(current_item_cells, prev_item_cells)
+        # Mid-board arrivals that neither the scroll nor a broken pyramid
+        # explains are confetti: ignored as targets for one frame instead
+        # of waiting (the burst WAIT cost ~9s per run and still leaked).
+        fresh_suspects = suspect_appearances(
+            current_item_cells, prev_item_cells,
+            shift=scrolls_since_frame,
+            attack_cell=(previous_attack_target
+                         if previous_action == "attack" else None))
+        suspect_items = combined_suspects(fresh_suspects, prev_fresh_suspects,
+                                          current_item_cells)
+        prev_fresh_suspects = fresh_suspects
         prev_item_cells = current_item_cells
-        if (len(visible_items) >= 3 and item_burst_waits < 2
-                and (flickering or bursting)):
+        scrolls_since_frame = 0
+        if suspect_items:
+            event["suspect_items"] = sorted(list(cell) for cell in suspect_items)
+        if len(visible_items) >= 3 and item_burst_waits < 2 and flickering:
             item_burst_waits += 1
             event["action"] = (f"WAIT: possible pickup animation; {len(visible_items)} "
                                f"item cells ({item_burst_waits}/2)")
@@ -1189,7 +1227,8 @@ def main():
             committed_wall = (wall_now, done)
         action, reason = strategy.choose(info, previous_direction,
                                          attacks_enabled, dashes_enabled,
-                                         ignored_targets=banned_targets.keys(),
+                                         ignored_targets=(set(banned_targets.keys())
+                                                          | suspect_items),
                                          player=player, preview=preview,
                                          hunt_walls=wall_stable)
         if (action is not None and action[0] != "dash" and dashes_enabled and
@@ -1274,6 +1313,7 @@ def main():
             committed_wall = None
             for _ in range(3):
                 remembered_items = shift_items_left(remembered_items)
+            scrolls_since_frame += 3
         else:
             x, y = bot.cell_center(det.board, *target)
             if kind == "attack":
@@ -1287,6 +1327,7 @@ def main():
             if kind == "move" and direction == "right" and target[1] >= 2:
                 remembered_items = shift_items_left(remembered_items)
                 committed_wall = None
+                scrolls_since_frame += 1
             pickup = item_category(info[target]) if kind == "move" else None
             if pickup:
                 collected[pickup] += 1
@@ -1310,6 +1351,7 @@ def main():
                     if direction == "right" and screen_target[1] >= 2:
                         remembered_items = shift_items_left(remembered_items)
                         committed_wall = None
+                        scrolls_since_frame += 1
                     pickup = item_category(info[checked])
                     if pickup:
                         collected[pickup] += 1

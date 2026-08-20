@@ -147,7 +147,14 @@ def shortest_action(info, player, targets, allow_obstacles=True):
             obstacle = is_obstacle(info[nxt])
             if obstacle and not allow_obstacles:
                 continue
-            step_cost = 5 if obstacle else 1
+            values = info[nxt]
+            # A cell holding a pickup is slightly cheaper: between two
+            # equal routes the bot must take the one that collects
+            # something on the way (run 20260820T184744 events 194-196
+            # rode an empty row past reachable paws).
+            free_cost = (0.9 if (values["item"] > .06 or
+                                 values.get("claw", 0.0) > .10) else 1)
+            step_cost = 5 if obstacle else free_cost
             if name == "right" and pos[0] not in target_rows:
                 step_cost += 0.05
             nc = cost + step_cost

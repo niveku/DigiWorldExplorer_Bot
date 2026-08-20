@@ -493,33 +493,102 @@ class WallStatusTests(unittest.TestCase):
         self.assertIn("Muro de pirámides", text)
 
 
-class PickupBurstTests(unittest.TestCase):
-    """Run 20260820T183527: the +20 confetti right after collecting an
-    orange splatters 6-9 phantom orange cells across the board for one
-    frame (events 32/36/55/159 all show them; the next frame shows zero).
-    The flicker guard only caught unexplained DISAPPEARANCES, so the bot
-    chased the confetti one step left after nearly every pickup."""
+class SuspectAppearanceTests(unittest.TestCase):
+    """Items cannot appear mid-board: they scroll in from the right edge
+    or get revealed by breaking a pyramid. Anything else is animation
+    residue (the +20 confetti painted 6-9 phantom oranges per pickup in
+    run 20260820T183527; two ghosts still leaked past the burst WAIT in
+    run 20260820T184744 events 105/136). Suspects are excluded from the
+    decision for one frame; a real item survives and becomes targetable."""
 
-    def test_mass_appearance_is_a_burst(self):
+    def test_mid_board_appearance_is_suspect(self):
         previous = frozenset({(2, 2)})
-        current = frozenset({(0, 2), (1, 2), (2, 1), (3, 0), (3, 2), (4, 0)})
-        self.assertTrue(runner.items_bursting(current, previous))
+        current = frozenset({(2, 2), (0, 1), (3, 0)})
+        self.assertEqual(runner.suspect_appearances(current, previous, shift=0),
+                         {(0, 1), (3, 0)})
 
-    def test_scroll_reveal_is_not_a_burst(self):
-        # One column scrolled in from the right: old items shift left,
-        # up to two new cells appear at the right edge.
-        previous = frozenset({(1, 3), (3, 2)})
-        current = frozenset({(1, 2), (3, 1), (2, 4), (4, 4)})
-        self.assertFalse(runner.items_bursting(current, previous))
-
-    def test_single_new_sighting_is_not_a_burst(self):
+    def test_right_edge_arrival_is_legit(self):
         previous = frozenset({(1, 3)})
         current = frozenset({(1, 3), (2, 4)})
-        self.assertFalse(runner.items_bursting(current, previous))
+        self.assertEqual(runner.suspect_appearances(current, previous, shift=0),
+                         set())
 
-    def test_empty_previous_frame_is_not_a_burst(self):
-        self.assertFalse(runner.items_bursting(frozenset({(1, 1), (2, 2), (3, 3)}),
-                                               frozenset()))
+    def test_scroll_shift_is_legit(self):
+        previous = frozenset({(1, 3), (3, 2)})
+        current = frozenset({(1, 2), (3, 1), (4, 4)})
+        self.assertEqual(runner.suspect_appearances(current, previous, shift=1),
+                         set())
+
+    def test_revealed_drop_at_attacked_cell_is_legit(self):
+        previous = frozenset()
+        current = frozenset({(2, 2)})
+        self.assertEqual(
+            runner.suspect_appearances(frozenset({(2, 2)}),
+                                       frozenset({(1, 1)}),
+                                       shift=0, attack_cell=(2, 2)),
+            set())
+
+    def test_first_frame_accepts_everything(self):
+        self.assertEqual(
+            runner.suspect_appearances(frozenset({(1, 1), (2, 2)}), frozenset(),
+                                       shift=0),
+            set())
+
+    def test_survivor_is_no_longer_suspect_next_frame(self):
+        previous = frozenset({(2, 2), (0, 1)})
+        current = frozenset({(2, 2), (0, 1)})
+        self.assertEqual(runner.suspect_appearances(current, previous, shift=0),
+                         set())
+
+    def test_two_frame_confetti_stays_suspect(self):
+        # Run 20260820T184744 event 136: the confetti starts on the
+        # pickup frame itself and survives into the next one, so a
+        # 1-frame check saw it as a survivor. A cell that was a fresh
+        # suspect last frame and is still visible stays suspect once
+        # more - and only once, so real items unlock on frame three.
+        fresh_last = {(3, 1)}
+        current = frozenset({(3, 1), (2, 4)})
+        combined = runner.combined_suspects(
+            fresh=set(), previous_fresh=fresh_last, current=current)
+        self.assertEqual(combined, {(3, 1)})
+
+    def test_real_item_unlocks_on_frame_three(self):
+        # Frame 3: the cell is no longer in previous_fresh (frame 2's
+        # fresh set was empty for it) so it becomes targetable.
+        combined = runner.combined_suspects(
+            fresh=set(), previous_fresh=set(),
+            current=frozenset({(3, 1)}))
+        self.assertEqual(combined, set())
+
+    def test_wrong_shift_cannot_explain_a_ghost(self):
+        # Run 20260820T184744 event 105: with guessed shifts, a shift-1
+        # mapping of a real item coincidentally landed on the phantom's
+        # cell and the ghost was chased. The board did not scroll between
+        # those frames, and shift=0 must expose it.
+        previous = frozenset({(1, 1)})
+        current = frozenset({(1, 0), (2, 3)})
+        self.assertEqual(runner.suspect_appearances(current, previous, shift=0),
+                         {(1, 0), (2, 3)})
+
+
+class RouteThroughPickupTests(unittest.TestCase):
+    """Run 20260820T184744 events 194-196: orange at (2,3), paws at
+    (2,2), pyramid at (2,1). Both routes to the orange cost the same, and
+    the bot rode the empty row 3 instead of crossing the paws. Equal-cost
+    ties must prefer the path that collects something on the way."""
+
+    def test_equal_paths_prefer_the_one_with_a_pickup(self):
+        info = empty_grid()
+        info[(1, 2)].update(item=0.09, orange=0.09)   # goal
+        info[(2, 2)].update(item=0.09, pink=0.09)     # paws en route
+        step = strategy.shortest_action(info, (2, 1), {(1, 2)})
+        self.assertEqual(step[2], "right")
+
+    def test_without_the_pickup_vertical_alignment_wins(self):
+        info = empty_grid()
+        info[(1, 2)].update(item=0.09, orange=0.09)
+        step = strategy.shortest_action(info, (2, 1), {(1, 2)})
+        self.assertEqual(step[2], "up")
 
 
 class AttackEconomicsTests(unittest.TestCase):
