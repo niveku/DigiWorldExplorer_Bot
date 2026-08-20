@@ -35,10 +35,47 @@ TARGET_BAN_ACTIONS = 25
 
 
 def loop_guard_tripped(recent_states):
-    """A-B-A-B in the last four (player, goals) states means we are pacing."""
-    return (len(recent_states) >= 4 and
+    """Detect pacing: A-B-A-B, stuck-in-place, or longer revisit cycles.
+
+    Period-2 alternation was the first observed loop; run 20260820T022548
+    added a period-3 goal-conflict cycle the old check never caught. Any
+    state revisited three times within the last twelve is a loop.
+    """
+    if (len(recent_states) >= 4 and
             recent_states[-4] == recent_states[-2] and
-            recent_states[-3] == recent_states[-1])
+            recent_states[-3] == recent_states[-1]):
+        return True
+    if not recent_states:
+        return False
+    return recent_states[-12:].count(recent_states[-1]) >= 3
+
+
+def merge_remembered_items(info, remembered, player):
+    """Re-inject remembered pickups that suppression or occlusion hid.
+
+    An item sighted from afar disappears when the big sprite gets close
+    (suppress_sprite_leaks wipes its 3x3), which flipped goals every step
+    in run 20260820T022548. Remembered cells keep a just-over-threshold
+    score so the pathfinder holds course; the player's own cell is never
+    reinjected (standing there collects it).
+    """
+    merged = dict(info)
+    for cell, (category, _) in remembered.items():
+        if cell == player:
+            continue
+        values = merged[cell]
+        if values["item"] <= .06:
+            patched = dict(values)
+            patched[category] = max(patched[category], .07)
+            patched["item"] = .07
+            merged[cell] = patched
+    return merged
+
+
+def shift_items_left(remembered):
+    """Scroll compensation: the world moved one column left."""
+    return {(row, col - 1): value
+            for (row, col), value in remembered.items() if col - 1 >= 0}
 
 
 def should_reenable(disabled_at, done, span=REENABLE_ACTIONS):
@@ -532,6 +569,7 @@ def main():
     loop_strikes = 0
     banned_targets = {}
     ban_history = set()
+    remembered_items = {}
     previous_action = None
     previous_attack_target = None
     previous_dash_player = None
@@ -690,8 +728,17 @@ def main():
         player_unreliable = 0
         if player_source == "large-sprite":
             # A big sprite's own colors read as pickups in the cells its body
-            # covers; wipe them so the bot stops chasing its own wings.
+            # covers; wipe them so the bot stops chasing its own wings. Items
+            # sighted from afar are remembered so getting close (and wiping
+            # their cell) does not make the goal flicker away.
             info = strategy.suppress_sprite_leaks(info, player)
+            for cell, values in info.items():
+                if values["item"] > .06 and cell != player:
+                    remembered_items[cell] = (item_category(values) or "orange", done)
+            remembered_items = {
+                cell: value for cell, value in remembered_items.items()
+                if done - value[1] <= 25 and cell != player}
+            info = merge_remembered_items(info, remembered_items, player)
         visible_items = [cell for cell, values in info.items() if values["item"] > .06]
         if len(visible_items) >= 3 and item_burst_waits < 2:
             item_burst_waits += 1
@@ -776,7 +823,7 @@ def main():
             previous_dash_player = None
             previous_dash_obstacles = 0
         recent_states.append((player, tuple(sorted(item_goals))))
-        recent_states = recent_states[-4:]
+        recent_states = recent_states[-12:]
         loop_guard = loop_guard_tripped(recent_states)
         loop_strikes = loop_strikes + 1 if loop_guard else 0
         banned_targets = {cell: expiry for cell, expiry in banned_targets.items()
@@ -890,6 +937,8 @@ def main():
             expected_rollback = player
             expected_player = (player if kind == "attack"
                                else expected_after_move(target, direction))
+            if kind == "move" and direction == "right" and target[1] >= 2:
+                remembered_items = shift_items_left(remembered_items)
             pickup = item_category(info[target]) if kind == "move" else None
             if pickup:
                 collected[pickup] += 1
@@ -910,6 +959,8 @@ def main():
                     sent.append({"type": "move", "target_cell": list(screen_target),
                                  "validated_from_cell": list(checked), "adb_xy": [x2, y2]})
                     expected_player = expected_after_move(screen_target, direction)
+                    if direction == "right" and screen_target[1] >= 2:
+                        remembered_items = shift_items_left(remembered_items)
                     pickup = item_category(info[checked])
                     if pickup:
                         collected[pickup] += 1

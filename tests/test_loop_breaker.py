@@ -100,9 +100,42 @@ class LoopGuardTests(unittest.TestCase):
         states = [((1, 1), ()), ((1, 2), ()), ((1, 3), ()), ((1, 4), ())]
         self.assertFalse(runner.loop_guard_tripped(states))
 
-    def test_short_history_never_trips(self):
+    def test_stuck_in_place_trips_after_three_identical_states(self):
         a = ((1, 1), ())
-        self.assertFalse(runner.loop_guard_tripped([a, a, a]))
+        self.assertFalse(runner.loop_guard_tripped([a, a]))
+        self.assertTrue(runner.loop_guard_tripped([a, a, a]))
+
+    def test_period_three_cycle_trips(self):
+        a, b, c = ((3, 1), ((0, 1),)), ((2, 1), ()), ((1, 1), ())
+        self.assertFalse(runner.loop_guard_tripped([a, b, c, a, b, c]))
+        self.assertTrue(runner.loop_guard_tripped([a, b, c, a, b, c, a]))
+
+
+class ItemMemoryTests(unittest.TestCase):
+    def grid(self):
+        return {
+            (row, col): {"player": 0.0, "orange": 0.0, "pink": 0.0, "green": 0.0,
+                         "item": 0.0, "pyramid": 0.0, "highlight": 0.2}
+            for row in range(5) for col in range(5)
+        }
+
+    def test_remembered_item_survives_suppression(self):
+        info = self.grid()  # item at (0,1) already wiped by suppression
+        remembered = {(0, 1): ("orange", 10)}
+        merged = runner.merge_remembered_items(info, remembered, player=(1, 1))
+        self.assertGreater(merged[(0, 1)]["item"], 0.06)
+        self.assertGreater(merged[(0, 1)]["orange"], 0.06)
+
+    def test_player_cell_is_never_reinjected(self):
+        info = self.grid()
+        remembered = {(1, 1): ("orange", 10)}
+        merged = runner.merge_remembered_items(info, remembered, player=(1, 1))
+        self.assertEqual(merged[(1, 1)]["item"], 0.0)
+
+    def test_scroll_shifts_remembered_items_left(self):
+        remembered = {(0, 1): ("orange", 5), (2, 0): ("green", 7)}
+        shifted = runner.shift_items_left(remembered)
+        self.assertEqual(shifted, {(0, 0): ("orange", 5)})
 
 
 class ReenableTests(unittest.TestCase):
