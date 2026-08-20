@@ -68,6 +68,30 @@ def corridor_dash_due(action, last_attack, done, preview, dashes_enabled, ttl=4)
             and bool(preview[row]))
 
 
+def milestone_chest_ready(image):
+    """Return the milestone chest's tap point when a reward is claimable.
+
+    At every 1,000m the chest by the progress bar gains a magenta '!'
+    badge (user captures 2026-08-20). After claiming, the chest stays
+    golden until the next scroll but the badge disappears, so the badge -
+    combined with the golden chest - is the claim signal. Claiming takes
+    two taps on the same point: one opens the Reward overlay, one closes
+    it. Costs one numpy pass over 15% of the frame, no extra screenshots.
+    """
+    a = np.asarray(image.convert("RGB")).astype(int)
+    height, width = a.shape[:2]
+    y0 = int(height * .65)
+    band = a[y0:int(height * .80)]
+    r, g, b = band[:, :, 0], band[:, :, 1], band[:, :, 2]
+    badge = (r > 200) & (g < 110) & (b > 110) & (b < 210)
+    gold = (r > 210) & (g > 150) & (g < 215) & (b < 110)
+    area = band.shape[0] * band.shape[1]
+    if badge.sum() < area * .0005 or gold.sum() < area * .001:
+        return None
+    ys, xs = np.where(gold | badge)
+    return int(xs.mean()), int(ys.mean()) + y0
+
+
 def out_of_steps(inventory, rejected_streak, threshold=2):
     """True when moves keep bouncing and the stamina counter confirms 0.
 
@@ -634,6 +658,7 @@ def main():
     remembered_items = {}
     committed_wall = None
     last_dash = None
+    chest_cooldown = 0
     prev_item_cells = None
     last_attack = None
     previous_action = None
@@ -657,6 +682,34 @@ def main():
         event = {"time_utc": stamp, "next_index": done, "detection": bot.asdict(det)}
         if args.verbose:
             progress(done, args.steps, "Scanne Spielfeld und berechne neu ...", "90")
+
+        # Milestone chest: claim as soon as the magenta badge lights up.
+        # Two taps on the same point (open Reward, close it); the energy
+        # credits on the next scroll, so both reads are logged for the
+        # analyzer. The cooldown keeps the check from re-firing while the
+        # claimed chest is still golden.
+        if chest_cooldown:
+            chest_cooldown -= 1
+        else:
+            chest_point = milestone_chest_ready(image)
+            if chest_point is not None:
+                claim = {"tap_xy": list(chest_point),
+                         "energy_before": read_energy_counter(image)}
+                for _ in range(2):
+                    bot.adb(args.adb, args.serial, "shell", "input", "tap",
+                            str(chest_point[0]), str(chest_point[1]))
+                    time.sleep(1.2)
+                claim["energy_after"] = read_energy_counter(
+                    bot.screenshot(args.adb, args.serial))
+                event["action"] = "CLAIM: milestone chest"
+                event["milestone_claim"] = claim
+                chest_cooldown = 20
+                bot.log_event(log, event)
+                if args.verbose:
+                    progress(done, args.steps,
+                             "Meilenstein-Truhe eingesammelt", "32")
+                time.sleep(args.interval)
+                continue
 
         if bot.tutorial_overlay_center(image) is not None:
             if previous_action == "attack":

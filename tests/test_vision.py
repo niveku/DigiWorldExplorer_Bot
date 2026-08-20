@@ -62,6 +62,30 @@ class InventoryOcrTests(unittest.TestCase):
         self.assertEqual(runner.read_inventory_counters(image),
                          {"steps": 127, "attacks": 59, "dashes": 25})
 
+    def test_milestone_chest_badge_signals_a_claim(self):
+        # User captures 2026-08-20: at each 1,000m milestone the chest by
+        # the progress bar gains a magenta '!' badge. After claiming, the
+        # chest stays golden but the badge disappears - the badge, not the
+        # gold, is the claim signal.
+        image = Image.open(FIXTURES / "chest_ready.png")
+        point = runner.milestone_chest_ready(image)
+        self.assertIsNotNone(point)
+        x, y = point
+        self.assertAlmostEqual(x / image.width, 0.72, delta=0.08)
+        self.assertAlmostEqual(y / image.height, 0.73, delta=0.05)
+
+    def test_claimed_chest_without_badge_is_not_retapped(self):
+        image = Image.open(FIXTURES / "chest_claimed.png")
+        self.assertIsNone(runner.milestone_chest_ready(image))
+
+    def test_reset_chest_is_ignored(self):
+        image = Image.open(FIXTURES / "chest_reset.png")
+        self.assertIsNone(runner.milestone_chest_ready(image))
+
+    def test_ordinary_board_frame_shows_no_claim(self):
+        image = Image.open(FIXTURES / "claw_board.png")
+        self.assertIsNone(runner.milestone_chest_ready(image))
+
     def test_claw_pickup_gets_its_own_score(self):
         # Live capture 2026-08-20: claw pickup at (0,3) (yellow slashes on a
         # dark disc, RGB ~254,223,50). The generic item score only reached
