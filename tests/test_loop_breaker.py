@@ -149,6 +149,18 @@ class CommittedWallTests(unittest.TestCase):
         self.assertFalse(runner.committed_wall_dash(((4, 0), 10), (3, 0), 11))
         self.assertFalse(runner.committed_wall_dash(None, (4, 0), 11))
 
+    def test_the_dash_itself_consumes_the_commitment(self):
+        # Runs 20260820T031845/032120: after the wall dash, the scroll left
+        # the player on the same launch column, the broken wall no longer
+        # re-committed, and the stale commitment fired a second 400-shard
+        # dash into a path with a single leftover pyramid.
+        self.assertFalse(runner.committed_wall_dash(
+            ((4, 0), 10), (4, 0), 11, last_dash=10))
+
+    def test_a_fresh_commitment_after_the_dash_still_fires(self):
+        self.assertTrue(runner.committed_wall_dash(
+            ((4, 0), 12), (4, 0), 13, last_dash=10))
+
 
 class ReenableTests(unittest.TestCase):
     def test_cooldown_elapsed_reenables(self):

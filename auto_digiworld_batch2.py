@@ -82,7 +82,7 @@ def out_of_steps(inventory, rejected_streak, threshold=2):
     return steps is not None and steps <= 0
 
 
-def committed_wall_dash(committed_wall, player, done, ttl=3):
+def committed_wall_dash(committed_wall, player, done, ttl=3, last_dash=None):
     """True when standing on a recently confirmed wall launch cell.
 
     Wall detection can flicker for one frame right when the bot arrives at
@@ -91,9 +91,18 @@ def committed_wall_dash(committed_wall, player, done, ttl=3):
     opportunistic rule finally fired the dash). Walls do not vanish on
     their own, so a launch confirmed within the last few actions is still
     valid: dash.
+
+    A dash consumes the commitment it honored: after the wall dash the
+    scroll leaves the player on the same launch column and the broken wall
+    stops re-committing, so a commitment not newer than the last dash sent
+    fired a second 400-shard dash into an almost empty path (runs
+    20260820T031845/032120, one wasted dash each).
     """
-    return (committed_wall is not None and committed_wall[0] == player
-            and done - committed_wall[1] <= ttl)
+    if committed_wall is None or committed_wall[0] != player:
+        return False
+    if last_dash is not None and last_dash >= committed_wall[1]:
+        return False
+    return done - committed_wall[1] <= ttl
 
 
 def merge_remembered_items(info, remembered, player):
@@ -617,6 +626,7 @@ def main():
     ban_history = set()
     remembered_items = {}
     committed_wall = None
+    last_dash = None
     prev_item_cells = None
     last_attack = None
     previous_action = None
@@ -935,7 +945,8 @@ def main():
                                          player=player, preview=preview,
                                          hunt_walls=wall_stable)
         if (action is not None and action[0] != "dash" and dashes_enabled and
-                wall_now is None and committed_wall_dash(committed_wall, player, done)):
+                wall_now is None and committed_wall_dash(committed_wall, player,
+                                                         done, last_dash=last_dash)):
             action, reason = ("dash", player, "right"), "committed wall dash"
             committed_wall = None
         if corridor_dash_due(action, last_attack, done, preview, dashes_enabled):
@@ -1009,6 +1020,12 @@ def main():
                     str(control[0]), str(control[1]))
             sent.append({"type": "dash", "adb_xy": list(control)})
             expected_player = None
+            # The dash consumes any wall commitment and advances the scroll
+            # three columns, so remembered items shift with it.
+            last_dash = done
+            committed_wall = None
+            for _ in range(3):
+                remembered_items = shift_items_left(remembered_items)
         else:
             x, y = bot.cell_center(det.board, *target)
             if kind == "attack":
