@@ -116,7 +116,14 @@ def cells(image, board):
 
 
 def shortest_action(info, player, targets, allow_obstacles=True):
-    """Weighted path: empty field costs 1, destructible pyramid costs 2.
+    """Weighted path: empty field costs 1, destructible pyramid costs 5.
+
+    A garra costs 200 shards plus the 40-shard follow-up step, minus
+    roughly one step of expected drop value (50.9% break-drop rate at
+    ~+20 energy) - about five steps at 40 shards each. Pricing it at 2
+    made a one-attack shortcut tie a free two-step detour and win by pop
+    order (run 20260820T183527 attacks 25/85 spent garras beside free
+    detours). Breaking through still wins where no free path exists.
 
     A rightward step taken from a row that holds no target costs slightly
     more: it scrolls the whole world (targets included) one column left
@@ -140,7 +147,7 @@ def shortest_action(info, player, targets, allow_obstacles=True):
             obstacle = is_obstacle(info[nxt])
             if obstacle and not allow_obstacles:
                 continue
-            step_cost = 2 if obstacle else 1
+            step_cost = 5 if obstacle else 1
             if name == "right" and pos[0] not in target_rows:
                 step_cost += 0.05
             nc = cost + step_cost

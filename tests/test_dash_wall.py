@@ -493,6 +493,102 @@ class WallStatusTests(unittest.TestCase):
         self.assertIn("Muro de pirámides", text)
 
 
+class PickupBurstTests(unittest.TestCase):
+    """Run 20260820T183527: the +20 confetti right after collecting an
+    orange splatters 6-9 phantom orange cells across the board for one
+    frame (events 32/36/55/159 all show them; the next frame shows zero).
+    The flicker guard only caught unexplained DISAPPEARANCES, so the bot
+    chased the confetti one step left after nearly every pickup."""
+
+    def test_mass_appearance_is_a_burst(self):
+        previous = frozenset({(2, 2)})
+        current = frozenset({(0, 2), (1, 2), (2, 1), (3, 0), (3, 2), (4, 0)})
+        self.assertTrue(runner.items_bursting(current, previous))
+
+    def test_scroll_reveal_is_not_a_burst(self):
+        # One column scrolled in from the right: old items shift left,
+        # up to two new cells appear at the right edge.
+        previous = frozenset({(1, 3), (3, 2)})
+        current = frozenset({(1, 2), (3, 1), (2, 4), (4, 4)})
+        self.assertFalse(runner.items_bursting(current, previous))
+
+    def test_single_new_sighting_is_not_a_burst(self):
+        previous = frozenset({(1, 3)})
+        current = frozenset({(1, 3), (2, 4)})
+        self.assertFalse(runner.items_bursting(current, previous))
+
+    def test_empty_previous_frame_is_not_a_burst(self):
+        self.assertFalse(runner.items_bursting(frozenset({(1, 1), (2, 2), (3, 3)}),
+                                               frozenset()))
+
+
+class AttackEconomicsTests(unittest.TestCase):
+    """Run 20260820T183527 attacks 25/85: a garra route (200 + 40 = 240
+    shards) was chosen over a free 4-step detour (160 shards) because the
+    pathfinder priced a pyramid at 2 steps. Real price: garra plus the
+    follow-up step, minus the expected drop (~1 step), is about 5 steps."""
+
+    def test_free_detour_beats_breaking_through(self):
+        # Player (1,1), pyramid (1,2), orange behind it at (1,3); row 2
+        # free. Mirrors attack 25: the bot must walk around, not attack.
+        info = empty_grid()
+        info[(1, 1)]["player"] = 0.2
+        info[(1, 2)]["pyramid"] = 0.9
+        info[(1, 3)].update(item=0.09, orange=0.09)
+        action, reason = strategy.choose(info, dashes_enabled=False)
+        self.assertNotEqual(action[0], "attack")
+
+    def test_walled_in_orange_still_gets_the_attack(self):
+        info = empty_grid()
+        info[(1, 1)]["player"] = 0.2
+        info[(1, 3)].update(item=0.09, orange=0.09)
+        for cell in ((0, 2), (1, 2), (2, 2), (0, 3), (2, 3), (0, 4), (2, 4), (1, 4)):
+            info[cell]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, dashes_enabled=False)
+        self.assertEqual(action[0], "attack")
+
+
+class ClawMemoryTests(unittest.TestCase):
+    """The claw at run 20260820T181916 event 83 was real (user-confirmed)
+    but the detector dropped it for one frame and the bot abandoned it.
+    Claws only move with the scroll, so a recent sighting is re-injected
+    for a few frames to bridge detector gaps."""
+
+    def test_remembered_claw_is_reinjected(self):
+        info = empty_grid()
+        for values in info.values():
+            values["claw"] = 0.0
+        merged = runner.merge_remembered_items(
+            info, {(2, 2): ("claw", 5)}, (0, 0))
+        self.assertGreater(merged[(2, 2)]["claw"], 0.10)
+        self.assertLessEqual(merged[(2, 2)]["item"], 0.06)
+
+    def test_remembered_claw_becomes_a_target_again(self):
+        info = empty_grid()
+        for values in info.values():
+            values["claw"] = 0.0
+        info[(2, 1)]["player"] = 0.2
+        merged = runner.merge_remembered_items(
+            info, {(2, 2): ("claw", 5)}, (2, 1))
+        action, reason = strategy.choose(merged)
+        # The adjacent-item rule may claim it first; what matters is that
+        # the bot steps onto the remembered claw instead of dropping it.
+        self.assertEqual(action, ("move", (2, 2), "right"))
+
+    def test_claw_memory_expires_quickly(self):
+        remembered = {(2, 2): ("claw", 5), (3, 3): ("orange", 5)}
+        pruned = runner.prune_remembered_items(remembered, done=10,
+                                               player=(0, 0))
+        self.assertNotIn((2, 2), pruned)   # claw TTL 4 exceeded
+        self.assertIn((3, 3), pruned)      # item TTL 25 still valid
+
+    def test_visited_cell_is_forgotten(self):
+        remembered = {(2, 2): ("claw", 9)}
+        pruned = runner.prune_remembered_items(remembered, done=10,
+                                               player=(2, 2))
+        self.assertEqual(pruned, {})
+
+
 class ScrollAwareRoutingTests(unittest.TestCase):
     """Run 20260820T181916 events 188-192: oranges on row 1, player riding
     row 0 rightward. Every misaligned right step scrolls the target one

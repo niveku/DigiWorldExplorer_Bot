@@ -171,6 +171,41 @@ def items_flickering(current, previous):
     return bool(best_missing)
 
 
+def items_bursting(current, previous):
+    """True when too many item cells appeared at once for it to be real.
+
+    The +20 confetti right after collecting an orange splatters 6-9
+    phantom orange cells across the board for exactly one frame (run
+    20260820T183527 events 32/36/55/159), and the bot chased them one
+    step left after nearly every pickup. A scroll reveals at most a
+    column's worth of genuinely new cells, so three or more arrivals
+    that no shift of the previous frame explains are an animation.
+    """
+    if not previous:
+        return False
+    best_new = None
+    for shift in (0, 1, 2, 3):
+        shifted = {(row, col - shift) for row, col in previous}
+        new = set(current) - shifted
+        if best_new is None or len(new) < len(best_new):
+            best_new = new
+    return len(best_new) >= 3
+
+
+def prune_remembered_items(remembered, done, player, ttl_by_category=None):
+    """Drop remembered pickups that expired or were just visited.
+
+    Claws expire fast: their memory only exists to bridge one or two
+    frames where the detector loses a real claw (border-contact zeroing
+    while the partner walks nearby). Items remembered by the big-sprite
+    path keep the long TTL they always had.
+    """
+    ttl_by_category = ttl_by_category or {"claw": 4}
+    return {cell: value for cell, value in remembered.items()
+            if done - value[1] <= ttl_by_category.get(value[0], 25)
+            and cell != player}
+
+
 def close_reward_overlay(tap, capture, classify, max_taps=5, pause=None):
     """Tap until the board is back; return the taps used.
 
@@ -240,7 +275,14 @@ def merge_remembered_items(info, remembered, player):
         if cell == player:
             continue
         values = merged[cell]
-        if values["item"] <= .06:
+        if category == "claw":
+            # A claw is targeted via its own mask (claw > .10 with item
+            # <= .06); patching "item" would disqualify it instead.
+            if values.get("claw", 0.0) <= .10 and values["item"] <= .06:
+                patched = dict(values)
+                patched["claw"] = .12
+                merged[cell] = patched
+        elif values["item"] <= .06:
             patched = dict(values)
             patched[category] = max(patched[category], .07)
             patched["item"] = .07
@@ -1001,9 +1043,16 @@ def main():
             for cell, values in info.items():
                 if values["item"] > .06 and cell != player:
                     remembered_items[cell] = (item_category(values) or "orange", done)
-            remembered_items = {
-                cell: value for cell, value in remembered_items.items()
-                if done - value[1] <= 25 and cell != player}
+        # Claw sightings are remembered for every partner: the detector
+        # drops a real claw for a frame when the sprite brushes its border
+        # (user-confirmed at run 20260820T181916 event 83), and claws only
+        # move with the scroll.
+        for cell, values in info.items():
+            if (values.get("claw", 0.0) > .10 and values["item"] <= .06
+                    and cell != player):
+                remembered_items[cell] = ("claw", done)
+        remembered_items = prune_remembered_items(remembered_items, done, player)
+        if remembered_items:
             info = merge_remembered_items(info, remembered_items, player)
         visible_items = [cell for cell, values in info.items() if values["item"] > .06]
         # A pickup animation flickers the item set between frames; a rich but
@@ -1011,8 +1060,10 @@ def main():
         # two frames on every re-plan burned ~25s of wall clock in one run.
         current_item_cells = frozenset(visible_items)
         flickering = items_flickering(current_item_cells, prev_item_cells)
+        bursting = items_bursting(current_item_cells, prev_item_cells)
         prev_item_cells = current_item_cells
-        if len(visible_items) >= 3 and item_burst_waits < 2 and flickering:
+        if (len(visible_items) >= 3 and item_burst_waits < 2
+                and (flickering or bursting)):
             item_burst_waits += 1
             event["action"] = (f"WAIT: possible pickup animation; {len(visible_items)} "
                                f"item cells ({item_burst_waits}/2)")
