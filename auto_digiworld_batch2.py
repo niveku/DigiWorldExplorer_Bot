@@ -50,6 +50,20 @@ def loop_guard_tripped(recent_states):
     return recent_states[-12:].count(recent_states[-1]) >= 3
 
 
+def committed_wall_dash(committed_wall, player, done, ttl=3):
+    """True when standing on a recently confirmed wall launch cell.
+
+    Wall detection can flicker for one frame right when the bot arrives at
+    the launch (run 20260820T023300, events 44-48: reached (4,0), the wall
+    blinked out, and the bot paced away and back three times before an
+    opportunistic rule finally fired the dash). Walls do not vanish on
+    their own, so a launch confirmed within the last few actions is still
+    valid: dash.
+    """
+    return (committed_wall is not None and committed_wall[0] == player
+            and done - committed_wall[1] <= ttl)
+
+
 def merge_remembered_items(info, remembered, player):
     """Re-inject remembered pickups that suppression or occlusion hid.
 
@@ -570,6 +584,7 @@ def main():
     banned_targets = {}
     ban_history = set()
     remembered_items = {}
+    committed_wall = None
     previous_action = None
     previous_attack_target = None
     previous_dash_player = None
@@ -855,10 +870,18 @@ def main():
             dashes_enabled = True
             dashes_disabled_at = None
             event["dash_state"] = {"status": "re-enabled: drops may have refilled dashes"}
+        wall_now = (strategy.nearest_dash_wall(info, player, preview=preview)
+                    if dashes_enabled else None)
+        if wall_now is not None:
+            committed_wall = (wall_now, done)
         action, reason = strategy.choose(info, previous_direction,
                                          attacks_enabled, dashes_enabled,
                                          ignored_targets=banned_targets.keys(),
                                          player=player, preview=preview)
+        if (action is not None and action[0] != "dash" and dashes_enabled and
+                wall_now is None and committed_wall_dash(committed_wall, player, done)):
+            action, reason = ("dash", player, "right"), "committed wall dash"
+            committed_wall = None
         if action is None:
             event["action"] = "STOP: no safe action"
             bot.log_event(log, event)
@@ -939,6 +962,7 @@ def main():
                                else expected_after_move(target, direction))
             if kind == "move" and direction == "right" and target[1] >= 2:
                 remembered_items = shift_items_left(remembered_items)
+                committed_wall = None
             pickup = item_category(info[target]) if kind == "move" else None
             if pickup:
                 collected[pickup] += 1
@@ -961,6 +985,7 @@ def main():
                     expected_player = expected_after_move(screen_target, direction)
                     if direction == "right" and screen_target[1] >= 2:
                         remembered_items = shift_items_left(remembered_items)
+                        committed_wall = None
                     pickup = item_category(info[checked])
                     if pickup:
                         collected[pickup] += 1

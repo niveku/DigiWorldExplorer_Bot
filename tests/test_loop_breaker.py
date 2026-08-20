@@ -138,6 +138,18 @@ class ItemMemoryTests(unittest.TestCase):
         self.assertEqual(shifted, {(0, 0): ("orange", 5)})
 
 
+class CommittedWallTests(unittest.TestCase):
+    def test_standing_on_a_fresh_launch_forces_the_dash(self):
+        self.assertTrue(runner.committed_wall_dash(((4, 0), 10), (4, 0), 12))
+
+    def test_stale_commitments_expire(self):
+        self.assertFalse(runner.committed_wall_dash(((4, 0), 10), (4, 0), 14))
+
+    def test_other_cells_do_not_trigger(self):
+        self.assertFalse(runner.committed_wall_dash(((4, 0), 10), (3, 0), 11))
+        self.assertFalse(runner.committed_wall_dash(None, (4, 0), 11))
+
+
 class ReenableTests(unittest.TestCase):
     def test_cooldown_elapsed_reenables(self):
         self.assertTrue(runner.should_reenable(10, 50))
