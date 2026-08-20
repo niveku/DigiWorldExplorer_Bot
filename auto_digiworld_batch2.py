@@ -120,6 +120,19 @@ def _digit_templates():
                     result[digit].append(_normalize_glyph(np.asarray(canvas) > 100))
     except OSError:
         return None
+    # Glyphs harvested from real game screenshots (tests/fixtures ground
+    # truth) match far better than any system font approximation.
+    game_path = Path(__file__).with_name("game_digit_templates.json")
+    if game_path.exists():
+        try:
+            harvested = json.loads(game_path.read_text(encoding="utf-8"))
+            for digit, glyphs in harvested.items():
+                if digit in result:
+                    for glyph in glyphs:
+                        result[digit].append(
+                            np.array([[char == "1" for char in row] for row in glyph]))
+        except (OSError, ValueError):
+            pass
     if not all(result.values()):
         return None
     _DIGIT_TEMPLATES = result
@@ -184,7 +197,7 @@ def _decode_digit_runs(mask, templates):
         normalized = _normalize_glyph(glyph)
         ranked = sorted((min(float(np.mean(normalized != item)) for item in candidates), digit)
                         for digit, candidates in templates.items())
-        if ranked[0][0] > .16 or ranked[1][0] - ranked[0][0] < .04:
+        if ranked[0][0] > .18 or ranked[1][0] - ranked[0][0] < .04:
             return None
         digits.append(ranked[0][1])
     if not 1 <= len(digits) <= 6:
@@ -286,6 +299,54 @@ def plan_status(kind, direction, reason, item_count):
         return "Pyramide gesichtet - sicherer Angriff wird ausgefuehrt"
     labels = {"right": "rechts", "left": "links", "up": "oben", "down": "unten"}
     return f"Erkunde nach {labels.get(direction, direction)} - {reason}"
+
+
+def read_ticket_counters(image):
+    """Read the top-HUD summon ticket counters (green and purple tickets).
+
+    The three top pills (orange energy, green ticket, purple ticket) share a
+    layout: colored icon on the left, white digits on a gray pill. Each icon
+    is located by color and the digits to its right are template-matched.
+    """
+    empty = {"green": None, "purple": None}
+    templates = _digit_templates()
+    if templates is None:
+        return dict(empty)
+    rgb = np.asarray(image.convert("RGB"))
+    height = rgb.shape[0]
+    top = rgb[:max(1, int(height * .06))]
+    r = top[:, :, 0].astype(int)
+    g = top[:, :, 1].astype(int)
+    b = top[:, :, 2].astype(int)
+    icon_masks = {
+        "green": (g > 150) & (r < 150) & (g > b + 60),
+        "purple": (r > 170) & (b > 190) & (g < 150),
+    }
+    result = dict(empty)
+    for name, mask in icon_masks.items():
+        ys, xs = np.where(mask)
+        if not len(xs):
+            continue
+        y0, y1, x1 = ys.min(), ys.max(), xs.max()
+        if y1 - y0 < 12:
+            continue
+        roi = top[y0 + 4:y1 - 2, x1 + 4:min(top.shape[1], x1 + 130)]
+        if roi.shape[0] < 10:
+            continue
+        white = (roi[:, :, 0] > 215) & (roi[:, :, 1] > 215) & (roi[:, :, 2] > 215)
+        # The pill's white rounded border fills whole rows; digits never do.
+        white[white.mean(axis=1) > .6] = False
+        result[name] = _decode_digit_runs(white, templates)
+    return result
+
+
+def read_drop_counters(image):
+    """All HUD counters a pyramid drop can move, in one flat dict."""
+    counters = read_inventory_counters(image)
+    tickets = read_ticket_counters(image)
+    counters["green_tickets"] = tickets["green"]
+    counters["purple_tickets"] = tickets["purple"]
+    return counters
 
 
 def expected_after_move(screen_target, direction):
@@ -506,7 +567,7 @@ def main():
             if args.verbose and energy_start is not None:
                 progress(done, args.steps, f"Energie-Startwert: {format_counter(energy_start)}", "93")
         if inventory_start is None:
-            reading = read_inventory_counters(image)
+            reading = read_drop_counters(image)
             if any(value is not None for value in reading.values()):
                 inventory_start = reading
                 event["inventory_start"] = reading
@@ -561,13 +622,15 @@ def main():
         effective_batch_size = adaptive_batch_limit(args.batch_size, item_goals)
         if previous_action == "attack" and previous_attack_target is not None:
             result = attack_result(info[previous_attack_target])
-            inv_after = (read_inventory_counters(image)
+            inv_after = (read_drop_counters(image)
                          if pending_attack_inv is not None else None)
             event["pyramid_result"] = dict(result,
                                            target_cell=list(previous_attack_target),
                                            scores=info[previous_attack_target],
                                            attacks_before=(pending_attack_inv or {}).get("attacks"),
-                                           attacks_after=(inv_after or {}).get("attacks"))
+                                           attacks_after=(inv_after or {}).get("attacks"),
+                                           counters_before=pending_attack_inv,
+                                           counters_after=inv_after)
             pending_attack_inv = None
             if not result["broken"]:
                 attacks_enabled = False
@@ -593,7 +656,7 @@ def main():
                                      if energy_before is not None and energy_after is not None
                                      else None),
                     "inventory_before": pending_dash.get("inventory_before"),
-                    "inventory_after": read_inventory_counters(image),
+                    "inventory_after": read_drop_counters(image),
                 }
                 pending_dash = None
             current_right_obstacles = consecutive_right_obstacles(info, player)
@@ -705,7 +768,7 @@ def main():
                          if args.debug_screenshots else None)
             pending_dash = {"path": dash_path,
                             "energy_before": read_energy_counter(image, dash_dump)}
-            pending_dash["inventory_before"] = read_inventory_counters(image)
+            pending_dash["inventory_before"] = read_drop_counters(image)
             bot.adb(args.adb, args.serial, "shell", "input", "tap",
                     str(control[0]), str(control[1]))
             sent.append({"type": "dash", "adb_xy": list(control)})
@@ -713,7 +776,7 @@ def main():
         else:
             x, y = bot.cell_center(det.board, *target)
             if kind == "attack":
-                pending_attack_inv = read_inventory_counters(image)
+                pending_attack_inv = read_drop_counters(image)
             bot.adb(args.adb, args.serial, "shell", "input", "tap", str(x), str(y))
             sent.append({"type": kind, "target_cell": list(target), "adb_xy": [x, y]})
             expected_player = (player if kind == "attack"
@@ -773,7 +836,7 @@ def main():
              "detection": bot.asdict(final_det)}
     energy_end = read_energy_counter(final, run_dir / "energy_roi_end.png")
     event["inventory_hud"] = {"start": inventory_start,
-                              "end": read_inventory_counters(final)}
+                              "end": read_drop_counters(final)}
     event["collected_detected"] = dict(collected)
     event["energy_hud"] = {
         "start": energy_start,

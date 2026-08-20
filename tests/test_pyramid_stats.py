@@ -106,7 +106,13 @@ class AggregateTests(unittest.TestCase):
             {"action": [{"type": "attack", "target_cell": [2, 4]}],
              "pyramid_result": None},
             {"pyramid_result": {"broken": True, "revealed": "orange",
-                                "attacks_before": 74, "attacks_after": 74},
+                                "attacks_before": 74, "attacks_after": 74,
+                                "counters_before": {"steps": 29, "attacks": 74,
+                                                    "green_tickets": 28954,
+                                                    "purple_tickets": 28956},
+                                "counters_after": {"steps": 29, "attacks": 74,
+                                                   "green_tickets": 28955,
+                                                   "purple_tickets": 28956}},
              "action": [{"type": "move", "target_cell": [2, 4]}]},
             {"pyramid_result": {"broken": True, "revealed": None},
              "action": "WAIT: overlay visible"},
@@ -117,8 +123,10 @@ class AggregateTests(unittest.TestCase):
             {"dash_result": {"pyramids_in_path": 2, "visible_items_in_path": 1,
                              "energy_before": 100, "energy_after": 108,
                              "energy_delta": 8,
-                             "inventory_before": {"steps": 29, "attacks": 70, "dashes": 33},
-                             "inventory_after": {"steps": 29, "attacks": 72, "dashes": 32}}},
+                             "inventory_before": {"steps": 29, "attacks": 70, "dashes": 33,
+                                                  "green_tickets": 28954, "purple_tickets": None},
+                             "inventory_after": {"steps": 29, "attacks": 72, "dashes": 32,
+                                                 "green_tickets": 28957, "purple_tickets": 28956}}},
             {"dash_result": {"pyramids_in_path": 1, "visible_items_in_path": 0,
                              "energy_before": None, "energy_after": 120,
                              "energy_delta": None}},
@@ -135,6 +143,12 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(stats["attack_inventory_deltas"], [0])
         self.assertEqual(stats["dash_attack_deltas"], [2])
         self.assertEqual(stats["dash_dash_deltas"], [-1])
+        self.assertEqual(stats["attack_counter_deltas"]["green_tickets"], [1])
+        self.assertEqual(stats["attack_counter_deltas"]["purple_tickets"], [0])
+        self.assertEqual(stats["attack_counter_deltas"]["steps"], [0])
+        self.assertEqual(stats["dash_counter_deltas"]["green_tickets"], [3])
+        self.assertEqual(stats["dash_counter_deltas"]["purple_tickets"], [])
+        self.assertEqual(stats["dash_counter_deltas"]["steps"], [0])
 
 
 if __name__ == "__main__":

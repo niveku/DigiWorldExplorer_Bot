@@ -58,6 +58,22 @@ class InventoryOcrTests(unittest.TestCase):
         image = Image.open(FIXTURES / "hud_29_74_32.png")
         self.assertEqual(runner.read_energy_counter(image), 5760)
 
+    def test_reads_ticket_counters_final_frame(self):
+        image = Image.open(FIXTURES / "hud_29_74_32.png")
+        self.assertEqual(runner.read_ticket_counters(image),
+                         {"green": 28954, "purple": 28956})
+
+    def test_reads_ticket_counters_check_frame(self):
+        image = Image.open(FIXTURES / "hud_31_3_1.png")
+        self.assertEqual(runner.read_ticket_counters(image),
+                         {"green": 28954, "purple": 28954})
+
+    def test_drop_counters_merge_inventory_and_tickets(self):
+        image = Image.open(FIXTURES / "hud_29_74_32.png")
+        self.assertEqual(runner.read_drop_counters(image),
+                         {"steps": 29, "attacks": 74, "dashes": 32,
+                          "green_tickets": 28954, "purple_tickets": 28956})
+
 
 class ExpectedPositionTests(unittest.TestCase):
     def test_right_move_into_scroll_zone_lands_one_left(self):

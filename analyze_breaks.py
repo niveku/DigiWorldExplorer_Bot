@@ -34,6 +34,14 @@ def wilson_interval(successes, total, z=Z_95):
     return (max(0.0, center - half), min(1.0, center + half))
 
 
+def _collect_counter_deltas(dest, before, after):
+    """Append after-minus-before per counter when both reads are known."""
+    before, after = before or {}, after or {}
+    for key, deltas in dest.items():
+        if before.get(key) is not None and after.get(key) is not None:
+            deltas.append(after[key] - before[key])
+
+
 def aggregate(events):
     stats = {
         "attacks_evaluated": 0,
@@ -45,6 +53,10 @@ def aggregate(events):
         "attack_inventory_deltas": [],
         "dash_attack_deltas": [],
         "dash_dash_deltas": [],
+        "attack_counter_deltas": {"steps": [], "attacks": [], "dashes": [],
+                                  "green_tickets": [], "purple_tickets": []},
+        "dash_counter_deltas": {"steps": [], "attacks": [], "dashes": [],
+                                "green_tickets": [], "purple_tickets": []},
         "actions": {"move": 0, "attack": 0, "dash": 0},
         "shards_estimate": 0,
     }
@@ -58,6 +70,9 @@ def aggregate(events):
             before, after = result.get("attacks_before"), result.get("attacks_after")
             if before is not None and after is not None:
                 stats["attack_inventory_deltas"].append(after - before)
+            _collect_counter_deltas(stats["attack_counter_deltas"],
+                                    result.get("counters_before"),
+                                    result.get("counters_after"))
         dash = event.get("dash_result")
         if dash:
             stats["dashes"] += 1
@@ -70,6 +85,7 @@ def aggregate(events):
                               ("dashes", "dash_dash_deltas")):
                 if inv_before.get(key) is not None and inv_after.get(key) is not None:
                     stats[dest].append(inv_after[key] - inv_before[key])
+            _collect_counter_deltas(stats["dash_counter_deltas"], inv_before, inv_after)
         action = event.get("action")
         if isinstance(action, list):
             for sent in action:
@@ -147,6 +163,13 @@ def main():
               f"dashes {stats['dash_dash_deltas']} (un dash consume 1)")
     else:
         print("  Alrededor de dashes: sin lecturas todavía")
+    for label, deltas in (("ataques", stats["attack_counter_deltas"]),
+                          ("dashes", stats["dash_counter_deltas"])):
+        tickets = {key: value for key, value in deltas.items()
+                   if key in ("green_tickets", "purple_tickets", "steps") and value}
+        if tickets:
+            print(f"  Tickets/pasos alrededor de {label}: "
+                  + ", ".join(f"{key} {value}" for key, value in tickets.items()))
     print()
     print("— Gasto estimado (Data Shards) —")
     actions = stats["actions"]
