@@ -504,6 +504,7 @@ def main():
     inventory_start = None
     pending_attack_inv = None
     expected_player = None
+    expected_rollback = None
     memory_streak = 0
     attacks_enabled = True
     dashes_enabled = True
@@ -546,6 +547,13 @@ def main():
                 pending_dash = None
                 event["action"] = "WAIT: dashes disabled after rejection"
             else:
+                if previous_action == "move" and expected_rollback is not None:
+                    # The overlay right after a move is usually the game's
+                    # "cannot move there" toast: the move did not happen, so
+                    # dead reckoning must not believe it did.
+                    expected_player = expected_rollback
+                    event["expected_rollback"] = list(expected_rollback)
+                    expected_rollback = None
                 overlay_waits += 1
                 event["action"] = f"WAIT: overlay visible ({overlay_waits}/15)"
                 if overlay_waits >= 15:
@@ -831,6 +839,7 @@ def main():
                 pending_attack_inv = read_drop_counters(image)
             bot.adb(args.adb, args.serial, "shell", "input", "tap", str(x), str(y))
             sent.append({"type": kind, "target_cell": list(target), "adb_xy": [x, y]})
+            expected_rollback = player
             expected_player = (player if kind == "attack"
                                else expected_after_move(target, direction))
             pickup = item_category(info[target]) if kind == "move" else None
