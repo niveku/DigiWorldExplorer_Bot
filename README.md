@@ -4,198 +4,197 @@
 
 ![Version](https://img.shields.io/badge/version-0.2.0-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 
-### 🦖 Automatisierte DigiWorld-Erkundung für Digimon UP
+### 🦖 Exploración automatizada de DigiWorld para Digimon UP
 
 **✨ RobinTh0r Guild Edition · Exclusive for Germon Members ✨**
 
-`Lokal` · `Deterministisch` · `ADB-only` · `Keine Cloud-KI` · `Safety first`
+`Local` · `Determinista` · `Solo ADB` · `Sin IA en la nube` · `Safety first`
 
 </div>
 
 > [!WARNING]
-> Dieses private Fanprojekt ist nicht mit den Entwicklern von Digimon UP verbunden. Spielautomatisierung kann gegen Spielregeln verstoßen. Nutzung ausschließlich auf eigene Verantwortung und ohne Gewährleistung.
+> Este proyecto privado de fans no está vinculado a los desarrolladores de Digimon UP. La automatización del juego puede violar sus reglas. Uso exclusivamente bajo tu propia responsabilidad y sin garantía.
 
 > [!NOTE]
-> 🔗 Schwesterprojekt: [DigiWorldExplorer_Android_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Android_Bot)
-> ist die native Android-Portierung – läuft direkt auf dem Gerät ohne PC, BlueStacks oder ADB.
+> 🔗 Proyecto hermano: [DigiWorldExplorer_Android_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Android_Bot)
+> es el port nativo a Android – corre directo en el dispositivo sin PC, BlueStacks ni ADB.
 
-## 🌟 Was macht der Bot?
+## 🌟 ¿Qué hace el bot?
 
-Der DigiWorldExplorer_Bot beobachtet das Spielfeld direkt über Android Debug Bridge (ADB), erkennt das sichtbare **5×5-Raster** und plant sichere Bewegungen. Alle Eingaben werden relativ zum automatisch erkannten Spielfeld berechnet – unabhängig davon, wo das BlueStacks-Fenster auf dem Desktop liegt.
+El DigiWorldExplorer_Bot observa el tablero directamente por Android Debug Bridge (ADB), reconoce la **cuadrícula 5×5** visible y planifica movimientos seguros. Todas las entradas se calculan relativas al tablero detectado automáticamente – sin importar dónde esté la ventana de BlueStacks en el escritorio.
 
-Der Bot versucht möglichst lange zu erkunden und priorisiert dabei:
+El bot intenta explorar el mayor tiempo posible y prioriza:
 
-1. 🟠 orange Teile
-2. 🟣 lilane und 🟢 grüne Items auf sinnvollen Wegen
-3. ➡️ sichere Erkundung nach rechts
-4. 🔺 Umwege oder Angriffe bei Pyramiden
-5. 💨 Dash nur bei mindestens zwei direkt aufeinanderfolgenden Hindernissen
+1. 🟠 piezas naranjas
+2. 🟣 items lilas y 🟢 verdes en rutas que valgan la pena
+3. ➡️ exploración segura hacia la derecha
+4. 🔺 desvíos o ataques ante pirámides
+5. 💨 dash solo con al menos dos obstáculos directamente consecutivos
 
-## 🛡️ Sicherheitsprinzip
+## 🛡️ Principio de seguridad
 
-- 📸 Vor Entscheidungen wird ein neuer ADB-Screenshot ausgewertet.
-- 🧭 Keine festen Windows-, Maus- oder Fensterkoordinaten.
-- 🛑 Bei unklarem Raster, Overlay oder unsicherer Spielererkennung wird gewartet oder gestoppt.
-- 🔁 Nach Angriffen, Dash und Animationen wird erneut geprüft.
-- 🚫 Ein wirkungsloser Angriff oder Dash wird für den restlichen Lauf deaktiviert.
-- 👁️ `CHECK.cmd` ist reiner Beobachtungsmodus und sendet garantiert keine Taps.
-- ☁️ Keine Cloud-API und kein KI-Modell während der Laufzeit.
+- 📸 Antes de cada decisión se evalúa un screenshot ADB nuevo.
+- 🧭 Sin coordenadas fijas de Windows, ratón ni ventana.
+- 🛑 Con cuadrícula dudosa, overlay o detección insegura del jugador se espera o se detiene.
+- 🔁 Tras ataques, dash y animaciones se vuelve a verificar.
+- 🚫 Un ataque o dash sin efecto queda desactivado por el resto del run.
+- 👁️ `CHECK.cmd` es modo de solo observación y garantiza que no envía taps.
+- ☁️ Sin API en la nube ni modelo de IA durante la ejecución.
 
-## 🚀 Schnellstart
+## 🚀 Inicio rápido
 
-### Voraussetzungen
+### Requisitos
 
-- Windows 10 oder 11
+- Windows 10 u 11
 - BlueStacks 5
 - Digimon UP
-- Python 3.10 oder neuer
+- Python 3.10 o superior
 
-Fehlt Python, fragt `INSTALL.cmd`, ob **Python 3.12 über `winget`** installiert werden darf. Ohne Bestätigung wird nichts installiert.
+Si falta Python, `INSTALL.cmd` pregunta si puede instalar **Python 3.12 vía `winget`**. Sin confirmación no se instala nada.
 
-### BlueStacks einstellen
+### Configurar BlueStacks
 
-| Einstellung | Empfohlener Wert |
+| Ajuste | Valor recomendado |
 |---|---:|
-| Ausrichtung | Portrait |
-| Auflösung | 720 × 1280 |
-| Pixeldichte | 240 DPI |
-| Interface-Skalierung | 100 % |
-| Android Debug Bridge | Aktiviert |
+| Orientación | Portrait |
+| Resolución | 720 × 1280 |
+| Densidad de píxeles | 240 DPI |
+| Escalado de interfaz | 100 % |
+| Android Debug Bridge | Activado |
 
 > [!TIP]
-> **Empfehlung für den Betatest:** Verwendet möglichst **Botamon**. Sein kleiner,
-> farblich klarer Sprite lässt sich aktuell am zuverlässigsten erkennen. Andere
-> Digimon-Formen können funktionieren, sind in dieser Beta aber noch nicht gleich
-> gut kalibriert.
+> **Recomendación para la beta:** usa en lo posible **Botamon**. Su sprite pequeño
+> y de color nítido es hoy el que se detecta con más fiabilidad. Otras formas de
+> Digimon pueden funcionar, pero en esta beta aún no están igual de bien calibradas.
 
-### Installation und Start
+### Instalación e inicio
 
-1. Repository herunterladen oder klonen.
-2. `INSTALL.cmd` doppelklicken.
-3. BlueStacks starten und DigiWorld vollständig öffnen.
-4. `CHECK.cmd` ausführen – dabei erfolgen **keine Eingaben**.
-5. Diagnosebild unter `runs/checks/` prüfen: Das grüne Raster muss alle 25 Felder korrekt umrahmen.
-6. `START.cmd` ausführen.
+1. Descarga o clona el repositorio.
+2. Doble clic en `INSTALL.cmd`.
+3. Inicia BlueStacks y abre DigiWorld por completo.
+4. Ejecuta `CHECK.cmd` – no envía **ninguna entrada**.
+5. Revisa la imagen de diagnóstico en `runs/checks/`: la cuadrícula verde debe enmarcar correctamente las 25 celdas.
+6. Ejecuta `START.cmd`.
 
-## 🎮 Interaktiver Start
+## 🎮 Inicio interactivo
 
-`START.cmd` fragt zuerst nach der Aktionszahl und danach nur kurz, ob experimentelle Einstellungen verwendet werden sollen. Standard ist `N`: Der Bot startet sofort mit dem sicheren Intervall `0,50 Sekunden` und ohne Debugbilder. Nur bei `J` werden Intervall und Diagnosebilder zusätzlich abgefragt. Nach Laufende kann direkt ein weiterer Lauf gestartet werden; dabei beginnt die Abfrage wieder bei der Schrittzahl.
+`START.cmd` pregunta primero el número de acciones y después, brevemente, si quieres usar ajustes experimentales. El valor por defecto es `N`: el bot arranca de inmediato con el intervalo seguro de `0,50 segundos` y sin imágenes de debug. Solo con `S` se preguntan además el intervalo y las imágenes de diagnóstico. Al terminar un run puede lanzarse otro directamente; la secuencia de preguntas vuelve a empezar por el número de acciones.
 
-Das Mindestintervall ist aus Sicherheitsgründen auf `0,35 Sekunden` begrenzt. Mit `Ctrl+C` kann der Bot jederzeit sofort gestoppt werden. Im normalen Modus erscheint ungefähr alle 2 % ein kompaktes Update mit Fortschritt, Laufzeit und geschätzter Restzeit. Am Ende folgen Gesamtzeit, Energie-Startwert, Endwert, echte Differenz sowie Energie pro Minute und hochgerechnet pro Stunde. Zusätzlich bleibt die interne Zählung der erkannten und gezielt betretenen Items sichtbar. Kann der HUD-Zähler nicht sicher gelesen werden, wird ausdrücklich **nicht sicher lesbar** angezeigt.
+El intervalo mínimo está limitado a `0,35 segundos` por seguridad. Con `Ctrl+C` el bot se detiene de inmediato en cualquier momento. En modo normal aparece aproximadamente cada 2 % una actualización compacta con progreso, tiempo transcurrido y tiempo restante estimado. Al final se muestran el tiempo total, la energía inicial, la final, la diferencia real, y la energía por minuto y proyectada por hora. Además queda visible el conteo interno de items detectados y recogidos a propósito. Si el contador del HUD no puede leerse con certeza, se indica explícitamente **no legible con certeza**.
 
-### 🔧 Debugmodus
+### 🔧 Modo debug
 
-`START_DEBUG.cmd` aktiviert Diagnosebilder und zeigt bei jedem Scan beziehungsweise jeder Neuplanung eine kompakte Statuszeile, zum Beispiel `10/100: Energie gesichtet! Route wird neu berechnet`. Die vollständigen Maschinendaten stehen weiterhin in `runs/<Lauf-ID>/events.jsonl`.
+`START_DEBUG.cmd` activa las imágenes de diagnóstico y muestra en cada escaneo o replanificación una línea de estado compacta, por ejemplo `10/100: ¡Energía a la vista! Recalculando ruta`. Los datos de máquina completos siguen en `runs/<id-del-run>/events.jsonl`.
 
-## 🧠 Entscheidungsablauf
+## 🧠 Flujo de decisión
 
 ```text
-ADB-Screenshot
+Screenshot ADB
       ↓
-5×5-Spielfeld automatisch erkennen
+Detectar automáticamente el tablero 5×5
       ↓
-Spieler, Items, Wege und Pyramiden bewerten
+Evaluar jugador, items, rutas y pirámides
       ↓
-Sicherste Aktion relativ zum Raster wählen
+Elegir la acción más segura relativa a la cuadrícula
       ↓
-ADB-Tap senden
+Enviar tap ADB
       ↓
-Wirkung und neuen Zustand erneut prüfen
+Verificar el efecto y el nuevo estado
 ```
 
-Bei sichtbaren Items plant der Controller höchstens zwei Aktionen bis zum nächsten Screenshot. Ohne sichtbares Item sind bis zu drei sichere Aktionen möglich. Angriff und Dash erzwingen immer sofort eine neue Prüfung.
+Con items visibles el controlador planifica como máximo dos acciones hasta el siguiente screenshot. Sin item visible son posibles hasta tres acciones seguras. Ataque y dash fuerzan siempre una verificación inmediata.
 
-## 📂 Übersichtliche Projektstruktur
+## 📂 Estructura del proyecto
 
-| Datei | Aufgabe |
+| Archivo | Función |
 |---|---|
-| `INSTALL.cmd` | Einfache Installation starten |
-| `CHECK.cmd` | ADB und Raster ohne Eingaben prüfen |
-| `START.cmd` | Ruhigen, gebrandeten Botmodus starten |
-| `START_DEBUG.cmd` | Entwicklerlauf mit Status je Scan und Diagnosebildern |
-| `Setup.ps1` | Python prüfen und lokale Umgebung einrichten |
-| `Check-Setup.ps1` | Sicheren Diagnosemodus ausführen |
-| `Start-Bot.ps1` | Startoptionen abfragen und Lauf starten |
-| `digiworld_bot.py` | ADB, Screenshots, Rastererkennung und Taps |
-| `auto_digiworld.py` | Spieler-, Item- und Hinderniserkennung |
-| `auto_digiworld_batch2.py` | Adaptive Planung und Sicherheitskontrolle |
-| `tests/test_core.py` | Offline-Regressionstests ohne Spieleingaben |
-| `requirements.txt` | Minimale Python-Abhängigkeiten |
+| `INSTALL.cmd` | Iniciar la instalación simple |
+| `CHECK.cmd` | Verificar ADB y cuadrícula sin enviar entradas |
+| `START.cmd` | Iniciar el modo bot tranquilo con branding |
+| `START_DEBUG.cmd` | Run de desarrollo con estado por escaneo e imágenes de diagnóstico |
+| `Setup.ps1` | Verificar Python y preparar el entorno local |
+| `Check-Setup.ps1` | Ejecutar el modo de diagnóstico seguro |
+| `Start-Bot.ps1` | Preguntar opciones de inicio y lanzar el run |
+| `digiworld_bot.py` | ADB, screenshots, detección de cuadrícula y taps |
+| `auto_digiworld.py` | Detección de jugador, items y obstáculos |
+| `auto_digiworld_batch2.py` | Planificación adaptativa y control de seguridad |
+| `tests/test_core.py` | Tests de regresión offline sin entradas al juego |
+| `requirements.txt` | Dependencias mínimas de Python |
 
-## 📦 Warum kein riesiges Portable-Paket?
+## 📦 ¿Por qué no un paquete portable gigante?
 
-Python, NumPy und Pillow vollständig mitzuliefern wäre technisch möglich, würde das Release aber deutlich größer und wartungsintensiver machen. Stattdessen bleibt der Download klein:
+Empaquetar Python, NumPy y Pillow completos sería técnicamente posible, pero haría el release mucho más grande y difícil de mantener. En su lugar la descarga se mantiene pequeña:
 
-- `INSTALL.cmd` erzeugt lokal eine `.venv`.
-- Nur NumPy und Pillow werden installiert.
-- `.venv`, Screenshots, Logs und Entwicklungsdaten landen niemals in Git.
-- Auf einem neuen PC wird die Umgebung reproduzierbar neu aufgebaut.
+- `INSTALL.cmd` crea una `.venv` local.
+- Solo se instalan NumPy y Pillow.
+- `.venv`, screenshots, logs y datos de desarrollo nunca entran a Git.
+- En un PC nuevo el entorno se reconstruye de forma reproducible.
 
-## 🧪 Offline testen
+## 🧪 Probar offline
 
-Nach erfolgreicher Installation:
+Tras una instalación exitosa:
 
 ```powershell
 .\.venv\Scripts\python.exe -m py_compile digiworld_bot.py auto_digiworld.py auto_digiworld_batch2.py
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Diese Tests senden keine ADB-Eingaben.
+Estos tests no envían entradas ADB.
 
-## 🧯 Häufige Probleme
+## 🧯 Problemas frecuentes
 
-| Problem | Lösung |
+| Problema | Solución |
 |---|---|
-| Python fehlt | `INSTALL.cmd` starten und die optionale `winget`-Installation bestätigen |
-| ADB nicht gefunden | In BlueStacks unter **Einstellungen → Erweitert** ADB aktivieren |
-| Kein Gerät gefunden | BlueStacks vollständig starten und danach `CHECK.cmd` erneut ausführen |
-| Raster sitzt falsch | Nicht starten; Portrait, 720×1280 und 240 DPI kontrollieren |
-| Spieler wird nicht erkannt | Animation abwarten und `CHECK.cmd` erneut ausführen |
+| Falta Python | Ejecutar `INSTALL.cmd` y confirmar la instalación opcional con `winget` |
+| ADB no encontrado | Activar ADB en BlueStacks en **Ajustes → Avanzado** |
+| Ningún dispositivo | Iniciar BlueStacks por completo y volver a ejecutar `CHECK.cmd` |
+| Cuadrícula mal ubicada | No iniciar; verificar Portrait, 720×1280 y 240 DPI |
+| Jugador no detectado | Esperar la animación y volver a ejecutar `CHECK.cmd` |
 
-## 📝 Versionen und Changelog
+## 📝 Versiones y changelog
 
-Die aktuelle Version steht in `VERSION` und wird im Terminalbanner sowie über
-`python auto_digiworld_batch2.py --version` angezeigt.
+La versión actual está en `VERSION` y se muestra en el banner de la terminal y con
+`python auto_digiworld_batch2.py --version`.
 
 ### Unreleased
 
-- Noch keine Änderungen.
+- Interfaz de usuario completa en español (runner, launchers PowerShell y esta README).
 
 ### v0.2.0 – 29.07.2026
 
-- 🟢 Der normale Start zeigt etwa alle 2 % Fortschritt, Laufzeit und geschätzte Restzeit.
-- 📊 Am Laufende erscheinen Gesamtzeit sowie Energie-Start, -Ende und echte Differenz.
-- 🔎 Die Energie-Ziffernerkennung arbeitet lokal und verwirft unsichere Werte.
-- 🚀 Nach der Schrittzahl startet der sichere Standard mit nur einer kurzen Experimental-Abfrage.
-- 🔁 Nach Laufende kann direkt ein weiterer Lauf mit neuer Schrittzahl gestartet werden.
-- ⚡ Die Abschlussstatistik zeigt Energie pro Minute und hochgerechnet pro Stunde.
+- 🟢 El inicio normal muestra aproximadamente cada 2 % el progreso, tiempo transcurrido y tiempo restante estimado.
+- 📊 Al final del run aparecen el tiempo total y la energía inicial, final y su diferencia real.
+- 🔎 El OCR de energía trabaja local y descarta valores inseguros.
+- 🚀 Tras el número de acciones arranca el estándar seguro con una sola pregunta experimental breve.
+- 🔁 Al terminar puede lanzarse directamente otro run con nuevo número de acciones.
+- ⚡ La estadística final muestra energía por minuto y proyectada por hora.
 
 ### v0.1.0 – 29.07.2026
 
-- 🧭 Automatische Erkennung des sichtbaren 5×5-DigiWorld-Rasters
-- 🟠 Priorisierte Sammlung von Energie und sichtbaren Items
-- 🔺 Sichere Behandlung von Pyramiden, Angriffen und Dash
-- 🛑 Sicherheitsstopps bei unsicherem Raster, Spieler oder Overlay
-- 🔧 Separater Debugstart mit Statusmeldung bei jedem Scan und jeder Neuplanung
-- ⚡ RobinTh0r-/Germon-Terminalbranding
-- 📦 Schlankes Release-ZIP mit automatischer lokaler Python-Einrichtung
+- 🧭 Detección automática de la cuadrícula 5×5 visible de DigiWorld
+- 🟠 Recolección priorizada de energía e items visibles
+- 🔺 Manejo seguro de pirámides, ataques y dash
+- 🛑 Paradas de seguridad ante cuadrícula, jugador u overlay inseguros
+- 🔧 Inicio de debug separado con mensaje de estado en cada escaneo y replanificación
+- ⚡ Branding de terminal RobinTh0r / Germon
+- 📦 ZIP de release ligero con preparación local automática de Python
 
-### Regeln für zukünftige Releases
+### Reglas para futuros releases
 
-Bei jeder neuen Version werden gemeinsam aktualisiert:
+En cada versión nueva se actualizan en conjunto:
 
-1. Versionsnummer in `VERSION`
-2. Changelog in dieser README
-3. Git-Tag im Format `vX.Y.Z`
-4. GitHub-Release mit demselben Changelog als Release Notes
-5. Neu gebautes ZIP ohne `.venv`, Laufdaten, Screenshots oder lokale Konfiguration
+1. Número de versión en `VERSION`
+2. Changelog en esta README
+3. Tag de Git en formato `vX.Y.Z`
+4. Release de GitHub con el mismo changelog como release notes
+5. ZIP recién construido sin `.venv`, datos de runs, screenshots ni configuración local
 
-## 🔗 Verwandtes Projekt
+## 🔗 Proyecto relacionado
 
-| Projekt | Plattform | Repo |
+| Proyecto | Plataforma | Repo |
 | --- | --- | --- |
-| DigiWorldExplorer_Bot (dieses Repo) | Windows + BlueStacks, ADB | – |
-| DigiWorldExplorer Android Bot | Android, nativ, ADB-frei | [RobinTh0r/DigiWorldExplorer_Android_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Android_Bot) |
+| DigiWorldExplorer_Bot (este repo) | Windows + BlueStacks, ADB | – |
+| DigiWorldExplorer Android Bot | Android, nativo, sin ADB | [RobinTh0r/DigiWorldExplorer_Android_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Android_Bot) |
 
 ---
 <div align="center">

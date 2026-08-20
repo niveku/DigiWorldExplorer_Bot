@@ -45,7 +45,7 @@ function Show-RobinThorBanner {
 Show-RobinThorBanner
 $python = Join-Path $projectRoot '.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python)) {
-    throw 'Die lokale Python-Umgebung fehlt. Zuerst INSTALL.cmd ausfuehren.'
+    throw 'Falta el entorno local de Python. Ejecuta primero INSTALL.cmd.'
 }
 
 $stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')
@@ -53,12 +53,12 @@ $output = Join-Path $projectRoot "runs\checks\$stamp"
 New-Item -ItemType Directory -Force -Path $output | Out-Null
 Set-Location -LiteralPath $projectRoot
 
-Write-Host 'Pruefe ADB und Spielfelderkennung - es werden keine Klicks gesendet.' -ForegroundColor Cyan
+Write-Host 'Verificando ADB y detección del tablero - no se envía ningún clic.' -ForegroundColor Cyan
 & $python (Join-Path $projectRoot 'digiworld_bot.py') --adb $Adb --serial $Serial --out $output
 $status = $LASTEXITCODE
 if ($status -eq 0) {
-    Write-Host "Pruefung abgeschlossen. Diagnose: $output" -ForegroundColor Green
+    Write-Host "Verificación completada. Diagnóstico: $output" -ForegroundColor Green
 } else {
-    Write-Host "Pruefung fehlgeschlagen (Exit-Code $status). Siehe README > Fehlerbehebung." -ForegroundColor Yellow
+    Write-Host "Verificación fallida (exit code $status). Ver README > Solución de problemas." -ForegroundColor Yellow
 }
 exit $status

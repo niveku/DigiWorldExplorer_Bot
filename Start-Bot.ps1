@@ -50,7 +50,7 @@ function Show-RobinThorBanner {
 Show-RobinThorBanner
 
 if (-not (Test-Path -LiteralPath $python)) {
-    throw 'Die lokale Python-Umgebung fehlt. Zuerst INSTALL.cmd ausfuehren.'
+    throw 'Falta el entorno local de Python. Ejecuta primero INSTALL.cmd.'
 }
 $nextSteps = $Steps
 $lastStatus = 0
@@ -59,40 +59,40 @@ do {
     $runSteps = $nextSteps
     $nextSteps = 0
     if ($runSteps -le 0) {
-        $answer = Read-Host 'Wie viele Aktionen soll der Bot ausfuehren? [100]'
+        $answer = Read-Host '¿Cuántas acciones debe ejecutar el bot? [100]'
         if ([string]::IsNullOrWhiteSpace($answer)) {
             $runSteps = 100
         } elseif (-not [int]::TryParse($answer, [ref]$runSteps) -or $runSteps -le 0) {
-            throw 'Die Schrittzahl muss eine positive ganze Zahl sein.'
+            throw 'El número de acciones debe ser un entero positivo.'
         }
     }
 
     $defaultInterval = if ($Interval -gt 0) { $Interval } else { 0.50 }
     $runInterval = $defaultInterval
-    $intervalAnswer = Read-Host "Pause zwischen Aktionen in Sekunden? [$($defaultInterval.ToString('0.00'))]"
+    $intervalAnswer = Read-Host "¿Pausa entre acciones en segundos? [$($defaultInterval.ToString('0.00'))]"
     if (-not [string]::IsNullOrWhiteSpace($intervalAnswer)) {
         $normalizedInterval = $intervalAnswer.Replace(',', '.')
         if (-not [double]::TryParse($normalizedInterval, [Globalization.NumberStyles]::Float,
                 [Globalization.CultureInfo]::InvariantCulture, [ref]$runInterval)) {
-            throw 'Das Intervall muss eine Zahl sein, zum Beispiel 0,50.'
+            throw 'El intervalo debe ser un número, por ejemplo 0,50.'
         }
     }
 
-    $experimentalAnswer = Read-Host 'Experimentelle Einstellungen verwenden? [j/N]'
-    $experimental = $experimentalAnswer -match '^(j|ja|y|yes)$'
+    $experimentalAnswer = Read-Host '¿Usar ajustes experimentales? [s/N]'
+    $experimental = $experimentalAnswer -match '^(s|si|sí|j|ja|y|yes)$'
     $runDebugScreenshots = [bool]$DebugMode
 
     if ($experimental) {
         if (-not $DebugMode) {
-            $debugAnswer = Read-Host 'Diagnosebilder speichern? [j/N]'
-            $runDebugScreenshots = $debugAnswer -match '^(j|ja|y|yes)$'
+            $debugAnswer = Read-Host '¿Guardar imágenes de diagnóstico? [s/N]'
+            $runDebugScreenshots = $debugAnswer -match '^(s|si|sí|j|ja|y|yes)$'
         }
     } elseif ($DebugScreenshots) {
         $runDebugScreenshots = $true
     }
 
     if ($runInterval -lt 0.35) {
-        throw 'Intervalle unter 0,35 Sekunden sind aus Sicherheitsgruenden gesperrt.'
+        throw 'Los intervalos menores a 0,35 segundos están bloqueados por seguridad.'
     }
 
     Set-Location -LiteralPath $projectRoot
@@ -111,21 +111,21 @@ do {
 
     Write-Host ''
     if ($DebugMode) {
-        Write-Host "DEBUG LÄUFT - Status bei jedem Scan und jeder Neuplanung" -ForegroundColor Cyan
+        Write-Host "DEBUG EN MARCHA - estado en cada escaneo y replanificación" -ForegroundColor Cyan
     } else {
-        Write-Host "● BOT LÄUFT ...  ($runSteps Aktionen)" -ForegroundColor Green
+        Write-Host "● BOT EN MARCHA ...  ($runSteps acciones)" -ForegroundColor Green
     }
     & $python @arguments
     $lastStatus = $LASTEXITCODE
     if ($lastStatus -eq 0) {
-        Write-Host 'Bot regulär beendet.' -ForegroundColor Green
+        Write-Host 'Bot finalizado correctamente.' -ForegroundColor Green
     } else {
-        Write-Host "Bot mit Exit-Code $lastStatus beendet. Keine weiteren Eingaben werden gesendet." -ForegroundColor Yellow
+        Write-Host "Bot finalizado con exit code $lastStatus. No se enviarán más entradas." -ForegroundColor Yellow
     }
 
     Write-Host ''
-    $againAnswer = Read-Host 'Bot noch einmal neu ausführen? [j/N]'
-    $again = $againAnswer -match '^(j|ja|y|yes)$'
+    $againAnswer = Read-Host '¿Ejecutar el bot otra vez? [s/N]'
+    $again = $againAnswer -match '^(s|si|sí|j|ja|y|yes)$'
 } while ($again)
 
 exit $lastStatus

@@ -71,21 +71,21 @@ function Invoke-Checked {
     param([string]$Program, [string[]]$Arguments)
     & $Program @Arguments
     if ($LASTEXITCODE -ne 0) {
-        throw "Befehl fehlgeschlagen (Exit-Code $LASTEXITCODE): $Program $($Arguments -join ' ')"
+        throw "Comando fallido (exit code $LASTEXITCODE): $Program $($Arguments -join ' ')"
     }
 }
 
 function Install-PythonWithWinget {
     $winget = Get-Command 'winget.exe' -ErrorAction SilentlyContinue
     if (-not $winget) {
-        throw 'Python 3.10+ wurde nicht gefunden und winget ist nicht verfuegbar. Installiere Python von python.org und starte INSTALL.cmd erneut.'
+        throw 'No se encontró Python 3.10+ y winget no está disponible. Instala Python desde python.org y ejecuta INSTALL.cmd de nuevo.'
     }
-    Write-Host 'Python 3.10 oder neuer wurde nicht gefunden.' -ForegroundColor Yellow
-    $answer = Read-Host 'Python 3.12 jetzt automatisch mit winget installieren? [J/n]'
-    if (-not [string]::IsNullOrWhiteSpace($answer) -and $answer -notmatch '^(j|ja|y|yes)$') {
-        throw 'Installation abgebrochen. Installiere Python 3.10+ manuell und starte INSTALL.cmd erneut.'
+    Write-Host 'No se encontró Python 3.10 o superior.' -ForegroundColor Yellow
+    $answer = Read-Host '¿Instalar Python 3.12 automáticamente con winget? [S/n]'
+    if (-not [string]::IsNullOrWhiteSpace($answer) -and $answer -notmatch '^(s|si|sí|j|ja|y|yes)$') {
+        throw 'Instalación cancelada. Instala Python 3.10+ manualmente y ejecuta INSTALL.cmd de nuevo.'
     }
-    Write-Host 'Installiere Python 3.12 ueber winget ...' -ForegroundColor Cyan
+    Write-Host 'Instalando Python 3.12 con winget ...' -ForegroundColor Cyan
     Invoke-Checked -Program $winget.Source -Arguments @('install', '--id', 'Python.Python.3.12', '--exact', '--source', 'winget', '--accept-package-agreements', '--accept-source-agreements')
 }
 Set-Location -LiteralPath $projectRoot
@@ -96,11 +96,11 @@ if (-not $basePython) {
     $basePython = Find-Python
 }
 if (-not $basePython) {
-    throw 'Python wurde installiert, aber noch nicht gefunden. Oeffne ein neues Terminal und starte INSTALL.cmd erneut.'
+    throw 'Python se instaló pero todavía no se encuentra. Abre una terminal nueva y ejecuta INSTALL.cmd de nuevo.'
 }
 $version = & $basePython -c "import sys; print('.'.join(map(str, sys.version_info[:3]))); raise SystemExit(sys.version_info < (3, 10))"
 if ($LASTEXITCODE -ne 0) {
-    throw "Python $version ist zu alt. Benoetigt wird Python 3.10 oder neuer."
+    throw "Python $version es demasiado viejo. Se necesita Python 3.10 o superior."
 }
 
 Write-Host "Python ${version}: $basePython" -ForegroundColor Cyan
@@ -108,26 +108,26 @@ if ($Force -and (Test-Path -LiteralPath $venvDir)) {
     Remove-Item -LiteralPath $venvDir -Recurse -Force
 }
 if (-not (Test-Path -LiteralPath $venvPython)) {
-    Write-Host 'Erstelle lokale Python-Umgebung .venv ...' -ForegroundColor Cyan
+    Write-Host 'Creando entorno local de Python .venv ...' -ForegroundColor Cyan
     Invoke-Checked -Program $basePython -Arguments @('-m', 'venv', $venvDir)
 }
 
-Write-Host 'Installiere minimale Abhaengigkeiten ...' -ForegroundColor Cyan
+Write-Host 'Instalando dependencias mínimas ...' -ForegroundColor Cyan
 Invoke-Checked -Program $venvPython -Arguments @('-m', 'pip', 'install', '--disable-pip-version-check', '-r', (Join-Path $projectRoot 'requirements.txt'))
 Invoke-Checked -Program $venvPython -Arguments @('-c', 'import numpy; import PIL')
-Write-Host 'Python-Abhaengigkeiten: OK' -ForegroundColor Green
+Write-Host 'Dependencias de Python: OK' -ForegroundColor Green
 
 try {
     $adb = @(& $venvPython -c "import digiworld_bot as b; print(b.resolve_adb())")
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "ADB gefunden: $($adb[-1])" -ForegroundColor Green
+        Write-Host "ADB encontrado: $($adb[-1])" -ForegroundColor Green
     }
 } catch {
-    Write-Warning 'BlueStacks/ADB wurde noch nicht gefunden. Folge dem BlueStacks-Abschnitt in README.md.'
+    Write-Warning 'Todavía no se encontró BlueStacks/ADB. Sigue la sección de BlueStacks en README.md.'
 }
 
 Write-Host ''
-Write-Host 'Installation abgeschlossen.' -ForegroundColor Green
-Write-Host '1. BlueStacks starten, Portrait 720x1280 einstellen und ADB aktivieren.'
-Write-Host '2. Digimon UP oeffnen und DigiWorld betreten.'
-Write-Host '3. CHECK.cmd ausfuehren; danach START.cmd.'
+Write-Host 'Instalación completada.' -ForegroundColor Green
+Write-Host '1. Inicia BlueStacks, configura Portrait 720x1280 y activa ADB.'
+Write-Host '2. Abre Digimon UP y entra a DigiWorld.'
+Write-Host '3. Ejecuta CHECK.cmd; después START.cmd.'
