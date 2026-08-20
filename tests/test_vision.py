@@ -213,6 +213,72 @@ class ResolvedPlayerOverrideTests(unittest.TestCase):
         self.assertIsNone(action)
 
 
+class SpriteLeakSuppressionTests(unittest.TestCase):
+    def grid(self):
+        return {
+            (row, col): {"player": 0.0, "orange": 0.0, "pink": 0.0, "green": 0.0,
+                         "item": 0.0, "pyramid": 0.0, "highlight": 0.2}
+            for row in range(5) for col in range(5)
+        }
+
+    def test_items_around_a_big_sprite_are_wiped(self):
+        info = self.grid()
+        info[(1, 1)].update(item=0.20, orange=0.20)   # wing leak above player
+        info[(2, 2)].update(item=0.15, pink=0.15)     # wing leak beside player
+        info[(4, 4)].update(item=0.10, green=0.10)    # real distant item
+        cleaned = strategy.suppress_sprite_leaks(info, (2, 1))
+        self.assertEqual(cleaned[(1, 1)]["item"], 0.0)
+        self.assertEqual(cleaned[(2, 2)]["orange"], 0.0)
+        self.assertEqual(cleaned[(4, 4)]["item"], 0.10)
+
+    def test_pyramids_and_highlights_survive(self):
+        info = self.grid()
+        info[(1, 1)].update(pyramid=0.30, highlight=0.9, item=0.2)
+        cleaned = strategy.suppress_sprite_leaks(info, (2, 1))
+        self.assertEqual(cleaned[(1, 1)]["pyramid"], 0.30)
+        self.assertEqual(cleaned[(1, 1)]["highlight"], 0.9)
+
+
+class SixthColumnTests(unittest.TestCase):
+    def test_preview_flags_the_incoming_pyramid_row(self):
+        image = np.zeros((500, 540, 3), dtype=np.uint8)
+        image[:, :] = TILE
+        # Board occupies x 0..500; the sliver 500..540 shows column 5.
+        image[100:180, 502:538] = PYRAMID   # incoming pyramid in row 1
+        preview = strategy.sixth_column_preview(image, (0, 0, 500, 500))
+        self.assertEqual(preview, [False, True, False, False, False])
+
+    def test_no_sliver_room_means_no_preview(self):
+        image = np.zeros((500, 502, 3), dtype=np.uint8)
+        image[:, :] = TILE
+        self.assertIsNone(strategy.sixth_column_preview(image, (0, 0, 500, 500)))
+
+
+class PreviewWallTests(unittest.TestCase):
+    def grid(self):
+        return {
+            (row, col): {"player": 0.0, "orange": 0.0, "pink": 0.0, "green": 0.0,
+                         "item": 0.0, "pyramid": 0.0, "highlight": 1.0}
+            for row in range(5) for col in range(5)
+        }
+
+    def test_two_wall_at_the_edge_plus_preview_is_a_dash_wall(self):
+        info = self.grid()
+        info[(1, 3)]["pyramid"] = 0.25
+        info[(1, 4)]["pyramid"] = 0.25
+        preview = [False, True, False, False, False]
+        self.assertIsNone(strategy.nearest_dash_wall(info, (1, 0)))
+        self.assertEqual(strategy.nearest_dash_wall(info, (1, 0), preview=preview),
+                         (1, 2))
+
+    def test_preview_elsewhere_does_not_fake_walls(self):
+        info = self.grid()
+        info[(1, 3)]["pyramid"] = 0.25
+        info[(1, 4)]["pyramid"] = 0.25
+        preview = [True, False, False, False, False]
+        self.assertIsNone(strategy.nearest_dash_wall(info, (1, 0), preview=preview))
+
+
 class ExpectedPositionTests(unittest.TestCase):
     def test_right_move_into_scroll_zone_lands_one_left(self):
         self.assertEqual(runner.expected_after_move((2, 2), "right"), (2, 1))

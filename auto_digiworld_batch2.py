@@ -652,19 +652,6 @@ def main():
                                 det.reason + "; stable board retained")
 
         info = strategy.cells(image, det.board)
-        visible_items = [cell for cell, values in info.items() if values["item"] > .06]
-        if len(visible_items) >= 3 and item_burst_waits < 2:
-            item_burst_waits += 1
-            event["action"] = (f"WAIT: possible pickup animation; {len(visible_items)} "
-                               f"item cells ({item_burst_waits}/2)")
-            if args.debug_screenshots:
-                safe_stamp = stamp.replace(":", "").replace("+", "_")
-                wait_path = run_dir / f"animation_wait_{done:04d}_{safe_stamp}.png"
-                bot.diagnostic(image, det).save(wait_path)
-                event["debug"] = str(wait_path)
-            bot.log_event(log, event)
-            time.sleep(max(args.interval, 1.0)); continue
-        item_burst_waits = 0
         player, player_score, player_source = resolve_player(info, expected_player)
         # The red sprite blob proved the most stable locator for oversized
         # partners; it also vetoes item-glow false positives that sneak just
@@ -701,6 +688,26 @@ def main():
                 return 3
             time.sleep(max(args.interval, 1.0)); continue
         player_unreliable = 0
+        if player_source == "large-sprite":
+            # A big sprite's own colors read as pickups in the cells its body
+            # covers; wipe them so the bot stops chasing its own wings.
+            info = strategy.suppress_sprite_leaks(info, player)
+        visible_items = [cell for cell, values in info.items() if values["item"] > .06]
+        if len(visible_items) >= 3 and item_burst_waits < 2:
+            item_burst_waits += 1
+            event["action"] = (f"WAIT: possible pickup animation; {len(visible_items)} "
+                               f"item cells ({item_burst_waits}/2)")
+            if args.debug_screenshots:
+                safe_stamp = stamp.replace(":", "").replace("+", "_")
+                wait_path = run_dir / f"animation_wait_{done:04d}_{safe_stamp}.png"
+                bot.diagnostic(image, det).save(wait_path)
+                event["debug"] = str(wait_path)
+            bot.log_event(log, event)
+            time.sleep(max(args.interval, 1.0)); continue
+        item_burst_waits = 0
+        preview = strategy.sixth_column_preview(image, det.board)
+        if preview is not None and any(preview):
+            event["sixth_column"] = preview
         item_goals = {cell for cell, values in info.items()
                       if values["item"] > .06 and cell != player}
         # Batch-2 is adaptive: on an item-free board it may safely advance up
@@ -804,7 +811,7 @@ def main():
         action, reason = strategy.choose(info, previous_direction,
                                          attacks_enabled, dashes_enabled,
                                          ignored_targets=banned_targets.keys(),
-                                         player=player)
+                                         player=player, preview=preview)
         if action is None:
             event["action"] = "STOP: no safe action"
             bot.log_event(log, event)

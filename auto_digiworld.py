@@ -160,6 +160,48 @@ def find_large_player(image, board, min_pixels=120, item_cells=()):
     return (row, col), score
 
 
+def suppress_sprite_leaks(info, player):
+    """Wipe item scores in the 3x3 around an oversized partner's cell.
+
+    A big sprite's colored parts (FM's orange wings, white chest) read as
+    pickups in the cells its body covers, so the bot chases its own wings
+    ('adjacent item' ping-pong, run 20260820T021629) and waits out phantom
+    pickup animations. Pyramid, player, and highlight scores stay intact.
+    """
+    cleaned = {}
+    for cell, values in info.items():
+        if (max(abs(cell[0] - player[0]), abs(cell[1] - player[1])) <= 1):
+            values = dict(values, orange=0.0, pink=0.0, green=0.0, item=0.0)
+        cleaned[cell] = values
+    return cleaned
+
+
+def sixth_column_preview(image, board, min_strip=8):
+    """Peek at the sliver of column 5 visible right of the board edge.
+
+    Returns a list of five booleans (pyramid incoming per row), or None when
+    the frame has no usable sliver. Only presence of a pyramid is readable
+    in that ~15% of a cell; items and anything subtler are not.
+    """
+    a = np.asarray(image)
+    x0, y0, x1, y1 = board
+    strip_end = min(a.shape[1], x1 + int((x1 - x0) / 5 * .18))
+    if strip_end - x1 < min_strip:
+        return None
+    cell_h = (y1 - y0) / 5
+    result = []
+    for row in range(5):
+        ya = round(y0 + row * cell_h) + 8
+        yb = round(y0 + (row + 1) * cell_h) - 12
+        z = a[ya:max(ya + 1, yb), x1 + 2:strip_end]
+        zp = z[:max(1, int(z.shape[0] * .55))]
+        pr, pg, pb = zp[:, :, 0], zp[:, :, 1], zp[:, :, 2]
+        pyramid = ((pb > 70) & (pr > 45) &
+                   (pb.astype(int) > pg.astype(int) + 10)).mean()
+        result.append(bool(pyramid > .15))
+    return result
+
+
 def player_from_highlights(info, threshold=.30, min_lit=2, expected=None):
     """Infer the player's logical cell from the movable-cell highlight cross.
 
@@ -196,12 +238,14 @@ def player_from_highlights(info, threshold=.30, min_lit=2, expected=None):
     return best[1] if best else None
 
 
-def nearest_dash_wall(info, player):
+def nearest_dash_wall(info, player, preview=None):
     """Launch cell left of the nearest run of >=3 pyramids, or None.
 
     A dash always travels three cells to the right and destroys everything in
     its path, so a wall of three is the cheapest possible pyramid breaker.
     Walls touching the left board edge have no launch cell and are skipped.
+    A run that reaches the right edge counts one more when the sixth-column
+    preview shows the next pyramid already scrolling in.
     """
     best = None
     for row in range(5):
@@ -213,7 +257,10 @@ def nearest_dash_wall(info, player):
             start = col
             while col < 5 and is_obstacle(info[(row, col)]):
                 col += 1
-            if col - start >= 3 and start >= 1:
+            length = col - start
+            if col == 5 and preview is not None and preview[row]:
+                length += 1
+            if length >= 3 and start >= 1:
                 launch = (row, start - 1)
                 distance = abs(player[0] - row) + abs(player[1] - launch[1])
                 if best is None or distance < best[0]:
@@ -222,7 +269,7 @@ def nearest_dash_wall(info, player):
 
 
 def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
-           ignored_targets=(), player=None):
+           ignored_targets=(), player=None, preview=None):
     # A caller that already resolved the player (dead reckoning, large-sprite
     # locator) passes it in; per-cell scores stay authoritative otherwise.
     if player is None:
@@ -236,7 +283,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     # align with its launch cell and dash through it. Two in a row stay an
     # opportunistic dash (handled below) and never justify a detour.
     if dashes_enabled:
-        launch = nearest_dash_wall(info, player)
+        launch = nearest_dash_wall(info, player, preview=preview)
         if launch == player:
             return ("dash", player, "right"), "3+ pyramid wall: dash"
         if launch is not None:
