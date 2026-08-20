@@ -386,16 +386,17 @@ def resolve_player(info, expected):
 def veto_with_blob(player, score, source, blob):
     """Let a real sprite blob override weak or implausible vision.
 
-    Item glows can score just above the acting threshold on the wrong cell
-    (a green ticket at (3,3) hit 0.095 in run 20260820T014121 while FM stood
-    at (1,1)). When a sprite blob exists, vision only survives if it is
-    either confident or near the blob.
+    A weak per-cell score next to a sprite blob is the sprite itself leaking
+    into a neighboring cell (FM's red torso scores ~0.1 one row above his
+    feet, run 20260820T014923), and a weak score far away is an item glow
+    (a green ticket hit 0.095 in run 20260820T014121). Either way: when a
+    sprite blob exists, only confident vision (>= 0.15, the small-partner
+    range) survives it.
     """
     if blob is None or source != "vision":
         return player, score, source
-    blob_cell, blob_score = blob
-    distance = abs(player[0] - blob_cell[0]) + abs(player[1] - blob_cell[1])
-    if score < .08 or (distance > 2 and score < .15):
+    if score < .15:
+        blob_cell, blob_score = blob
         return blob_cell, blob_score, "large-sprite"
     return player, score, source
 

@@ -165,9 +165,9 @@ class BlobVetoTests(unittest.TestCase):
         result = runner.veto_with_blob((3, 3), 0.22, "vision", ((1, 1), 0.10))
         self.assertEqual(result, ((3, 3), 0.22, "vision"))
 
-    def test_vision_near_the_blob_is_trusted(self):
-        result = runner.veto_with_blob((1, 2), 0.10, "vision", ((1, 1), 0.10))
-        self.assertEqual(result, ((1, 2), 0.10, "vision"))
+    def test_torso_vision_one_cell_above_the_blob_yields_to_it(self):
+        result = runner.veto_with_blob((2, 1), 0.11, "vision", ((3, 1), 0.11))
+        self.assertEqual(result, ((3, 1), 0.11, "large-sprite"))
 
     def test_memory_sources_are_untouched(self):
         result = runner.veto_with_blob((2, 1), 0.05, "memory", ((1, 1), 0.10))
