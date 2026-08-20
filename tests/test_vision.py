@@ -96,8 +96,27 @@ class InventoryOcrTests(unittest.TestCase):
         point = runner.milestone_chest_ready(image)
         self.assertIsNotNone(point)
         x, y = point
-        self.assertAlmostEqual(x / image.width, 0.72, delta=0.08)
-        self.assertAlmostEqual(y / image.height, 0.73, delta=0.05)
+        self.assertAlmostEqual(x / image.width, 0.76, delta=0.04)
+        self.assertAlmostEqual(y / image.height, 0.715, delta=0.03)
+
+    def test_tap_point_ignores_the_gold_meters_text(self):
+        # Run 20260820T192556 event 240: tap_xy (379, 912) on a 720-wide
+        # frame while the chest sits around x=510. The old tap point
+        # averaged gold AND badge pixels, and the golden "12,000m" text
+        # dragged the centroid ~130px left onto the bar: the tap opened
+        # nothing and close_reward_overlay reported instant "success".
+        # The badge rides the chest, so the tap point is badge-only -
+        # extra gold far from the chest must not move it.
+        image = Image.open(FIXTURES / "chest_ready.png").convert("RGB")
+        base = runner.milestone_chest_ready(image)
+        a = np.asarray(image).copy()
+        h = a.shape[0]
+        # Paint a fat block of gold "text" at the left of the badge band.
+        a[int(h*.70):int(h*.73), 40:200] = (250, 190, 60)
+        polluted = runner.milestone_chest_ready(Image.fromarray(a))
+        self.assertIsNotNone(polluted)
+        self.assertAlmostEqual(polluted[0], base[0], delta=3)
+        self.assertAlmostEqual(polluted[1], base[1], delta=3)
 
     def test_claimed_chest_without_badge_is_not_retapped(self):
         image = Image.open(FIXTURES / "chest_claimed.png")

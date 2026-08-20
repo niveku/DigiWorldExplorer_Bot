@@ -146,7 +146,12 @@ def milestone_chest_ready(image):
     area = band.shape[0] * band.shape[1]
     if badge.sum() < area * .0005 or gold.sum() < area * .001:
         return None
-    ys, xs = np.where(gold | badge)
+    # Tap the BADGE centroid, not the gold: the golden meters text on the
+    # bar grows with distance and dragged the gold+badge average ~130px
+    # left of the chest at 12,000m (run 20260820T192556 event 240 tapped
+    # (379, 912) while the chest sat near x=510 - the tap opened nothing
+    # and the chest went unclaimed). The '!' badge rides the chest.
+    ys, xs = np.where(badge)
     return int(xs.mean()), int(ys.mean()) + y0
 
 
@@ -900,12 +905,21 @@ def main():
                     classify=bot.classify,
                     pause=lambda: time.sleep(.5))
                 event["action"] = "CLAIM: milestone chest"
+                # A tap that misses the chest opens nothing and the close
+                # loop reports instant "success" (run 20260820T192556:
+                # close_taps=1, chest never claimed). Verify on a fresh
+                # frame: badge gone = claimed; still lit = retry next pass.
+                claim["verified"] = milestone_chest_ready(
+                    bot.screenshot(args.adb, args.serial)) is None
                 event["milestone_claim"] = claim
                 # 3 frames cover the badge's fade-out; 20 blocked the
                 # NEXT chest when it lit up right after a claim (run
                 # 20260820T192556: the 12,000m badge appeared 19 frames
                 # after the 11,000m claim and was never claimed).
-                chest_cooldown = 3
+                chest_cooldown = 3 if claim["verified"] else 0
+                if not claim["verified"] and args.verbose:
+                    progress(done, args.steps,
+                             "Cofre no reclamado - reintentando", "33")
                 bot.log_event(log, event)
                 if args.verbose:
                     progress(done, args.steps,
