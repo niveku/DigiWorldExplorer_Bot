@@ -92,6 +92,24 @@ def milestone_chest_ready(image):
     return int(xs.mean()), int(ys.mean()) + y0
 
 
+def close_reward_overlay(tap, capture, classify, max_taps=5, pause=None):
+    """Tap until the board is back; return the taps used.
+
+    Run 20260820T052000: the blind 0.6s close tap fired before the Reward
+    overlay accepted input, the overlay stayed open, and the run died on
+    five unreliable-board waits. Each tap is now verified with a fresh
+    frame; the extra screenshots only happen during a claim.
+    """
+    for attempt in range(1, max_taps + 1):
+        tap()
+        if pause is not None:
+            pause()
+        det = classify(capture())
+        if det.state == "digiworld" and det.board:
+            return attempt
+    return max_taps
+
+
 def out_of_steps(inventory, rejected_streak, threshold=2):
     """True when moves keep bouncing and the stamina counter confirms 0.
 
@@ -695,17 +713,21 @@ def main():
         else:
             chest_point = milestone_chest_ready(image)
             if chest_point is not None:
-                # Fast claim: tap (Reward opens), short beat, tap (closes).
-                # No extra screenshots - the per-frame energy log captures
-                # the credit, which lands on the next scroll anyway.
+                # Fast claim: tap opens the Reward, then verified taps
+                # close it - each close tap is confirmed against a fresh
+                # frame until the board is back (up to 5 tries).
                 claim = {"tap_xy": list(chest_point),
                          "energy_before": read_energy_counter(image)}
                 bot.adb(args.adb, args.serial, "shell", "input", "tap",
                         str(chest_point[0]), str(chest_point[1]))
-                time.sleep(.6)
-                bot.adb(args.adb, args.serial, "shell", "input", "tap",
-                        str(chest_point[0]), str(chest_point[1]))
-                time.sleep(.4)
+                time.sleep(.8)
+                claim["close_taps"] = close_reward_overlay(
+                    tap=lambda: bot.adb(args.adb, args.serial, "shell",
+                                        "input", "tap", str(chest_point[0]),
+                                        str(chest_point[1])),
+                    capture=lambda: bot.screenshot(args.adb, args.serial),
+                    classify=bot.classify,
+                    pause=lambda: time.sleep(.5))
                 event["action"] = "CLAIM: milestone chest"
                 event["milestone_claim"] = claim
                 chest_cooldown = 20

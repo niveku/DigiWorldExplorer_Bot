@@ -349,6 +349,44 @@ class ClawPickupTests(unittest.TestCase):
         self.assertEqual(action, ("move", (3, 1), "down"))
 
 
+class CloseRewardOverlayTests(unittest.TestCase):
+    """Run 20260820T052000: the blind 0.6s close tap fired before the
+    Reward overlay accepted input; the overlay stayed open and the run
+    died on unreliable-board waits. Closing must be verified per tap."""
+
+    class _Det:
+        def __init__(self, state, board=(74, 425, 626, 871)):
+            self.state = state
+            self.board = board if state == "digiworld" else None
+
+    def test_stops_tapping_once_the_board_is_back(self):
+        taps = []
+        states = iter(["overlay", "overlay", "digiworld"])
+        used = runner.close_reward_overlay(
+            tap=lambda: taps.append(1),
+            capture=lambda: None,
+            classify=lambda _img: self._Det(next(states)))
+        self.assertEqual(used, 3)
+        self.assertEqual(len(taps), 3)
+
+    def test_first_tap_can_already_close_it(self):
+        used = runner.close_reward_overlay(
+            tap=lambda: None,
+            capture=lambda: None,
+            classify=lambda _img: self._Det("digiworld"))
+        self.assertEqual(used, 1)
+
+    def test_gives_up_after_max_taps(self):
+        taps = []
+        used = runner.close_reward_overlay(
+            tap=lambda: taps.append(1),
+            capture=lambda: None,
+            classify=lambda _img: self._Det("overlay"),
+            max_taps=5)
+        self.assertEqual(used, 5)
+        self.assertEqual(len(taps), 5)
+
+
 class OutOfStepsTests(unittest.TestCase):
     """Run 20260820T030401 burned five rejected taps and a generic exit 6
     after the stamina counter hit 0; a confirmed empty counter plus bouncing
