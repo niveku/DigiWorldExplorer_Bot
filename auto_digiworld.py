@@ -317,6 +317,19 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         if 0 <= cell[0] < 5 and 0 <= cell[1] < 5 and cell in other_items:
             return ("move", cell, direction), f"adjacent item={cell}"
 
+    # The world only scrolls forward: an orange in the left two columns is
+    # about to leave the board forever, so it outranks everything except the
+    # wall dash and a free adjacent pickup (run 20260820T025148 lost the
+    # orange at (4,0) to the scroll while collecting to the right).
+    urgent_orange = {cell for cell in orange_items if cell[1] <= 1}
+    if urgent_orange:
+        step = shortest_action(info, player, urgent_orange,
+                               allow_obstacles=attacks_enabled)
+        if step:
+            target, obstacle, direction = step
+            return (("attack" if obstacle else "move"), target, direction), \
+                f"orange perishable targets={sorted(urgent_orange)}"
+
     # Never walk around a green/purple pickup that already lies on the clear
     # horizontal route to the right. This costs no detour and still preserves
     # orange priority for targets elsewhere on the board.

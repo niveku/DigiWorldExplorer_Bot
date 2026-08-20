@@ -98,6 +98,46 @@ class WallHuntGateTests(unittest.TestCase):
         self.assertTrue(reason.startswith("approach dash wall"))
 
 
+class CorridorDashTests(unittest.TestCase):
+    def test_second_attack_on_same_row_with_incoming_becomes_dash(self):
+        preview = [False, False, False, True, False]
+        action = ("attack", (3, 2), "right")
+        self.assertTrue(runner.corridor_dash_due(action, (3, 84), 86, preview, True))
+
+    def test_no_preview_keeps_the_attack(self):
+        action = ("attack", (3, 2), "right")
+        self.assertFalse(runner.corridor_dash_due(action, (3, 84), 86, None, True))
+        self.assertFalse(runner.corridor_dash_due(
+            action, (3, 84), 86, [False] * 5, True))
+
+    def test_stale_or_other_row_attacks_do_not_count(self):
+        preview = [False, False, False, True, False]
+        action = ("attack", (3, 2), "right")
+        self.assertFalse(runner.corridor_dash_due(action, (3, 80), 86, preview, True))
+        self.assertFalse(runner.corridor_dash_due(action, (2, 85), 86, preview, True))
+        self.assertFalse(runner.corridor_dash_due(action, None, 86, preview, True))
+        self.assertFalse(runner.corridor_dash_due(action, (3, 84), 86, preview, False))
+
+
+class PerishableOrangeTests(unittest.TestCase):
+    def test_left_edge_orange_outranks_a_nearer_right_one(self):
+        info = empty_grid()
+        info[(2, 2)]["player"] = 0.2
+        info[(2, 0)].update(item=0.10, orange=0.10)   # about to scroll away
+        info[(2, 4)].update(item=0.10, orange=0.10)   # will keep for a while
+        action, reason = strategy.choose(info)
+        self.assertEqual(action[1], (2, 1))
+        self.assertIn("(2, 0)", reason)
+
+    def test_without_perishables_nearest_orange_wins(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 3)].update(item=0.10, orange=0.10)
+        info[(0, 4)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(info)
+        self.assertEqual(action[2], "right")
+
+
 class WallStatusTests(unittest.TestCase):
     def test_wall_approach_gets_its_own_status_line(self):
         text = runner.plan_status("move", "up", "approach dash wall via (0, 1)", 0)

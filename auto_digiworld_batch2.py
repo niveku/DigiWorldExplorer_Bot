@@ -50,6 +50,24 @@ def loop_guard_tripped(recent_states):
     return recent_states[-12:].count(recent_states[-1]) >= 3
 
 
+def corridor_dash_due(action, last_attack, done, preview, dashes_enabled, ttl=4):
+    """Second garra on the same row with another pyramid incoming: dash.
+
+    Run 20260820T025148 events 84-87 spent two garras (400 shards) plus four
+    actions breaking pyramids that scrolled one after another into row 3. A
+    dash costs the same 400, breaks up to three, and advances three cells -
+    strictly better once the row is a corridor. The sixth-column preview
+    provides the 'another one is coming' evidence.
+    """
+    if not dashes_enabled or action is None or action[0] != "attack":
+        return False
+    if preview is None or last_attack is None:
+        return False
+    row = action[1][0]
+    return (last_attack[0] == row and done - last_attack[1] <= ttl
+            and bool(preview[row]))
+
+
 def committed_wall_dash(committed_wall, player, done, ttl=3):
     """True when standing on a recently confirmed wall launch cell.
 
@@ -585,6 +603,8 @@ def main():
     ban_history = set()
     remembered_items = {}
     committed_wall = None
+    prev_item_cells = None
+    last_attack = None
     previous_action = None
     previous_attack_target = None
     previous_dash_player = None
@@ -755,7 +775,13 @@ def main():
                 if done - value[1] <= 25 and cell != player}
             info = merge_remembered_items(info, remembered_items, player)
         visible_items = [cell for cell, values in info.items() if values["item"] > .06]
-        if len(visible_items) >= 3 and item_burst_waits < 2:
+        # A pickup animation flickers the item set between frames; a rich but
+        # STABLE board is not an animation and deciding on it is safe. Waiting
+        # two frames on every re-plan burned ~25s of wall clock in one run.
+        current_item_cells = frozenset(visible_items)
+        items_flickering = current_item_cells != prev_item_cells
+        prev_item_cells = current_item_cells
+        if len(visible_items) >= 3 and item_burst_waits < 2 and items_flickering:
             item_burst_waits += 1
             event["action"] = (f"WAIT: possible pickup animation; {len(visible_items)} "
                                f"item cells ({item_burst_waits}/2)")
@@ -886,6 +912,8 @@ def main():
                 wall_now is None and committed_wall_dash(committed_wall, player, done)):
             action, reason = ("dash", player, "right"), "committed wall dash"
             committed_wall = None
+        if corridor_dash_due(action, last_attack, done, preview, dashes_enabled):
+            action, reason = ("dash", player, "right"), "corridor dash"
         if action is None:
             event["action"] = "STOP: no safe action"
             bot.log_event(log, event)
@@ -959,6 +987,7 @@ def main():
             x, y = bot.cell_center(det.board, *target)
             if kind == "attack":
                 pending_attack_inv = read_drop_counters(image)
+                last_attack = (target[0], done)
             bot.adb(args.adb, args.serial, "shell", "input", "tap", str(x), str(y))
             sent.append({"type": kind, "target_cell": list(target), "adb_xy": [x, y]})
             expected_rollback = player
