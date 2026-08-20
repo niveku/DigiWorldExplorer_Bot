@@ -56,7 +56,9 @@ class StrategyTests(unittest.TestCase):
         info[(4, 4)].update(item=0.10, orange=0.10)
         action, reason = strategy.choose(info, attacks_enabled=False)
         self.assertEqual(action, ("move", (2, 2), "right"))
-        self.assertTrue(reason.startswith("direct horizontal item"))
+        # The pickup is both adjacent and on the direct route; either rule
+        # may claim it, and both produce the same move.
+        self.assertTrue(reason.startswith(("adjacent item", "direct horizontal item")))
 
     def test_blocked_right_route_uses_vertical_detour(self):
         info = empty_grid()

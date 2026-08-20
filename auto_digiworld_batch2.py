@@ -640,6 +640,14 @@ def main():
                     "status": "disabled: previous attack had no visual effect",
                     "target_cell": list(previous_attack_target),
                 }
+                # A no-effect attack with garras in stock means we attacked a
+                # phantom pyramid; keep the frame so it can be diagnosed.
+                try:
+                    evidence_path = run_dir / f"phantom_attack_{done:04d}.png"
+                    bot.diagnostic(image, det).save(evidence_path)
+                    event["attack_state"]["evidence"] = str(evidence_path)
+                except OSError:
+                    pass
             previous_attack_target = None
         if previous_action == "dash" and previous_dash_player is not None:
             if pending_dash is not None:
@@ -679,14 +687,19 @@ def main():
         loop_strikes = loop_strikes + 1 if loop_guard else 0
         banned_targets = {cell: expiry for cell, expiry in banned_targets.items()
                           if expiry > done}
-        if loop_strikes >= LOOP_STRIKES_TO_BAN and item_goals:
-            expiry = (float("inf") if any(cell in ban_history for cell in item_goals)
+        if loop_strikes >= LOOP_STRIKES_TO_BAN:
+            cells_to_ban = set(item_goals)
+            if not cells_to_ban and len(recent_states) >= 2:
+                # Explore-phase pacing: ban both bounce cells so the explorer
+                # is pushed out of the pocket instead of ping-ponging in it.
+                cells_to_ban = {recent_states[-1][0], recent_states[-2][0]}
+            expiry = (float("inf") if any(cell in ban_history for cell in cells_to_ban)
                       else done + TARGET_BAN_ACTIONS)
-            for cell in item_goals:
+            for cell in cells_to_ban:
                 banned_targets[cell] = expiry
                 ban_history.add(cell)
             event["loop_breaker"] = {
-                "banned_cells": sorted(list(cell) for cell in item_goals),
+                "banned_cells": sorted(list(cell) for cell in cells_to_ban),
                 "until_action": None if expiry == float("inf") else expiry,
             }
             if args.verbose:

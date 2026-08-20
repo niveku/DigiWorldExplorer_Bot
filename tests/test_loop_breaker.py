@@ -46,6 +46,50 @@ class IgnoredTargetsTests(unittest.TestCase):
         self.assertEqual(reason, "explore right")
 
 
+class ExploreBanTests(unittest.TestCase):
+    def test_banned_cell_is_avoided_during_exploration(self):
+        info = empty_grid()
+        info[(3, 1)]["player"] = 0.2
+        info[(3, 2)]["pyramid"] = 0.25
+        info[(2, 1)]["pyramid"] = 0.25
+        action, reason = strategy.choose(info, attacks_enabled=False,
+                                         dashes_enabled=False,
+                                         ignored_targets={(3, 0)})
+        self.assertEqual(reason, "explore right")
+        self.assertNotEqual(action[1], (3, 0))
+
+    def test_fully_banned_pocket_still_moves_instead_of_stalling(self):
+        info = empty_grid()
+        info[(3, 1)]["player"] = 0.2
+        info[(3, 2)]["pyramid"] = 0.25
+        info[(2, 1)]["pyramid"] = 0.25
+        info[(4, 1)]["pyramid"] = 0.25
+        action, reason = strategy.choose(info, attacks_enabled=False,
+                                         dashes_enabled=False,
+                                         ignored_targets={(3, 0)})
+        self.assertIsNotNone(action)
+        self.assertEqual(action[1], (3, 0))
+
+
+class AdjacentItemTests(unittest.TestCase):
+    def test_adjacent_pickup_beats_distant_orange(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(3, 1)].update(item=0.10, green=0.10)
+        info[(0, 4)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(info)
+        self.assertEqual(action, ("move", (3, 1), "down"))
+        self.assertTrue(reason.startswith("adjacent item"))
+
+    def test_no_detour_for_non_adjacent_items_when_orange_exists(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(4, 0)].update(item=0.10, green=0.10)
+        info[(0, 4)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(info)
+        self.assertTrue(reason.startswith("orange"))
+
+
 class LoopGuardTests(unittest.TestCase):
     def test_abab_pattern_trips_the_guard(self):
         a = ((1, 1), ((0, 4),))

@@ -164,6 +164,13 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     other_items = {p for p, v in info.items()
                    if v["item"] > .06 and p != player and p not in ignored}
 
+    # An adjacent pickup costs a single step; grab it before anything else so
+    # the bot never has to walk back for it afterwards.
+    for dr, dc, direction in DIRS:
+        cell = (player[0] + dr, player[1] + dc)
+        if 0 <= cell[0] < 5 and 0 <= cell[1] < 5 and cell in other_items:
+            return ("move", cell, direction), f"adjacent item={cell}"
+
     # Never walk around a green/purple pickup that already lies on the clear
     # horizontal route to the right. This costs no detour and still preserves
     # orange priority for targets elsewhere on the board.
@@ -218,7 +225,10 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         candidates.append((score, nxt, obstacle, direction))
     if not candidates:
         return None, "no orthogonal candidate"
-    _, target, obstacle, direction = max(candidates)
+    # Cells banned by the loop breaker are avoided while any alternative
+    # exists; falling back to them beats stalling in a fully banned pocket.
+    preferred = [entry for entry in candidates if entry[1] not in ignored]
+    _, target, obstacle, direction = max(preferred or candidates)
     return ("attack" if obstacle else "move", target, direction), "explore right"
 
 
