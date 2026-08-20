@@ -173,11 +173,14 @@ def nearest_dash_wall(info, player):
 
 
 def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
-           ignored_targets=()):
-    player, pscore = max(((p, v["player"]) for p, v in info.items()),
-                         key=lambda q: q[1])
-    if pscore < .08:
-        return None, f"player confidence too low ({pscore:.3f})"
+           ignored_targets=(), player=None):
+    # A caller that already resolved the player (dead reckoning, large-sprite
+    # locator) passes it in; per-cell scores stay authoritative otherwise.
+    if player is None:
+        player, pscore = max(((p, v["player"]) for p, v in info.items()),
+                             key=lambda q: q[1])
+        if pscore < .08:
+            return None, f"player confidence too low ({pscore:.3f})"
     ignored = set(ignored_targets)
 
     # A visible wall of three pyramids is irresistible while dashes remain:

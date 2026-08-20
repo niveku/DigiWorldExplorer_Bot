@@ -101,6 +101,19 @@ class LargePlayerTests(unittest.TestCase):
         self.assertIsNone(strategy.find_large_player(image, (0, 0, 500, 500)))
 
 
+class ResolvedPlayerOverrideTests(unittest.TestCase):
+    def test_choose_trusts_an_externally_resolved_player(self):
+        info = grid_with_player((0, 0), 0.0)  # no per-cell score anywhere
+        action, reason = strategy.choose(info, player=(3, 1))
+        self.assertIsNotNone(action)
+        self.assertEqual(reason, "explore right")
+
+    def test_choose_still_rejects_weak_frames_without_override(self):
+        info = grid_with_player((0, 0), 0.0)
+        action, reason = strategy.choose(info)
+        self.assertIsNone(action)
+
+
 class ExpectedPositionTests(unittest.TestCase):
     def test_right_move_into_scroll_zone_lands_one_left(self):
         self.assertEqual(runner.expected_after_move((2, 2), "right"), (2, 1))

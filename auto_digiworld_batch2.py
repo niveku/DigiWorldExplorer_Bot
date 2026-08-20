@@ -749,7 +749,8 @@ def main():
             event["dash_state"] = {"status": "re-enabled: drops may have refilled dashes"}
         action, reason = strategy.choose(info, previous_direction,
                                          attacks_enabled, dashes_enabled,
-                                         ignored_targets=banned_targets.keys())
+                                         ignored_targets=banned_targets.keys(),
+                                         player=player)
         if action is None:
             event["action"] = "STOP: no safe action"
             bot.log_event(log, event)
