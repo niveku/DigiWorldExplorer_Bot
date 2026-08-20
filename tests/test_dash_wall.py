@@ -82,6 +82,22 @@ class IrresistibleDashTests(unittest.TestCase):
         self.assertEqual(reason, "explore right")
 
 
+class WallHuntGateTests(unittest.TestCase):
+    def test_hunting_disabled_ignores_the_wall(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 0, (2, 3, 4))
+        action, reason = strategy.choose(info, hunt_walls=False)
+        self.assertEqual(reason, "explore right")
+
+    def test_hunting_enabled_is_the_default(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 0, (2, 3, 4))
+        action, reason = strategy.choose(info)
+        self.assertTrue(reason.startswith("approach dash wall"))
+
+
 class WallStatusTests(unittest.TestCase):
     def test_wall_approach_gets_its_own_status_line(self):
         text = runner.plan_status("move", "up", "approach dash wall via (0, 1)", 0)

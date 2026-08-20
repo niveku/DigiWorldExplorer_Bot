@@ -50,6 +50,11 @@ def aggregate(events):
         "dashes": 0,
         "dash_pyramids": 0,
         "dash_energy_deltas": [],
+        "attacks_real": 0,
+        "attacks_fake": 0,
+        "attacks_unverified": 0,
+        "real_broken": 0,
+        "real_drops": 0,
         "attack_inventory_deltas": [],
         "dash_attack_deltas": [],
         "dash_dash_deltas": [],
@@ -70,6 +75,19 @@ def aggregate(events):
             before, after = result.get("attacks_before"), result.get("attacks_after")
             if before is not None and after is not None:
                 stats["attack_inventory_deltas"].append(after - before)
+                # A real attack always consumes one garra; a zero delta means
+                # the tap was actually a move onto a phantom/broken pyramid
+                # (rare exception: a drop refunding exactly +1 garra).
+                if after - before <= -1:
+                    stats["attacks_real"] += 1
+                    if result["broken"]:
+                        stats["real_broken"] += 1
+                        if result["revealed"]:
+                            stats["real_drops"] += 1
+                else:
+                    stats["attacks_fake"] += 1
+            else:
+                stats["attacks_unverified"] += 1
             _collect_counter_deltas(stats["attack_counter_deltas"],
                                     result.get("counters_before"),
                                     result.get("counters_after"))
@@ -139,6 +157,14 @@ def main():
         rate = drops / stats["broken"]
         print(f"  P(drop | pirámide rota): {rate:.1%} (IC95% {low:.1%}–{high:.1%}, "
               f"n={stats['broken']})")
+    print(f"  Verificación por garra: {stats['attacks_real']} reales (garra -1), "
+          f"{stats['attacks_fake']} taps falsos (garra intacta), "
+          f"{stats['attacks_unverified']} sin contador")
+    if stats["real_broken"]:
+        low, high = wilson_interval(stats["real_drops"], stats["real_broken"])
+        rate = stats["real_drops"] / stats["real_broken"]
+        print(f"  P(drop | ataque REAL): {rate:.1%} (IC95% {low:.1%}–{high:.1%}, "
+              f"n={stats['real_broken']})")
     print()
     print("— Dashes (kameha) —")
     print(f"  Dashes: {stats['dashes']} | Pirámides en trayectoria: {stats['dash_pyramids']}")

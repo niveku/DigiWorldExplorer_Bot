@@ -872,12 +872,16 @@ def main():
             event["dash_state"] = {"status": "re-enabled: drops may have refilled dashes"}
         wall_now = (strategy.nearest_dash_wall(info, player, preview=preview)
                     if dashes_enabled else None)
+        wall_stable = (wall_now is not None and committed_wall is not None
+                       and committed_wall[0] == wall_now
+                       and done - committed_wall[1] <= 3)
         if wall_now is not None:
             committed_wall = (wall_now, done)
         action, reason = strategy.choose(info, previous_direction,
                                          attacks_enabled, dashes_enabled,
                                          ignored_targets=banned_targets.keys(),
-                                         player=player, preview=preview)
+                                         player=player, preview=preview,
+                                         hunt_walls=wall_stable)
         if (action is not None and action[0] != "dash" and dashes_enabled and
                 wall_now is None and committed_wall_dash(committed_wall, player, done)):
             action, reason = ("dash", player, "right"), "committed wall dash"

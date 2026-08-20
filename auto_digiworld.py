@@ -269,7 +269,7 @@ def nearest_dash_wall(info, player, preview=None):
 
 
 def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
-           ignored_targets=(), player=None, preview=None):
+           ignored_targets=(), player=None, preview=None, hunt_walls=True):
     # A caller that already resolved the player (dead reckoning, large-sprite
     # locator) passes it in; per-cell scores stay authoritative otherwise.
     if player is None:
@@ -282,7 +282,13 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     # A visible wall of three pyramids is irresistible while dashes remain:
     # align with its launch cell and dash through it. Two in a row stay an
     # opportunistic dash (handled below) and never justify a detour.
-    if dashes_enabled:
+    # hunt_walls gates only the DETOUR to a wall: a flickering pyramid score
+    # makes "the nearest wall" change launch cell with every step, and the
+    # approach is exempt from the loop bans, so an unstable launch produced
+    # an unbreakable left-right oscillation (run 20260820T024149). The
+    # caller enables hunting only when the same launch was seen on
+    # consecutive frames; opportunistic same-row dashes are unaffected.
+    if dashes_enabled and hunt_walls:
         launch = nearest_dash_wall(info, player, preview=preview)
         if launch == player:
             return ("dash", player, "right"), "3+ pyramid wall: dash"
