@@ -146,13 +146,22 @@ def milestone_chest_ready(image):
     area = band.shape[0] * band.shape[1]
     if badge.sum() < area * .0005 or gold.sum() < area * .001:
         return None
-    # Tap the BADGE centroid, not the gold: the golden meters text on the
-    # bar grows with distance and dragged the gold+badge average ~130px
-    # left of the chest at 12,000m (run 20260820T192556 event 240 tapped
-    # (379, 912) while the chest sat near x=510 - the tap opened nothing
-    # and the chest went unclaimed). The '!' badge rides the chest.
+    # The badge is the anchor, the tap goes on the chest BODY: the gold
+    # cluster within a window around the badge is the chest itself, and
+    # taps on the body claim more reliably than taps on the '!' bubble
+    # (user observation). Gold far from the badge is the meters text,
+    # which grows with distance and dragged the old gold+badge average
+    # ~130px left of the chest at 12,000m (run 20260820T192556 event 240
+    # tapped (379, 912) with the chest near x=510: the tap opened
+    # nothing and the chest went unclaimed).
     ys, xs = np.where(badge)
-    return int(xs.mean()), int(ys.mean()) + y0
+    badge_x, badge_y = xs.mean(), ys.mean()
+    gold_ys, gold_xs = np.where(gold)
+    near = ((np.abs(gold_xs - badge_x) < width * .12) &
+            (np.abs(gold_ys - badge_y) < band.shape[0] * .8))
+    if near.any():
+        return int(gold_xs[near].mean()), int(gold_ys[near].mean()) + y0
+    return int(badge_x), int(badge_y) + y0
 
 
 def items_flickering(current, previous):

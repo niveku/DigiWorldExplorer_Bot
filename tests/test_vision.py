@@ -96,8 +96,11 @@ class InventoryOcrTests(unittest.TestCase):
         point = runner.milestone_chest_ready(image)
         self.assertIsNotNone(point)
         x, y = point
-        self.assertAlmostEqual(x / image.width, 0.76, delta=0.04)
-        self.assertAlmostEqual(y / image.height, 0.715, delta=0.03)
+        # The tap lands on the chest BODY (the gold cluster under the
+        # badge), not on the badge bubble: taps on the body claim more
+        # reliably per the user's observation.
+        self.assertAlmostEqual(x / image.width, 0.716, delta=0.03)
+        self.assertAlmostEqual(y / image.height, 0.732, delta=0.03)
 
     def test_tap_point_ignores_the_gold_meters_text(self):
         # Run 20260820T192556 event 240: tap_xy (379, 912) on a 720-wide
