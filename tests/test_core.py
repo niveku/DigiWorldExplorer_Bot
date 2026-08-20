@@ -103,15 +103,15 @@ class BatchTests(unittest.TestCase):
 
     def test_run_summary_contains_time_and_pickup_totals(self):
         text = runner.run_summary(125, {"orange": 3, "pink": 2, "green": 1})
-        self.assertIn("Gesamtzeit 02:05", text)
-        self.assertIn("erkannt angefahren: 6", text)
-        self.assertIn("Energie 3", text)
+        self.assertIn("Tiempo total 02:05", text)
+        self.assertIn("recogidos: 6", text)
+        self.assertIn("Energía 3", text)
 
     def test_run_summary_reports_exact_orange_hud_difference(self):
         text = runner.run_summary(125, {"orange": 3, "pink": 2, "green": 1}, 7180, 7525)
-        self.assertIn("Energie 7.180 -> 7.525 (+345)", text)
-        self.assertIn("165,6/Min", text)
-        self.assertIn("9.936,0/Std", text)
+        self.assertIn("Energía 7.180 -> 7.525 (+345)", text)
+        self.assertIn("165,6/min", text)
+        self.assertIn("9.936,0/h", text)
     def test_compact_progress_includes_percent_and_eta(self):
         text = runner.progress_summary(20, 200, 100)
         self.assertIn("20/200 (10%)", text)
@@ -119,12 +119,12 @@ class BatchTests(unittest.TestCase):
         self.assertIn("15:00", text)
     def test_debug_status_prioritizes_visible_energy(self):
         text = runner.plan_status("move", "right", "explore right", 2)
-        self.assertIn("Energie gesichtet", text)
-        self.assertIn("2 Item(s)", text)
+        self.assertIn("Energía a la vista", text)
+        self.assertIn("2 item(s)", text)
 
     def test_debug_status_describes_exploration_direction(self):
         text = runner.plan_status("move", "right", "explore right", 0)
-        self.assertIn("Erkunde nach rechts", text)
+        self.assertIn("Explorando hacia la derecha", text)
 
     def test_followup_stops_before_pyramid(self):
         info = empty_grid()

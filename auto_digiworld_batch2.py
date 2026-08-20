@@ -428,22 +428,22 @@ def run_summary(elapsed_seconds, collected, energy_start=None, energy_end=None):
     total = sum(collected.values())
     tickets = (collected.get("green_ticket", 0) + collected.get("purple_ticket", 0)
                + collected.get("pink", 0) + collected.get("green", 0))
-    detected = (f"erkannt angefahren: {total} "
-                f"(Energie {collected.get('orange', 0)}, "
+    detected = (f"recogidos: {total} "
+                f"(Energía {collected.get('orange', 0)}, "
                 f"Garras {collected.get('claw', 0)}, "
-                f"Dash-Orbs {collected.get('dash_orb', 0)}, "
-                f"Schritte {collected.get('steps', 0)}, Tickets {tickets})")
+                f"Orbes dash {collected.get('dash_orb', 0)}, "
+                f"Pasos {collected.get('steps', 0)}, Tickets {tickets})")
     if energy_start is not None and energy_end is not None:
         difference = energy_end - energy_start
-        hud = (f"Energie {format_counter(energy_start)} -> {format_counter(energy_end)} "
+        hud = (f"Energía {format_counter(energy_start)} -> {format_counter(energy_end)} "
                f"({difference:+d})")
         if elapsed_seconds > 0:
             per_minute = difference * 60 / elapsed_seconds
             per_hour = difference * 3600 / elapsed_seconds
-            hud += f" | {format_rate(per_minute)}/Min | {format_rate(per_hour)}/Std"
+            hud += f" | {format_rate(per_minute)}/min | {format_rate(per_hour)}/h"
     else:
-        hud = "Energie-Zähler nicht sicher lesbar"
-    return f"FERTIG | Gesamtzeit {format_duration(elapsed_seconds)} | {hud} | {detected}"
+        hud = "Contador de energía ilegible"
+    return f"LISTO | Tiempo total {format_duration(elapsed_seconds)} | {hud} | {detected}"
 
 
 def show_run_summary(current, total, started_at, collected, energy_start=None,
@@ -453,15 +453,15 @@ def show_run_summary(current, total, started_at, collected, energy_start=None,
 
 def plan_status(kind, direction, reason, item_count):
     if reason.startswith("approach dash wall"):
-        return "Pyramidenwand gesichtet - Anlauf zum Dash"
+        return "Muro de pirámides a la vista - aproximando para el dash"
     if item_count:
-        return f"Energie gesichtet! {item_count} Item(s) - Route wird neu berechnet"
+        return f"¡Energía a la vista! {item_count} item(s) - recalculando ruta"
     if kind == "dash":
-        return "Dash geplant - mehrere Hindernisse voraus"
+        return "Dash planeado - varios obstáculos al frente"
     if kind == "attack":
-        return "Pyramide gesichtet - sicherer Angriff wird ausgefuehrt"
-    labels = {"right": "rechts", "left": "links", "up": "oben", "down": "unten"}
-    return f"Erkunde nach {labels.get(direction, direction)} - {reason}"
+        return "Pirámide a la vista - ejecutando ataque seguro"
+    labels = {"right": "la derecha", "left": "la izquierda", "up": "arriba", "down": "abajo"}
+    return f"Explorando hacia {labels.get(direction, direction)} - {reason}"
 
 
 def read_ticket_counters(image):
@@ -722,7 +722,7 @@ def main():
         stamp = datetime.now(timezone.utc).isoformat()
         event = {"time_utc": stamp, "next_index": done, "detection": bot.asdict(det)}
         if args.verbose:
-            progress(done, args.steps, "Scanne Spielfeld und berechne neu ...", "90")
+            progress(done, args.steps, "Escaneando tablero y recalculando ...", "90")
 
         # Milestone chest: claim as soon as the magenta badge lights up.
         # Two taps on the same point (open Reward, close it); the energy
@@ -755,7 +755,7 @@ def main():
                 bot.log_event(log, event)
                 if args.verbose:
                     progress(done, args.steps,
-                             "Meilenstein-Truhe eingesammelt", "32")
+                             "Cofre de milestone reclamado", "32")
                 continue
 
         if bot.tutorial_overlay_center(image) is not None:
@@ -834,7 +834,7 @@ def main():
             unreliable += 1
             event["action"] = f"WAIT: unreliable board ({unreliable}/5)"
             bot.log_event(log, event)
-            if args.verbose: progress(done, args.steps, "Spielfeld unsicher - neuer Scan", "33")
+            if args.verbose: progress(done, args.steps, "Tablero inestable - nuevo escaneo", "33")
             if unreliable >= 5:
                 show_run_summary(done, args.steps, started_at, collected, energy_start, read_energy_counter(image), "33")
                 return 2
@@ -845,7 +845,7 @@ def main():
             energy_start = confirmed_energy(last_energy_read, current_read)
             last_energy_read = current_read
             if args.verbose and energy_start is not None:
-                progress(done, args.steps, f"Energie-Startwert: {format_counter(energy_start)}", "93")
+                progress(done, args.steps, f"Energía inicial: {format_counter(energy_start)}", "93")
         if inventory_start is None:
             reading = read_drop_counters(image)
             if any(value is not None for value in reading.values()):
@@ -934,7 +934,10 @@ def main():
                 bot.diagnostic(image, det).save(wait_path)
                 event["debug"] = str(wait_path)
             bot.log_event(log, event)
-            time.sleep(max(args.interval, 1.0)); continue
+            # The sparkle animation clears in well under a second, and the
+            # next loop pass re-verifies with a fresh frame anyway; the old
+            # max(interval, 1.0) doubled every wait's real cost.
+            time.sleep(.4); continue
         item_burst_waits = 0
         preview = strategy.sixth_column_preview(image, det.board)
         if preview is not None and any(preview):
@@ -1028,7 +1031,7 @@ def main():
                 "until_action": None if expiry == float("inf") else expiry,
             }
             if args.verbose:
-                progress(done, args.steps, "Schleife erkannt - Ziel wird ignoriert", "33")
+                progress(done, args.steps, "Loop detectado - objetivo ignorado", "33")
             loop_strikes = 0
             recent_states = []
         if not attacks_enabled and should_reenable(attacks_disabled_at, done):
@@ -1061,7 +1064,7 @@ def main():
         if action is None:
             event["action"] = "STOP: no safe action"
             bot.log_event(log, event)
-            if args.verbose: progress(done, args.steps, "STOPP - keine sichere Aktion", "31")
+            if args.verbose: progress(done, args.steps, "STOP - sin acción segura", "31")
             show_run_summary(done, args.steps, started_at, collected, energy_start, read_energy_counter(image), "33")
             return 4
         kind, target, direction = action
@@ -1114,7 +1117,7 @@ def main():
                 dashes_disabled_at = done
                 event["action"] = "WAIT: dash button missing"
                 bot.log_event(log, event)
-                if args.verbose: progress(done, args.steps, "Dash nicht verfuegbar - plane neu", "33")
+                if args.verbose: progress(done, args.steps, "Dash no disponible - replanificando", "33")
                 continue
             dash_path = dash_path_report(info, player)
             event["dash_path"] = dash_path
@@ -1178,7 +1181,7 @@ def main():
         bot.log_event(log, event)
         done += len(sent)
         if args.verbose:
-            progress(done, args.steps, f"{len(sent)} Aktion(en) ausgefuehrt - neuer Scan", "32")
+            progress(done, args.steps, f"{len(sent)} acción(es) ejecutadas - nuevo escaneo", "32")
         elif progress_step and (done >= next_progress or done >= args.steps):
             elapsed = time.monotonic() - started_at
             progress(done, args.steps, progress_summary(done, args.steps, elapsed), "32")

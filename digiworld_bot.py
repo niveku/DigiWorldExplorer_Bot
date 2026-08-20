@@ -57,10 +57,10 @@ def resolve_adb(requested: str = ADB_DEFAULT) -> str:
             return str(Path(candidate).resolve())
 
     if explicit:
-        raise RuntimeError(f"ADB wurde nicht gefunden: {explicit}")
+        raise RuntimeError(f"No se encontró ADB: {explicit}")
     raise RuntimeError(
-        "ADB wurde nicht gefunden. Installiere BlueStacks 5 oder setze "
-        "DIGIWORLD_ADB auf den vollstaendigen Pfad zu HD-Adb.exe."
+        "No se encontró ADB. Instala BlueStacks 5 / MuMu o define "
+        "DIGIWORLD_ADB con la ruta completa a adb.exe."
     )
 
 
@@ -91,7 +91,7 @@ def resolve_serial(adb_path: str, requested: str = SERIAL_DEFAULT) -> str:
         if explicit in devices:
             return explicit
         raise RuntimeError(
-            f"ADB-Geraet {explicit!r} ist nicht bereit. Geraete: {rows or 'keine'}"
+            f"El dispositivo ADB {explicit!r} no está listo. Dispositivos: {rows or 'ninguno'}"
         )
 
     if not devices:
@@ -103,8 +103,8 @@ def resolve_serial(adb_path: str, requested: str = SERIAL_DEFAULT) -> str:
         devices = [serial for serial, state in rows if state == "device"]
     if not devices:
         raise RuntimeError(
-            "Kein ADB-Geraet gefunden. Starte BlueStacks und aktiviere unter "
-            "Einstellungen > Erweitert den Android Debug Bridge-Schalter."
+            "Ningún dispositivo ADB encontrado. Inicia el emulador y activa "
+            "el Android Debug Bridge en su configuración avanzada."
         )
 
     preferred = ("127.0.0.1:5555", "emulator-5554")
@@ -114,8 +114,8 @@ def resolve_serial(adb_path: str, requested: str = SERIAL_DEFAULT) -> str:
     if len(devices) == 1:
         return devices[0]
     raise RuntimeError(
-        "Mehrere ADB-Geraete gefunden. Setze DIGIWORLD_SERIAL oder verwende "
-        f"--serial. Geraete: {devices}"
+        "Varios dispositivos ADB encontrados. Define DIGIWORLD_SERIAL o usa "
+        f"--serial. Dispositivos: {devices}"
     )
 
 

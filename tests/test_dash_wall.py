@@ -182,6 +182,29 @@ class PairDashTests(unittest.TestCase):
         self.assertNotEqual(action[0], "dash")
 
 
+class PerishableBeatsWallTests(unittest.TestCase):
+    """Run 20260820T061407 events 126/247: the wall dash fired with an
+    orange sitting in the left band and the 3-cell advance scrolled it
+    off forever. Scroll only advances on rightward moves, so a left
+    detour costs the wall nothing - rescue the orange first, dash after."""
+
+    def test_left_band_orange_outranks_the_wall_dash(self):
+        info = empty_grid()
+        info[(2, 2)]["player"] = 0.2
+        wall(info, 0, (2, 3, 4))
+        info[(2, 0)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(info)
+        self.assertTrue(reason.startswith("orange perishable"))
+
+    def test_wall_still_wins_over_right_side_oranges(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 0, (2, 3, 4))
+        info[(4, 4)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(info)
+        self.assertTrue(reason.startswith("approach dash wall"))
+
+
 class PairDashDefersToWallTests(unittest.TestCase):
     """A same-row pair must not preempt a visible wall of three: the wall
     needs two stable frames before hunting engages, and the instant pair
@@ -467,7 +490,7 @@ class PerishableOrangeTests(unittest.TestCase):
 class WallStatusTests(unittest.TestCase):
     def test_wall_approach_gets_its_own_status_line(self):
         text = runner.plan_status("move", "up", "approach dash wall via (0, 1)", 0)
-        self.assertIn("Pyramidenwand", text)
+        self.assertIn("Muro de pirámides", text)
 
 
 if __name__ == "__main__":

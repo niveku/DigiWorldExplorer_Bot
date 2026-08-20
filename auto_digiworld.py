@@ -330,6 +330,36 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             return None, f"player confidence too low ({pscore:.3f})"
     ignored = set(ignored_targets)
 
+    # Cells a loop breaker has banned are invisible as goals: an unreachable
+    # or misdetected pickup must not keep the pathfinder pacing forever.
+    orange_items = {p for p, v in info.items()
+                    if v["orange"] > .06 and p != player and p not in ignored}
+    other_items = {p for p, v in info.items()
+                   if v["item"] > .06 and p != player and p not in ignored}
+    # Mid-tier pickups sit between energy and tickets: claw +1 garra (200
+    # shards), dash orb +1 dash (400), paws +5 steps (200). Tickets (+1,
+    # negligible per the user) stay in the lowest tier and never justify
+    # passing up a mid-tier target.
+    claw_items = {p for p, v in info.items()
+                  if v.get("claw", 0.0) > .10 and v["item"] <= .06
+                  and p != player and p not in ignored}
+    mid_items = claw_items | {p for p in other_items
+                              if pickup_type(info[p]) in ("dash_orb", "steps")}
+
+    # The world only scrolls forward, and it only scrolls on rightward
+    # moves: an orange in the left two columns is about to leave the board
+    # forever, while a wall of pyramids survives a leftward detour intact.
+    # Rescue first, dash after (run 20260820T061407 events 126/247 dashed
+    # through a wall and scrolled left oranges to their death).
+    urgent_orange = {cell for cell in orange_items if cell[1] <= 1}
+    if urgent_orange:
+        step = shortest_action(info, player, urgent_orange,
+                               allow_obstacles=attacks_enabled)
+        if step:
+            target, obstacle, direction = step
+            return (("attack" if obstacle else "move"), target, direction), \
+                f"orange perishable targets={sorted(urgent_orange)}"
+
     # A visible wall of three pyramids is irresistible while dashes remain:
     # align with its launch cell and dash through it. Two in a row stay an
     # opportunistic dash (handled below) and never justify a detour.
@@ -349,22 +379,6 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                 target, _, direction = step
                 return ("move", target, direction), f"approach dash wall via {launch}"
 
-    # Cells a loop breaker has banned are invisible as goals: an unreachable
-    # or misdetected pickup must not keep the pathfinder pacing forever.
-    orange_items = {p for p, v in info.items()
-                    if v["orange"] > .06 and p != player and p not in ignored}
-    other_items = {p for p, v in info.items()
-                   if v["item"] > .06 and p != player and p not in ignored}
-    # Mid-tier pickups sit between energy and tickets: claw +1 garra (200
-    # shards), dash orb +1 dash (400), paws +5 steps (200). Tickets (+1,
-    # negligible per the user) stay in the lowest tier and never justify
-    # passing up a mid-tier target.
-    claw_items = {p for p, v in info.items()
-                  if v.get("claw", 0.0) > .10 and v["item"] <= .06
-                  and p != player and p not in ignored}
-    mid_items = claw_items | {p for p in other_items
-                              if pickup_type(info[p]) in ("dash_orb", "steps")}
-
     # An adjacent pickup costs a single step; grab it before anything else so
     # the bot never has to walk back for it afterwards.
     for dr, dc, direction in DIRS:
@@ -373,19 +387,6 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             continue
         if cell in other_items or cell in claw_items:
             return ("move", cell, direction), f"adjacent item={cell}"
-
-    # The world only scrolls forward: an orange in the left two columns is
-    # about to leave the board forever, so it outranks everything except the
-    # wall dash and a free adjacent pickup (run 20260820T025148 lost the
-    # orange at (4,0) to the scroll while collecting to the right).
-    urgent_orange = {cell for cell in orange_items if cell[1] <= 1}
-    if urgent_orange:
-        step = shortest_action(info, player, urgent_orange,
-                               allow_obstacles=attacks_enabled)
-        if step:
-            target, obstacle, direction = step
-            return (("attack" if obstacle else "move"), target, direction), \
-                f"orange perishable targets={sorted(urgent_orange)}"
 
     # Two pyramids inside the 3-cell dash path cost the same 400 shards as
     # the two garras that would clear them, but the dash also advances three
