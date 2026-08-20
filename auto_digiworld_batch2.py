@@ -901,7 +901,11 @@ def main():
                     pause=lambda: time.sleep(.5))
                 event["action"] = "CLAIM: milestone chest"
                 event["milestone_claim"] = claim
-                chest_cooldown = 20
+                # 3 frames cover the badge's fade-out; 20 blocked the
+                # NEXT chest when it lit up right after a claim (run
+                # 20260820T192556: the 12,000m badge appeared 19 frames
+                # after the 11,000m claim and was never claimed).
+                chest_cooldown = 3
                 bot.log_event(log, event)
                 if args.verbose:
                     progress(done, args.steps,

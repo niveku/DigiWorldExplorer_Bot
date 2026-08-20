@@ -192,9 +192,18 @@ def find_large_player(image, board, min_pixels=120, item_cells=()):
     # bot across the board. Cells already classified as items contribute no
     # sprite pixels.
     cell_w, cell_h = (x1 - x0) / 5, (y1 - y0) / 5
+    # Mask item cells WITH a 30% margin: a card sliding across a cell
+    # border leaves a red sliver in the neighbor cell that per-cell
+    # masking misses (run 20260820T192556 event 191: two straddling
+    # orange cards formed a 0.027 ghost blob, got the 3x3 around it
+    # wiped, and cost a real orange to the scroll).
+    height_px, width_px = mask.shape
+    margin = 0.3
     for row, col in item_cells:
-        ya, yb = int(row * cell_h), int((row + 1) * cell_h)
-        xa, xb = int(col * cell_w), int((col + 1) * cell_w)
+        ya = max(0, int((row - margin) * cell_h))
+        yb = min(height_px, int((row + 1 + margin) * cell_h))
+        xa = max(0, int((col - margin) * cell_w))
+        xb = min(width_px, int((col + 1 + margin) * cell_w))
         mask[ya:yb, xa:xb] = False
     ys, xs = np.where(mask)
     if len(xs) < min_pixels:
@@ -210,6 +219,11 @@ def find_large_player(image, board, min_pixels=120, item_cells=()):
     row = min(max(int(foot_y // cell_h), 0), 4)
     col = min(max(int(center_x // cell_w), 0), 4)
     score = min(float(len(xs)) / (cell_w * cell_h), 1.0)
+    # With the margin masking, residual card slivers score ~0.007 while
+    # the weakest real FM frame (sprite overflowing the top row) scores
+    # 0.031: the floor sits between them with 3x margin on both sides.
+    if score < .02:
+        return None
     return (row, col), score
 
 

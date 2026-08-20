@@ -193,6 +193,23 @@ class LargePlayerTests(unittest.TestCase):
         self.assertIsNotNone(clean)
         self.assertEqual(clean[0], (3, 1))
 
+    def test_straddling_orange_cards_are_not_a_player(self):
+        # Run 20260820T192556 event 191: two orange cards sliding across
+        # the (2,0)/(2,1) border formed a 0.027-score red blob. The blob
+        # was taken as an oversized player, suppress_sprite_leaks wiped
+        # the 3x3 around it - deleting two real oranges from the map -
+        # and the scroll then ate one of them. Per-cell masking cannot
+        # catch a card that straddles cells; a score floor can: a real
+        # oversized sprite (FM) scores ~0.1+, card slivers stay below.
+        import digiworld_bot as bot
+        image = Image.open(FIXTURES / "phantom_blob_cards.png")
+        det = bot.classify(image)
+        info = strategy.cells(np.asarray(image.convert("RGB")), det.board)
+        item_cells = {cell for cell, v in info.items() if v["item"] > .06}
+        located = strategy.find_large_player(
+            np.asarray(image.convert("RGB")), det.board, item_cells=item_cells)
+        self.assertIsNone(located)
+
     def test_a_few_stray_pixels_are_not_a_player(self):
         image = board_image(lambda r, c: None)
         image[200:205, 100:110] = RED_ARMOR
