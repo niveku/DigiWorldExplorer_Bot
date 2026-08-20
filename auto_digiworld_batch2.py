@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import random
 import subprocess
@@ -66,6 +67,63 @@ def corridor_dash_due(action, last_attack, done, preview, dashes_enabled, ttl=4)
     row = action[1][0]
     return (last_attack[0] == row and done - last_attack[1] <= ttl
             and bool(preview[row]))
+
+
+# Net burn per executed action, measured across 13 runs / 2,750 actions
+# (refunds from claw/orb/paw pickups already netted out): 2,144 steps,
+# 91 garras, 73 dashes. Ratio ~24 steps : 1 garra : 0.8 dashes.
+BURN_PER_ACTION = {"steps": 0.78, "attacks": 0.033, "dashes": 0.027}
+SHOP = {"steps": {"unit": 50, "cost": 2000},   # pack of 50 steps
+        "attacks": {"unit": 1, "cost": 200},
+        "dashes": {"unit": 1, "cost": 400}}
+
+
+def purchase_recommendation(planned_actions, inventory, margin=1.15):
+    """Recommend what to buy so the planned run does not starve mid-way.
+
+    Needs = measured burn rate x planned actions x a 15% margin; only the
+    deficit against the current HUD inventory is recommended. Unreadable
+    counters are skipped rather than guessed.
+    """
+    result = {}
+    total = 0
+    for name, rate in BURN_PER_ACTION.items():
+        have = (inventory or {}).get(name)
+        if have is None:
+            continue
+        need = math.ceil(rate * planned_actions * margin)
+        deficit = max(0, need - have)
+        shop = SHOP[name]
+        units = math.ceil(deficit / shop["unit"]) if deficit else 0
+        cost = units * shop["cost"]
+        entry = {"need": need, "have": have, "deficit": deficit, "cost": cost}
+        if shop["unit"] > 1:
+            entry["packs"] = units
+        result[name] = entry
+        total += cost
+    result["total_shards"] = total
+    return result
+
+
+def format_purchase_advice(rec):
+    """Spanish one-liner for the run start."""
+    if rec.get("total_shards", 0) <= 0:
+        return "Inventario suficiente para el run planeado - no hay que comprar nada."
+    parts = []
+    labels = {"steps": "pasos", "attacks": "garras", "dashes": "dashes"}
+    for name, label in labels.items():
+        entry = rec.get(name)
+        if not entry or not entry["deficit"]:
+            continue
+        if "packs" in entry:
+            parts.append(f"{entry['packs']} pack(s) de 50 {label} "
+                         f"({entry['cost']:,} shards)".replace(",", "."))
+        else:
+            parts.append(f"{entry['deficit']} {label} "
+                         f"({entry['cost']:,} shards)".replace(",", "."))
+    total = f"{rec['total_shards']:,}".replace(",", ".")
+    return ("Compra recomendada (ratio medido 24 pasos : 1 garra : 0,8 dashes): "
+            + ", ".join(parts) + f" | total ~{total} shards")
 
 
 def milestone_chest_ready(image):
@@ -851,6 +909,12 @@ def main():
             if any(value is not None for value in reading.values()):
                 inventory_start = reading
                 event["inventory_start"] = reading
+                # Shopping advice for the whole planned run, from measured
+                # burn rates - printed once, before spending anything.
+                recommendation = purchase_recommendation(
+                    args.steps - done, reading)
+                event["purchase_recommendation"] = recommendation
+                print(format_purchase_advice(recommendation))
 
         # Per-frame energy timeline: makes milestone rewards (+1000 spikes)
         # distinguishable from gradual per-meter accrual in the log.

@@ -88,6 +88,44 @@ class EnergyConsensusTests(unittest.TestCase):
         self.assertIsNone(runner.confirmed_energy(3805, 3555))
 
 
+class PurchaseRecommendationTests(unittest.TestCase):
+    """Measured net burn across 13 runs / 2,750 actions: 0.78 steps,
+    0.033 garras, 0.027 dashes per action (refunds and pickups already
+    netted out). The recommendation covers a planned run with a 15%
+    margin; steps sell in packs of 50 (2,000 shards), garras at 200,
+    dashes at 400."""
+
+    def test_empty_inventory_recommends_full_load(self):
+        rec = runner.purchase_recommendation(
+            100, {"steps": 0, "attacks": 0, "dashes": 0})
+        self.assertEqual(rec["steps"]["deficit"], 90)
+        self.assertEqual(rec["steps"]["packs"], 2)
+        self.assertEqual(rec["attacks"]["deficit"], 4)
+        self.assertEqual(rec["dashes"]["deficit"], 4)
+        self.assertEqual(rec["total_shards"], 2 * 2000 + 4 * 200 + 4 * 400)
+
+    def test_full_inventory_needs_nothing(self):
+        rec = runner.purchase_recommendation(
+            100, {"steps": 500, "attacks": 40, "dashes": 20})
+        self.assertEqual(rec["total_shards"], 0)
+
+    def test_partial_inventory_buys_only_the_gap(self):
+        rec = runner.purchase_recommendation(
+            100, {"steps": 60, "attacks": 4, "dashes": 1})
+        self.assertEqual(rec["steps"]["deficit"], 30)
+        self.assertEqual(rec["steps"]["packs"], 1)
+        self.assertEqual(rec["attacks"]["deficit"], 0)
+        self.assertEqual(rec["dashes"]["deficit"], 3)
+        self.assertEqual(rec["total_shards"], 2000 + 3 * 400)
+
+    def test_unreadable_counters_are_skipped(self):
+        rec = runner.purchase_recommendation(
+            100, {"steps": None, "attacks": 5, "dashes": None})
+        self.assertNotIn("steps", rec)
+        self.assertNotIn("dashes", rec)
+        self.assertIn("attacks", rec)
+
+
 class RevealedTypeTests(unittest.TestCase):
     def test_new_pickup_types_do_not_crash_the_aggregate(self):
         # Pyramids also drop paws/orbs now that pickup types are told
