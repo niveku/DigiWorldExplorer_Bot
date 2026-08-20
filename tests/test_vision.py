@@ -75,6 +75,32 @@ class InventoryOcrTests(unittest.TestCase):
                           "green_tickets": 28954, "purple_tickets": 28956})
 
 
+RED_ARMOR = (200, 40, 50)
+
+
+class LargePlayerTests(unittest.TestCase):
+    def test_oversized_sprite_is_anchored_at_its_feet(self):
+        image = board_image(lambda r, c: None)
+        # A 2x2.3-cell red sprite like Imperialdramon FM centered on col 1,
+        # feet in row 3.
+        image[150:380, 60:200] = RED_ARMOR
+        located = strategy.find_large_player(image, (0, 0, 500, 500))
+        self.assertIsNotNone(located)
+        cell, score = located
+        self.assertEqual(cell, (3, 1))
+        self.assertGreaterEqual(score, 0.08)
+
+    def test_a_few_stray_pixels_are_not_a_player(self):
+        image = board_image(lambda r, c: None)
+        image[200:205, 100:110] = RED_ARMOR
+        self.assertIsNone(strategy.find_large_player(image, (0, 0, 500, 500)))
+
+    def test_board_wide_noise_is_rejected(self):
+        image = board_image(lambda r, c: None)
+        image[10:490:12, :] = RED_ARMOR
+        self.assertIsNone(strategy.find_large_player(image, (0, 0, 500, 500)))
+
+
 class ExpectedPositionTests(unittest.TestCase):
     def test_right_move_into_scroll_zone_lands_one_left(self):
         self.assertEqual(runner.expected_after_move((2, 2), "right"), (2, 1))

@@ -522,6 +522,7 @@ def main():
     unreliable = 0
     player_unreliable = 0
     item_burst_waits = 0
+    overlay_waits = 0
     recent_states = []
 
     while done < args.steps:
@@ -545,11 +546,27 @@ def main():
                 pending_dash = None
                 event["action"] = "WAIT: dashes disabled after rejection"
             else:
-                event["action"] = "WAIT: overlay visible"
+                overlay_waits += 1
+                event["action"] = f"WAIT: overlay visible ({overlay_waits}/15)"
+                if overlay_waits >= 15:
+                    # A persistent overlay (e.g. an unclaimed milestone popup)
+                    # would otherwise hang the run silently forever.
+                    event["action"] = "STOP: persistent overlay"
+                    try:
+                        evidence_path = run_dir / "overlay_stop_evidence.png"
+                        image.save(evidence_path)
+                        event["evidence"] = str(evidence_path)
+                    except OSError:
+                        pass
+                    bot.log_event(log, event)
+                    show_run_summary(done, args.steps, started_at, collected,
+                                     energy_start, read_energy_counter(image), "33")
+                    return 5
             bot.log_event(log, event)
             if args.verbose: progress(done, args.steps, str(event["action"]), "33")
             time.sleep(args.interval); continue
 
+        overlay_waits = 0
         if det.state != "digiworld" or not det.board or det.confidence < args.min_confidence:
             unreliable += 1
             event["action"] = f"WAIT: unreliable board ({unreliable}/5)"
@@ -571,6 +588,10 @@ def main():
             if any(value is not None for value in reading.values()):
                 inventory_start = reading
                 event["inventory_start"] = reading
+
+        # Per-frame energy timeline: makes milestone rewards (+1000 spikes)
+        # distinguishable from gradual per-meter accrual in the log.
+        event["energy"] = read_energy_counter(image)
 
         if stable_board is None:
             stable_board = det.board
@@ -598,6 +619,12 @@ def main():
             time.sleep(max(args.interval, 1.0)); continue
         item_burst_waits = 0
         player, player_score, player_source = resolve_player(info, expected_player)
+        if player_source == "vision" and player_score < .08:
+            # Oversized partners (Imperialdramon FM) dilute per-cell scores;
+            # fall back to whole-board sprite location before giving up.
+            large = strategy.find_large_player(image, det.board)
+            if large is not None:
+                (player, player_score), player_source = large, "large-sprite"
         memory_streak = memory_streak + 1 if player_source == "memory" else 0
         if player_source != "vision":
             event["player_resolution"] = {"cell": list(player), "source": player_source,
@@ -609,6 +636,12 @@ def main():
             if args.verbose: progress(done, args.steps, "Spielerposition unsicher - neuer Scan", "33")
             if player_unreliable >= 5:
                 event["action"] = "STOP: five consecutive unreliable player frames"
+                try:
+                    evidence_path = run_dir / "player_stop_evidence.png"
+                    bot.diagnostic(image, det).save(evidence_path)
+                    event["evidence"] = str(evidence_path)
+                except OSError:
+                    pass
                 bot.log_event(log, event)
                 show_run_summary(done, args.steps, started_at, collected, energy_start, read_energy_counter(image), "33")
                 return 3

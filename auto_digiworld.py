@@ -111,6 +111,42 @@ def shortest_action(info, player, targets, allow_obstacles=True):
     return None
 
 
+def find_large_player(image, board, min_pixels=120):
+    """Locate an oversized partner sprite spanning several cells.
+
+    Big partners (e.g. Imperialdramon Fighter Mode) dilute every per-cell
+    player score below the acting threshold. This fallback collects the
+    player-colored pixels (red armor or bright-neutral body) over the whole
+    board, takes a percentile bounding box to resist stray HUD text, and
+    anchors the logical cell at the sprite's feet.
+
+    Returns ((row, col), score) or None when no plausible sprite is found.
+    """
+    a = np.asarray(image)
+    x0, y0, x1, y1 = board
+    z = a[y0:y1, x0:x1]
+    r, g, b = z[:, :, 0], z[:, :, 1], z[:, :, 2]
+    red = ((r > 110) & (r.astype(int) > g.astype(int) + 45) &
+           (r.astype(int) > b.astype(int) + 25))
+    rgb = z.astype(int)
+    bright = ((rgb.min(axis=2) > 165) & ((rgb.max(axis=2) - rgb.min(axis=2)) < 65))
+    ys, xs = np.where(red | bright)
+    if len(xs) < min_pixels:
+        return None
+    x_lo, x_hi = np.percentile(xs, [5, 95])
+    y_lo, y_hi = np.percentile(ys, [5, 95])
+    width, height = x1 - x0, y1 - y0
+    if (x_hi - x_lo) > width * .75 or (y_hi - y_lo) > height * .75:
+        return None
+    cell_w, cell_h = width / 5, height / 5
+    foot_y = min(y_hi - cell_h * .3, height - 1)
+    center_x = (x_lo + x_hi) / 2
+    row = min(max(int(foot_y // cell_h), 0), 4)
+    col = min(max(int(center_x // cell_w), 0), 4)
+    score = min(float(len(xs)) / (cell_w * cell_h), 1.0)
+    return (row, col), score
+
+
 def nearest_dash_wall(info, player):
     """Launch cell left of the nearest run of >=3 pyramids, or None.
 
