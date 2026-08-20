@@ -87,6 +87,14 @@ class LargePlayerTests(unittest.TestCase):
         self.assertIsNotNone(located)
         self.assertEqual(located[0], (3, 1))
 
+    def test_top_row_sprite_overflowing_the_board_is_still_found(self):
+        import digiworld_bot as bot
+        image = Image.open(FIXTURES / "fm_at_0_1.png")
+        det = bot.classify(image)
+        located = strategy.find_large_player(np.asarray(image.convert("RGB")), det.board)
+        self.assertIsNotNone(located)
+        self.assertEqual(located[0], (0, 1))
+
     def test_orange_items_do_not_stretch_the_blob(self):
         import digiworld_bot as bot
         image = Image.open(FIXTURES / "fm_at_1_1.png")
@@ -169,8 +177,12 @@ class BlobVetoTests(unittest.TestCase):
         result = runner.veto_with_blob((2, 1), 0.11, "vision", ((3, 1), 0.11))
         self.assertEqual(result, ((3, 1), 0.11, "large-sprite"))
 
-    def test_memory_sources_are_untouched(self):
+    def test_memory_yields_to_fresh_blob_evidence(self):
         result = runner.veto_with_blob((2, 1), 0.05, "memory", ((1, 1), 0.10))
+        self.assertEqual(result, ((1, 1), 0.10, "large-sprite"))
+
+    def test_memory_without_a_blob_still_bridges(self):
+        result = runner.veto_with_blob((2, 1), 0.05, "memory", None)
         self.assertEqual(result, ((2, 1), 0.05, "memory"))
 
     def test_no_blob_changes_nothing(self):

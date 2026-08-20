@@ -389,16 +389,17 @@ def veto_with_blob(player, score, source, blob):
     A weak per-cell score next to a sprite blob is the sprite itself leaking
     into a neighboring cell (FM's red torso scores ~0.1 one row above his
     feet, run 20260820T014923), and a weak score far away is an item glow
-    (a green ticket hit 0.095 in run 20260820T014121). Either way: when a
-    sprite blob exists, only confident vision (>= 0.15, the small-partner
-    range) survives it.
+    (a green ticket hit 0.095 in run 20260820T014121). Memory is inertial
+    guesswork and also yields to a live blob (run 20260820T015442 died
+    WAIT-gated on memory while the blob knew the answer). Only confident
+    vision (>= 0.15, the small-partner range) outranks the blob.
     """
-    if blob is None or source != "vision":
+    if blob is None:
         return player, score, source
-    if score < .15:
-        blob_cell, blob_score = blob
-        return blob_cell, blob_score, "large-sprite"
-    return player, score, source
+    if source == "vision" and score >= .15:
+        return player, score, source
+    blob_cell, blob_score = blob
+    return blob_cell, blob_score, "large-sprite"
 
 
 def attack_result(cell_values):
