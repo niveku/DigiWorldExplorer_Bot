@@ -54,6 +54,14 @@ class InventoryOcrTests(unittest.TestCase):
         self.assertEqual(runner.read_inventory_counters(image),
                          {"steps": 31, "attacks": 3, "dashes": 1})
 
+    def test_reads_garra_counter_in_the_fifties(self):
+        # Runs 20260820T030138/030401 lost every garra verification because
+        # the game's "5" glyph matched the template '3' within the 0.04
+        # margin; the real frame showing 59 garras is the regression anchor.
+        image = Image.open(FIXTURES / "hud_127_59_25.png")
+        self.assertEqual(runner.read_inventory_counters(image),
+                         {"steps": 127, "attacks": 59, "dashes": 25})
+
     def test_energy_counter_still_reads_after_font_changes(self):
         image = Image.open(FIXTURES / "hud_29_74_32.png")
         self.assertEqual(runner.read_energy_counter(image), 5760)

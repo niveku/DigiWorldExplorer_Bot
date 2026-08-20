@@ -119,6 +119,92 @@ class CorridorDashTests(unittest.TestCase):
         self.assertFalse(runner.corridor_dash_due(action, (3, 84), 86, preview, False))
 
 
+class PairDashTests(unittest.TestCase):
+    """Two pyramids inside the 3-cell dash path cost the same 400 shards as
+    two garras, but the dash also advances three cells and collects every
+    pickup in its path - so it wins whenever no off-path pickup would be
+    lost to the forward scroll (runs 20260820T030138/030401 spent 11 garras
+    and 0 of 25 dashes on exactly these shapes)."""
+
+    def test_two_adjacent_pyramids_ahead_trigger_a_dash(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 2, (2, 3))
+        action, reason = strategy.choose(info)
+        self.assertEqual(action, ("dash", (2, 1), "right"))
+        self.assertIn("pair", reason)
+
+    def test_gap_pattern_with_orange_in_the_middle_dashes_through(self):
+        info = empty_grid()
+        info[(3, 1)]["player"] = 0.2
+        wall(info, 3, (2, 4))
+        info[(3, 3)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(info)
+        self.assertEqual(action, ("dash", (3, 1), "right"))
+        self.assertIn("pair", reason)
+
+    def test_off_path_pickup_the_scroll_would_delete_blocks_the_dash(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 2, (2, 3))
+        info[(4, 1)].update(item=0.10, green=0.10)
+        action, reason = strategy.choose(info)
+        self.assertNotEqual(action[0], "dash")
+
+    def test_off_path_pickup_far_right_does_not_block(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 2, (2, 3))
+        info[(4, 4)].update(item=0.10, green=0.10)
+        action, reason = strategy.choose(info)
+        self.assertEqual(action, ("dash", (2, 1), "right"))
+
+    def test_single_pyramid_in_path_is_not_enough(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 2, (2,))
+        action, reason = strategy.choose(info)
+        self.assertNotEqual(action[0], "dash")
+
+    def test_preview_supplies_the_second_pyramid_at_the_edge(self):
+        info = empty_grid()
+        info[(2, 2)]["player"] = 0.2
+        wall(info, 2, (4,))
+        preview = [False, False, True, False, False]
+        action, reason = strategy.choose(info, preview=preview)
+        self.assertEqual(action, ("dash", (2, 2), "right"))
+
+    def test_without_dashes_the_pair_is_ignored(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 2, (2, 3))
+        action, reason = strategy.choose(info, dashes_enabled=False)
+        self.assertNotEqual(action[0], "dash")
+
+
+class OutOfStepsTests(unittest.TestCase):
+    """Run 20260820T030401 burned five rejected taps and a generic exit 6
+    after the stamina counter hit 0; a confirmed empty counter plus bouncing
+    moves must stop the run with a clear message instead."""
+
+    def test_two_rejections_with_zero_steps_stop_the_run(self):
+        self.assertTrue(runner.out_of_steps(
+            {"steps": 0, "attacks": 49, "dashes": 26}, rejected_streak=2))
+
+    def test_steps_remaining_keep_running(self):
+        self.assertFalse(runner.out_of_steps(
+            {"steps": 12, "attacks": 49, "dashes": 26}, rejected_streak=3))
+
+    def test_unreadable_counter_is_not_treated_as_zero(self):
+        self.assertFalse(runner.out_of_steps(
+            {"steps": None, "attacks": 49, "dashes": 26}, rejected_streak=4))
+        self.assertFalse(runner.out_of_steps(None, rejected_streak=4))
+
+    def test_first_rejection_alone_is_not_enough(self):
+        self.assertFalse(runner.out_of_steps(
+            {"steps": 0, "attacks": 49, "dashes": 26}, rejected_streak=1))
+
+
 class PerishableOrangeTests(unittest.TestCase):
     def test_left_edge_orange_outranks_a_nearer_right_one(self):
         info = empty_grid()

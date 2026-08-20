@@ -68,6 +68,20 @@ def corridor_dash_due(action, last_attack, done, preview, dashes_enabled, ttl=4)
             and bool(preview[row]))
 
 
+def out_of_steps(inventory, rejected_streak, threshold=2):
+    """True when moves keep bouncing and the stamina counter confirms 0.
+
+    Run 20260820T030401 started with 62 steps, counted down to 1, and then
+    burned five rejected taps plus a generic exit 6. Two rejections with a
+    confirmed empty counter are enough evidence to stop with a clear
+    out-of-steps message instead; an unreadable counter never counts as 0.
+    """
+    if rejected_streak < threshold or not inventory:
+        return False
+    steps = inventory.get("steps")
+    return steps is not None and steps <= 0
+
+
 def committed_wall_dash(committed_wall, player, done, ttl=3):
     """True when standing on a recently confirmed wall launch cell.
 
@@ -648,6 +662,18 @@ def main():
                     event["expected_rollback"] = list(expected_rollback)
                     expected_rollback = None
                     rejected_streak += 1
+                    if out_of_steps(read_inventory_counters(image),
+                                    rejected_streak):
+                        event["action"] = "STOP: out of steps (stamina 0)"
+                        bot.log_event(log, event)
+                        print("Pasos agotados: el contador de estamina marca 0 "
+                              "y el juego rechaza cada movimiento. Se regeneran "
+                              "por debajo de 100, o se compran con shards "
+                              "(2000 = 50 pasos).")
+                        show_run_summary(done, args.steps, started_at, collected,
+                                         energy_start, read_energy_counter(image),
+                                         "33")
+                        return 7
                     if rejected_streak >= 5:
                         # Five straight rejected taps mean the believed cell
                         # is wrong in a way no locator is correcting; stop

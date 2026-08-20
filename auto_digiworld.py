@@ -330,6 +330,26 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             return (("attack" if obstacle else "move"), target, direction), \
                 f"orange perishable targets={sorted(urgent_orange)}"
 
+    # Two pyramids inside the 3-cell dash path cost the same 400 shards as
+    # the two garras that would clear them, but the dash also advances three
+    # cells and collects every pickup it crosses (runs 20260820T030138/030401
+    # spent 11 garras and none of 25 dashes on exactly these XX / X.X
+    # shapes, one with an orange sitting in the gap). The forward scroll
+    # deletes off-path pickups in the left three columns after the dash, so
+    # any such pickup vetoes it and the normal routing takes over.
+    if dashes_enabled:
+        path = [(player[0], col)
+                for col in range(player[1] + 1, min(5, player[1] + 4))]
+        path_pyramids = sum(1 for cell in path if is_obstacle(info[cell]))
+        if player[1] + 3 >= 5 and preview is not None and preview[player[0]]:
+            path_pyramids += 1
+        if path_pyramids >= 2:
+            at_risk = {cell for cell in (orange_items | other_items)
+                       if cell not in path and cell[1] <= 2}
+            if not at_risk:
+                return ("dash", player, "right"), \
+                    f"dash pair: {path_pyramids} pyramids in path"
+
     # Never walk around a green/purple pickup that already lies on the clear
     # horizontal route to the right. This costs no detour and still preserves
     # orange priority for targets elsewhere on the board.
