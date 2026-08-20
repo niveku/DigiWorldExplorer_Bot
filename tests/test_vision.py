@@ -79,6 +79,14 @@ RED_ARMOR = (200, 40, 50)
 
 
 class LargePlayerTests(unittest.TestCase):
+    def test_real_fm_frame_is_located_on_its_cell(self):
+        import digiworld_bot as bot
+        image = Image.open(FIXTURES / "fm_at_3_1.png")
+        det = bot.classify(image)
+        located = strategy.find_large_player(np.asarray(image.convert("RGB")), det.board)
+        self.assertIsNotNone(located)
+        self.assertEqual(located[0], (3, 1))
+
     def test_oversized_sprite_is_anchored_at_its_feet(self):
         image = board_image(lambda r, c: None)
         # A 2x2.3-cell red sprite like Imperialdramon FM centered on col 1,

@@ -115,10 +115,12 @@ def find_large_player(image, board, min_pixels=120):
     """Locate an oversized partner sprite spanning several cells.
 
     Big partners (e.g. Imperialdramon Fighter Mode) dilute every per-cell
-    player score below the acting threshold. This fallback collects the
-    player-colored pixels (red armor or bright-neutral body) over the whole
-    board, takes a percentile bounding box to resist stray HUD text, and
-    anchors the logical cell at the sprite's feet.
+    player score below the acting threshold. This fallback collects the red
+    sprite pixels over the whole board, takes a percentile bounding box, and
+    anchors the logical cell at the sprite's feet. Red only: a bright-white
+    mask also matched the meter text and the lit movable tiles, dragging the
+    centroid a full cell sideways (run 20260820T012543). White oversized
+    partners must rely on the highlight-cross and memory paths instead.
 
     Returns ((row, col), score) or None when no plausible sprite is found.
     """
@@ -128,9 +130,7 @@ def find_large_player(image, board, min_pixels=120):
     r, g, b = z[:, :, 0], z[:, :, 1], z[:, :, 2]
     red = ((r > 110) & (r.astype(int) > g.astype(int) + 45) &
            (r.astype(int) > b.astype(int) + 25))
-    rgb = z.astype(int)
-    bright = ((rgb.min(axis=2) > 165) & ((rgb.max(axis=2) - rgb.min(axis=2)) < 65))
-    ys, xs = np.where(red | bright)
+    ys, xs = np.where(red)
     if len(xs) < min_pixels:
         return None
     x_lo, x_hi = np.percentile(xs, [5, 95])
@@ -147,7 +147,7 @@ def find_large_player(image, board, min_pixels=120):
     return (row, col), score
 
 
-def player_from_highlights(info, threshold=.30, min_lit=2):
+def player_from_highlights(info, threshold=.30, min_lit=2, expected=None):
     """Infer the player's logical cell from the movable-cell highlight cross.
 
     The game renders the orthogonally adjacent, walkable cells in bright
@@ -168,6 +168,12 @@ def player_from_highlights(info, threshold=.30, min_lit=2):
             if len(lit) < min_lit:
                 continue
             score = len(lit) + sum(lit)
+            # The walked trail stays lit and can manufacture a rival center;
+            # a candidate near the dead-reckoned position wins near-ties.
+            if expected is not None:
+                distance = abs(row - expected[0]) + abs(col - expected[1])
+                if distance <= 1:
+                    score += 1.0 - 0.5 * distance
             if best is None or score > best[0]:
                 best = (score, (row, col))
     return best[1] if best else None

@@ -629,15 +629,16 @@ def main():
         player, player_score, player_source = resolve_player(info, expected_player)
         if player_source == "vision" and player_score < .08:
             # Oversized partners (Imperialdramon FM) dilute per-cell scores.
-            # The movable-cell highlight cross names the logical cell exactly;
-            # the whole-board sprite blob is the coarser second fallback.
-            cross = strategy.player_from_highlights(info)
-            if cross is not None:
-                player, player_score, player_source = cross, .30, "highlight-cross"
+            # The red sprite blob proved the most stable locator (the lit
+            # movable/trail cells flicker); the highlight cross backs it up
+            # for partners without red in their palette.
+            large = strategy.find_large_player(image, det.board)
+            if large is not None:
+                (player, player_score), player_source = large, "large-sprite"
             else:
-                large = strategy.find_large_player(image, det.board)
-                if large is not None:
-                    (player, player_score), player_source = large, "large-sprite"
+                cross = strategy.player_from_highlights(info, expected=expected_player)
+                if cross is not None:
+                    player, player_score, player_source = cross, .30, "highlight-cross"
         memory_streak = memory_streak + 1 if player_source == "memory" else 0
         if player_source != "vision":
             event["player_resolution"] = {"cell": list(player), "source": player_source,
