@@ -88,6 +88,16 @@ class EnergyConsensusTests(unittest.TestCase):
         self.assertIsNone(runner.confirmed_energy(3805, 3555))
 
 
+class RevealedTypeTests(unittest.TestCase):
+    def test_new_pickup_types_do_not_crash_the_aggregate(self):
+        # Pyramids also drop paws/orbs now that pickup types are told
+        # apart; the revealed counter must accept any type name.
+        events = [{"pyramid_result": {"broken": True, "revealed": "steps"},
+                   "action": [{"type": "attack", "target_cell": [2, 2]}]}]
+        stats = analyze_breaks.aggregate(events)
+        self.assertEqual(stats["revealed"]["steps"], 1)
+
+
 class WilsonIntervalTests(unittest.TestCase):
     def test_matches_known_value_for_eight_of_ten(self):
         low, high = analyze_breaks.wilson_interval(8, 10)

@@ -71,7 +71,10 @@ def aggregate(events):
             stats["attacks_evaluated"] += 1
             if result["broken"]:
                 stats["broken"] += 1
-                stats["revealed"][result["revealed"] or "none"] += 1
+                # Pyramids can reveal any pickup type now that the vision
+                # layer tells them apart (steps, dash_orb, tickets...).
+                key = result["revealed"] or "none"
+                stats["revealed"][key] = stats["revealed"].get(key, 0) + 1
             before, after = result.get("attacks_before"), result.get("attacks_after")
             if before is not None and after is not None:
                 stats["attack_inventory_deltas"].append(after - before)
@@ -149,9 +152,10 @@ def main():
     print("— Ataques (garra) —")
     print(f"  Evaluados: {stats['attacks_evaluated']} | Pirámides rotas: {stats['broken']}")
     revealed = stats["revealed"]
-    drops = revealed["orange"] + revealed["pink"] + revealed["green"]
-    print(f"  Drops revelados: naranja {revealed['orange']}, lila {revealed['pink']}, "
-          f"verde {revealed['green']}, nada {revealed['none']}")
+    drops = sum(count for key, count in revealed.items() if key != "none")
+    detail = ", ".join(f"{key} {count}" for key, count in sorted(revealed.items())
+                       if key != "none" and count)
+    print(f"  Drops revelados: {detail or 'ninguno'}, nada {revealed['none']}")
     if stats["broken"]:
         low, high = wilson_interval(drops, stats["broken"])
         rate = drops / stats["broken"]
@@ -169,10 +173,15 @@ def main():
     print("— Dashes (kameha) —")
     print(f"  Dashes: {stats['dashes']} | Pirámides en trayectoria: {stats['dash_pyramids']}")
     deltas = stats["dash_energy_deltas"]
-    if deltas:
-        mean = sum(deltas) / len(deltas)
-        print(f"  Δ energía HUD conocido en {len(deltas)} dash(es): media {mean:+.1f} "
-              f"(valores: {deltas})")
+    # Energy only ever grows and drops land in 20s; a negative or huge
+    # delta is an OCR misread of one endpoint, not a real change.
+    clean = [d for d in deltas if 0 <= d <= 300]
+    if clean:
+        mean = sum(clean) / len(clean)
+        discarded = len(deltas) - len(clean)
+        note = f", {discarded} misread(s) OCR descartados" if discarded else ""
+        print(f"  Δ energía HUD conocido en {len(clean)} dash(es): media {mean:+.1f}"
+              f"{note} (valores: {clean})")
     else:
         print("  Δ energía HUD: sin lecturas fiables todavía")
     print()

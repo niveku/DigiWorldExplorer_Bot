@@ -92,6 +92,27 @@ def milestone_chest_ready(image):
     return int(xs.mean()), int(ys.mean()) + y0
 
 
+def items_flickering(current, previous):
+    """True when the item set changed in a way scroll cannot explain.
+
+    194 of 214 WAITs across four runs (045220..055223) were the burst
+    guard re-firing on plain scroll shifts. A frame is suspicious only
+    when some previous item is missing without having scrolled off the
+    left edge (shifts of 0-3 columns are tried; new arrivals from the
+    right are normal). A genuine pickup animation removes an item
+    mid-board, which no shift explains.
+    """
+    if not previous:
+        return False
+    best_missing = None
+    for shift in (0, 1, 2, 3):
+        shifted = {(row, col - shift) for row, col in previous}
+        missing = {cell for cell in shifted if cell[1] >= 0} - set(current)
+        if best_missing is None or len(missing) < len(best_missing):
+            best_missing = missing
+    return bool(best_missing)
+
+
 def close_reward_overlay(tap, capture, classify, max_taps=5, pause=None):
     """Tap until the board is back; return the taps used.
 
@@ -901,9 +922,9 @@ def main():
         # STABLE board is not an animation and deciding on it is safe. Waiting
         # two frames on every re-plan burned ~25s of wall clock in one run.
         current_item_cells = frozenset(visible_items)
-        items_flickering = current_item_cells != prev_item_cells
+        flickering = items_flickering(current_item_cells, prev_item_cells)
         prev_item_cells = current_item_cells
-        if len(visible_items) >= 3 and item_burst_waits < 2 and items_flickering:
+        if len(visible_items) >= 3 and item_burst_waits < 2 and flickering:
             item_burst_waits += 1
             event["action"] = (f"WAIT: possible pickup animation; {len(visible_items)} "
                                f"item cells ({item_burst_waits}/2)")

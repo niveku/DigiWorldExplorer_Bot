@@ -349,6 +349,41 @@ class ClawPickupTests(unittest.TestCase):
         self.assertEqual(action, ("move", (3, 1), "down"))
 
 
+class ItemsFlickeringTests(unittest.TestCase):
+    """194 of 214 WAITs across four runs were the burst guard re-firing on
+    plain scroll shifts: the item set 'changed' because every cell moved
+    one column left. Only an unexplained disappearance - an item gone
+    without scrolling off or being newly collected - suggests a real
+    pickup animation."""
+
+    def test_identical_sets_are_stable(self):
+        cells = frozenset({(1, 2), (3, 4)})
+        self.assertFalse(runner.items_flickering(cells, cells))
+
+    def test_pure_scroll_shift_is_stable(self):
+        previous = frozenset({(1, 2), (3, 4)})
+        current = frozenset({(1, 1), (3, 3)})
+        self.assertFalse(runner.items_flickering(current, previous))
+
+    def test_scroll_with_new_arrivals_is_stable(self):
+        previous = frozenset({(1, 2)})
+        current = frozenset({(1, 1), (0, 4), (2, 4)})
+        self.assertFalse(runner.items_flickering(current, previous))
+
+    def test_scroll_off_the_left_edge_is_stable(self):
+        previous = frozenset({(1, 0), (3, 4)})
+        current = frozenset({(3, 3)})
+        self.assertFalse(runner.items_flickering(current, previous))
+
+    def test_unexplained_disappearance_flickers(self):
+        previous = frozenset({(1, 2), (3, 3)})
+        current = frozenset({(1, 2)})
+        self.assertTrue(runner.items_flickering(current, previous))
+
+    def test_first_frame_has_no_evidence(self):
+        self.assertFalse(runner.items_flickering(frozenset({(1, 2)}), None))
+
+
 class CloseRewardOverlayTests(unittest.TestCase):
     """Run 20260820T052000: the blind 0.6s close tap fired before the
     Reward overlay accepted input; the overlay stayed open and the run
