@@ -147,6 +147,32 @@ def find_large_player(image, board, min_pixels=120):
     return (row, col), score
 
 
+def player_from_highlights(info, threshold=.30, min_lit=2):
+    """Infer the player's logical cell from the movable-cell highlight cross.
+
+    The game renders the orthogonally adjacent, walkable cells in bright
+    blue. The cell with the most lit orthogonal neighbors is the player's
+    logical position - independent of sprite size, which makes this the
+    reliable locator for oversized partners whose bodies span many cells.
+    """
+    best = None
+    for row in range(5):
+        for col in range(5):
+            lit = []
+            for dr, dc, _ in DIRS:
+                neighbor = (row + dr, col + dc)
+                if 0 <= neighbor[0] < 5 and 0 <= neighbor[1] < 5:
+                    value = info[neighbor]["highlight"]
+                    if value > threshold:
+                        lit.append(value)
+            if len(lit) < min_lit:
+                continue
+            score = len(lit) + sum(lit)
+            if best is None or score > best[0]:
+                best = (score, (row, col))
+    return best[1] if best else None
+
+
 def nearest_dash_wall(info, player):
     """Launch cell left of the nearest run of >=3 pyramids, or None.
 

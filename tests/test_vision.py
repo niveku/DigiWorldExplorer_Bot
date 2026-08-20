@@ -101,6 +101,30 @@ class LargePlayerTests(unittest.TestCase):
         self.assertIsNone(strategy.find_large_player(image, (0, 0, 500, 500)))
 
 
+class HighlightCrossTests(unittest.TestCase):
+    def cells_for(self, name):
+        import digiworld_bot as bot
+        image = Image.open(FIXTURES / name)
+        det = bot.classify(image)
+        return strategy.cells(np.asarray(image.convert("RGB")), det.board)
+
+    def test_finds_gatomon_from_movable_cell_cross(self):
+        info = self.cells_for("hud_29_74_32.png")
+        self.assertEqual(strategy.player_from_highlights(info), (1, 1))
+
+    def test_finds_botamon_from_movable_cell_cross(self):
+        info = self.cells_for("hud_31_3_1.png")
+        self.assertEqual(strategy.player_from_highlights(info), (4, 1))
+
+    def test_dark_board_has_no_cross(self):
+        info = {
+            (row, col): {"player": 0.0, "orange": 0.0, "pink": 0.0, "green": 0.0,
+                         "item": 0.0, "pyramid": 0.0, "highlight": 0.05}
+            for row in range(5) for col in range(5)
+        }
+        self.assertIsNone(strategy.player_from_highlights(info))
+
+
 class ResolvedPlayerOverrideTests(unittest.TestCase):
     def test_choose_trusts_an_externally_resolved_player(self):
         info = grid_with_player((0, 0), 0.0)  # no per-cell score anywhere

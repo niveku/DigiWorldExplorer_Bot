@@ -620,11 +620,16 @@ def main():
         item_burst_waits = 0
         player, player_score, player_source = resolve_player(info, expected_player)
         if player_source == "vision" and player_score < .08:
-            # Oversized partners (Imperialdramon FM) dilute per-cell scores;
-            # fall back to whole-board sprite location before giving up.
-            large = strategy.find_large_player(image, det.board)
-            if large is not None:
-                (player, player_score), player_source = large, "large-sprite"
+            # Oversized partners (Imperialdramon FM) dilute per-cell scores.
+            # The movable-cell highlight cross names the logical cell exactly;
+            # the whole-board sprite blob is the coarser second fallback.
+            cross = strategy.player_from_highlights(info)
+            if cross is not None:
+                player, player_score, player_source = cross, .30, "highlight-cross"
+            else:
+                large = strategy.find_large_player(image, det.board)
+                if large is not None:
+                    (player, player_score), player_source = large, "large-sprite"
         memory_streak = memory_streak + 1 if player_source == "memory" else 0
         if player_source != "vision":
             event["player_resolution"] = {"cell": list(player), "source": player_source,
