@@ -130,11 +130,13 @@ def nearest_dash_wall(info, player):
     return best[1] if best else None
 
 
-def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True):
+def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
+           ignored_targets=()):
     player, pscore = max(((p, v["player"]) for p, v in info.items()),
                          key=lambda q: q[1])
     if pscore < .08:
         return None, f"player confidence too low ({pscore:.3f})"
+    ignored = set(ignored_targets)
 
     # A visible wall of three pyramids is irresistible while dashes remain:
     # align with its launch cell and dash through it. Two in a row stay an
@@ -149,8 +151,12 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                 target, _, direction = step
                 return ("move", target, direction), f"approach dash wall via {launch}"
 
-    orange_items = {p for p, v in info.items() if v["orange"] > .06 and p != player}
-    other_items = {p for p, v in info.items() if v["item"] > .06 and p != player}
+    # Cells a loop breaker has banned are invisible as goals: an unreachable
+    # or misdetected pickup must not keep the pathfinder pacing forever.
+    orange_items = {p for p, v in info.items()
+                    if v["orange"] > .06 and p != player and p not in ignored}
+    other_items = {p for p, v in info.items()
+                   if v["item"] > .06 and p != player and p not in ignored}
 
     # Never walk around a green/purple pickup that already lies on the clear
     # horizontal route to the right. This costs no detour and still preserves

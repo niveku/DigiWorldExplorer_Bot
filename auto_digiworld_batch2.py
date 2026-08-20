@@ -25,6 +25,25 @@ VERSION = Path(__file__).with_name("VERSION").read_text(encoding="utf-8").strip(
 # Two consecutive HUD reads may differ by a small legitimate gain while the
 # bot keeps moving; anything larger looks like a template misread (5<->8).
 ENERGY_READ_TOLERANCE = 40
+# Pyramids can drop garra/dash consumables, so an empty inventory may refill
+# mid-run: retry a disabled action type after this many completed actions.
+REENABLE_ACTIONS = 40
+# Three consecutive A-B-A-B detections mean the current goals are unreachable
+# or misdetected; ban them for a while (forever on the second offence).
+LOOP_STRIKES_TO_BAN = 3
+TARGET_BAN_ACTIONS = 25
+
+
+def loop_guard_tripped(recent_states):
+    """A-B-A-B in the last four (player, goals) states means we are pacing."""
+    return (len(recent_states) >= 4 and
+            recent_states[-4] == recent_states[-2] and
+            recent_states[-3] == recent_states[-1])
+
+
+def should_reenable(disabled_at, done, span=REENABLE_ACTIONS):
+    """True once enough actions have passed to justify retrying the consumable."""
+    return disabled_at is not None and done - disabled_at >= span
 
 
 def jittered_delay(base, jitter, rand=random.random):
@@ -331,6 +350,11 @@ def main():
     last_energy_read = None
     attacks_enabled = True
     dashes_enabled = True
+    attacks_disabled_at = None
+    dashes_disabled_at = None
+    loop_strikes = 0
+    banned_targets = {}
+    ban_history = set()
     previous_action = None
     previous_attack_target = None
     previous_dash_player = None
@@ -354,10 +378,12 @@ def main():
         if bot.tutorial_overlay_center(image) is not None:
             if previous_action == "attack":
                 attacks_enabled = False
+                attacks_disabled_at = done
                 previous_action = None
                 event["action"] = "WAIT: attacks disabled after rejection"
             elif previous_action == "dash":
                 dashes_enabled = False
+                dashes_disabled_at = done
                 previous_action = None
                 pending_dash = None
                 event["action"] = "WAIT: dashes disabled after rejection"
@@ -435,6 +461,7 @@ def main():
                                            scores=info[previous_attack_target])
             if not result["broken"]:
                 attacks_enabled = False
+                attacks_disabled_at = done
                 previous_action = None
                 event["attack_state"] = {
                     "status": "disabled: previous attack had no visual effect",
@@ -461,6 +488,7 @@ def main():
             if (player == previous_dash_player and
                     previous_dash_obstacles >= 2 and current_right_obstacles >= 2):
                 dashes_enabled = False
+                dashes_disabled_at = done
                 event["dash_state"] = {
                     "status": "disabled: previous dash had no visual effect",
                     "player_cell": list(player),
@@ -472,11 +500,35 @@ def main():
             previous_dash_obstacles = 0
         recent_states.append((player, tuple(sorted(item_goals))))
         recent_states = recent_states[-4:]
-        loop_guard = (len(recent_states) == 4 and
-                      recent_states[0] == recent_states[2] and
-                      recent_states[1] == recent_states[3])
+        loop_guard = loop_guard_tripped(recent_states)
+        loop_strikes = loop_strikes + 1 if loop_guard else 0
+        banned_targets = {cell: expiry for cell, expiry in banned_targets.items()
+                          if expiry > done}
+        if loop_strikes >= LOOP_STRIKES_TO_BAN and item_goals:
+            expiry = (float("inf") if any(cell in ban_history for cell in item_goals)
+                      else done + TARGET_BAN_ACTIONS)
+            for cell in item_goals:
+                banned_targets[cell] = expiry
+                ban_history.add(cell)
+            event["loop_breaker"] = {
+                "banned_cells": sorted(list(cell) for cell in item_goals),
+                "until_action": None if expiry == float("inf") else expiry,
+            }
+            if args.verbose:
+                progress(done, args.steps, "Schleife erkannt - Ziel wird ignoriert", "33")
+            loop_strikes = 0
+            recent_states = []
+        if not attacks_enabled and should_reenable(attacks_disabled_at, done):
+            attacks_enabled = True
+            attacks_disabled_at = None
+            event["attack_state"] = {"status": "re-enabled: drops may have refilled attacks"}
+        if not dashes_enabled and should_reenable(dashes_disabled_at, done):
+            dashes_enabled = True
+            dashes_disabled_at = None
+            event["dash_state"] = {"status": "re-enabled: drops may have refilled dashes"}
         action, reason = strategy.choose(info, previous_direction,
-                                         attacks_enabled, dashes_enabled)
+                                         attacks_enabled, dashes_enabled,
+                                         ignored_targets=banned_targets.keys())
         if action is None:
             event["action"] = "STOP: no safe action"
             bot.log_event(log, event)
@@ -530,6 +582,7 @@ def main():
             control = bot.dash_button(image)
             if control is None:
                 dashes_enabled = False
+                dashes_disabled_at = done
                 event["action"] = "WAIT: dash button missing"
                 bot.log_event(log, event)
                 if args.verbose: progress(done, args.steps, "Dash nicht verfuegbar - plane neu", "33")
