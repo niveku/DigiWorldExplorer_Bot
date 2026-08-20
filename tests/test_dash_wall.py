@@ -493,5 +493,72 @@ class WallStatusTests(unittest.TestCase):
         self.assertIn("Muro de pirámides", text)
 
 
+class ScrollAwareRoutingTests(unittest.TestCase):
+    """Run 20260820T181916 events 188-192: oranges on row 1, player riding
+    row 0 rightward. Every misaligned right step scrolls the target one
+    column left without getting closer to picking it; six of them pushed
+    two oranges from column 4 into the perishable band. Align the row
+    first (vertical steps do not scroll), then ride the scroll."""
+
+    def test_misaligned_right_target_aligns_row_first(self):
+        info = empty_grid()
+        info[(0, 1)]["player"] = 0.2
+        info[(1, 3)].update(item=0.09, orange=0.09)
+        action, reason = strategy.choose(info)
+        self.assertEqual(action[0], "move")
+        self.assertEqual(action[2], "down")
+
+    def test_same_row_target_still_moves_right(self):
+        info = empty_grid()
+        info[(1, 1)]["player"] = 0.2
+        info[(1, 3)].update(item=0.09, orange=0.09)
+        action, reason = strategy.choose(info)
+        self.assertEqual(action[2], "right")
+
+    def test_blocked_target_row_still_rides_the_free_row(self):
+        # With the target row walled, the misaligned ride stays the
+        # cheapest plan and must survive the alignment penalty.
+        info = empty_grid()
+        info[(0, 1)]["player"] = 0.2
+        info[(1, 4)].update(item=0.09, orange=0.09)
+        wall(info, 1, (2, 3))
+        action, reason = strategy.choose(info, attacks_enabled=False,
+                                         dashes_enabled=False)
+        self.assertEqual(action[2], "right")
+
+
+class CheapDetourTests(unittest.TestCase):
+    """Run 20260820T181916 event 83: a borderline single-frame claw at
+    (4,0) - three steps away, leftward - triggered a left detour and was
+    gone the next frame. Non-orange pickups that need leftward travel are
+    only worth a simple detour (Manhattan distance <= 2); at 3+ the step
+    cost and the vanish risk beat the pickup's 200-shard value."""
+
+    def claw_at(self, cell):
+        info = empty_grid()
+        for values in info.values():
+            values["claw"] = 0.0
+        info[cell]["claw"] = 0.2
+        return info
+
+    def test_far_leftward_claw_is_ignored(self):
+        info = self.claw_at((4, 0))
+        info[(2, 1)]["player"] = 0.2
+        action, reason = strategy.choose(info)
+        self.assertNotIn("claw targets", reason)
+
+    def test_near_leftward_claw_is_still_chased(self):
+        info = self.claw_at((3, 0))
+        info[(2, 1)]["player"] = 0.2
+        action, reason = strategy.choose(info)
+        self.assertIn("claw targets", reason)
+
+    def test_rightward_claw_keeps_any_distance(self):
+        info = self.claw_at((4, 3))
+        info[(0, 0)]["player"] = 0.2
+        action, reason = strategy.choose(info)
+        self.assertIn("claw targets", reason)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -116,7 +116,15 @@ def cells(image, board):
 
 
 def shortest_action(info, player, targets, allow_obstacles=True):
-    """Weighted path: empty field costs 1, destructible pyramid costs 2."""
+    """Weighted path: empty field costs 1, destructible pyramid costs 2.
+
+    A rightward step taken from a row that holds no target costs slightly
+    more: it scrolls the whole world (targets included) one column left
+    without getting closer to picking anything, so aligning the row first
+    - vertical steps do not scroll - must win ties. Run 20260820T181916
+    events 188-192 rode row 0 past row-1 oranges until they turned
+    perishable."""
+    target_rows = {cell[0] for cell in targets}
     queue = [(0, player, [])]
     best = {player: 0}
     while queue:
@@ -132,7 +140,10 @@ def shortest_action(info, player, targets, allow_obstacles=True):
             obstacle = is_obstacle(info[nxt])
             if obstacle and not allow_obstacles:
                 continue
-            nc = cost + (2 if obstacle else 1)
+            step_cost = 2 if obstacle else 1
+            if name == "right" and pos[0] not in target_rows:
+                step_cost += 0.05
+            nc = cost + step_cost
             if nc < best.get(nxt, 999):
                 best[nxt] = nc
                 heapq.heappush(queue, (nc, nxt, path + [(nxt, obstacle, name)]))
@@ -345,6 +356,16 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                   and p != player and p not in ignored}
     mid_items = claw_items | {p for p in other_items
                               if pickup_type(info[p]) in ("dash_orb", "steps")}
+
+    # A non-orange pickup that needs leftward travel is only worth a simple
+    # detour: at Manhattan distance 3+ the step cost plus the vanish risk
+    # beat its 200-shard value (run 20260820T181916 event 83 chased a
+    # single-frame claw three steps left and it was gone the next frame).
+    def cheap_detour(cell):
+        return (cell[1] >= player[1] or
+                abs(cell[0] - player[0]) + abs(cell[1] - player[1]) <= 2)
+    mid_items = {cell for cell in mid_items if cheap_detour(cell)}
+    other_items = {cell for cell in other_items if cheap_detour(cell)}
 
     # The world only scrolls forward, and it only scrolls on rightward
     # moves: an orange in the left two columns is about to leave the board
