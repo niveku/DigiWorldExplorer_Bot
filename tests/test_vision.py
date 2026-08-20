@@ -124,6 +124,17 @@ class HighlightCrossTests(unittest.TestCase):
         info = self.cells_for("hud_31_3_1.png")
         self.assertEqual(strategy.player_from_highlights(info), (4, 1))
 
+    def test_cross_far_from_expected_position_is_rejected(self):
+        info = {
+            (row, col): {"player": 0.0, "orange": 0.0, "pink": 0.0, "green": 0.0,
+                         "item": 0.0, "pyramid": 0.0, "highlight": 0.0}
+            for row in range(5) for col in range(5)
+        }
+        for cell in ((0, 3), (1, 4)):  # lit patch far away from the player
+            info[cell]["highlight"] = 1.0
+        self.assertEqual(strategy.player_from_highlights(info), (0, 4))
+        self.assertIsNone(strategy.player_from_highlights(info, expected=(3, 1)))
+
     def test_dark_board_has_no_cross(self):
         info = {
             (row, col): {"player": 0.0, "orange": 0.0, "pink": 0.0, "green": 0.0,

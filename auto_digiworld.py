@@ -168,10 +168,14 @@ def player_from_highlights(info, threshold=.30, min_lit=2, expected=None):
             if len(lit) < min_lit:
                 continue
             score = len(lit) + sum(lit)
-            # The walked trail stays lit and can manufacture a rival center;
-            # a candidate near the dead-reckoned position wins near-ties.
+            # The lit region is buggy and includes the walked trail, so it
+            # can manufacture rival centers anywhere. With a dead-reckoned
+            # position available, a candidate beyond teleport distance is an
+            # artifact and is discarded; near candidates win near-ties.
             if expected is not None:
                 distance = abs(row - expected[0]) + abs(col - expected[1])
+                if distance > 2:
+                    continue
                 if distance <= 1:
                     score += 1.0 - 0.5 * distance
             if best is None or score > best[0]:
