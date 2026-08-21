@@ -443,6 +443,22 @@ def shift_items_left(remembered):
             for (row, col), value in remembered.items() if col - 1 >= 0}
 
 
+def modal_overlay_visible(overlay_center, det, min_confidence=.75):
+    """A modal overlay covers the board; a pickup animation does not.
+
+    Run 20260821T205929: all five 'overlay visible' episodes were the
+    pickup confetti - white Gatomon plus white-bordered cards over blue
+    water satisfied the tutorial-card heuristic while the board sat in
+    plain sight (state=digiworld, conf .81-.84). Each false modal rolled
+    back a move that HAD landed and banned an innocent cell. A real
+    modal (the Growth Guide: state=unknown, conf 0.0) degrades board
+    detection, so that degradation is now required."""
+    if overlay_center is None:
+        return False
+    return (det.state != "digiworld" or not det.board
+            or det.confidence < min_confidence)
+
+
 def should_trust_rejection(player_source, player_score):
     """Was the rejected move issued from a confidently SEEN player?
 
@@ -1090,6 +1106,7 @@ def main():
     overlay_evidence_saved = 0
     phantom_obstacles = {}
     first_move_dest = None
+    last_stamina_check = 0
     last_move_player_source = None
     last_move_player_score = 0.0
     distrust_player = False
@@ -1151,7 +1168,7 @@ def main():
                              "Cofre de milestone reclamado", "32")
                 continue
 
-        if bot.tutorial_overlay_center(image) is not None:
+        if modal_overlay_visible(bot.tutorial_overlay_center(image), det):
             if previous_action == "attack":
                 attacks_enabled = False
                 attacks_disabled_at = done
@@ -1283,6 +1300,20 @@ def main():
                 return 2
             time.sleep(args.interval); continue
         unreliable = 0
+        # The out-of-steps STOP used to live only behind the modal-overlay
+        # path; with the confetti gate that path fires rarely, so the
+        # stamina counter is polled directly every 25 actions instead.
+        if done - last_stamina_check >= 25:
+            last_stamina_check = done
+            if out_of_steps(read_inventory_counters(image), rejected_streak=2):
+                event["action"] = "STOP: out of steps (stamina 0)"
+                bot.log_event(log, event)
+                print("Pasos agotados: el contador de estamina marca 0. "
+                      "Se regeneran por debajo de 100, o se compran con "
+                      "shards (2000 = 50 pasos).")
+                show_run_summary(done, args.steps, started_at, collected,
+                                 energy_start, read_energy_counter(image), "33")
+                return 7
         if energy_start is None:
             current_read = read_energy_counter(image, run_dir / "energy_roi_start.png")
             energy_start = confirmed_energy(last_energy_read, current_read)

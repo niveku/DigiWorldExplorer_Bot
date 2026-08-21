@@ -242,6 +242,39 @@ class WallStabilityTests(unittest.TestCase):
             committed, (4, 1), 12, scrolls_now=6))
 
 
+class ModalOverlayGateTests(unittest.TestCase):
+    """Run 20260821T205929: all five 'overlay visible' episodes were the
+    pickup confetti - white Gatomon plus white-bordered cards over blue
+    water satisfied the tutorial-card heuristic while the board sat in
+    plain sight (state=digiworld, conf .81-.84). Each false modal rolled
+    back a move that HAD landed and banned an innocent cell. A real
+    modal (the Growth Guide gave state=unknown, conf 0.0) covers the
+    board and degrades its detection; the overlay path now requires that
+    degradation."""
+
+    class Det:
+        def __init__(self, state="digiworld", board=(77, 426, 625, 870),
+                     confidence=0.84):
+            self.state = state
+            self.board = board
+            self.confidence = confidence
+
+    def test_healthy_board_means_animation_not_modal(self):
+        self.assertFalse(runner.modal_overlay_visible((360, 640), self.Det()))
+
+    def test_no_overlay_center_is_never_modal(self):
+        self.assertFalse(runner.modal_overlay_visible(
+            None, self.Det(state="unknown", board=None, confidence=0.0)))
+
+    def test_degraded_detection_confirms_the_modal(self):
+        self.assertTrue(runner.modal_overlay_visible(
+            (360, 640), self.Det(state="unknown", board=None, confidence=0.0)))
+        self.assertTrue(runner.modal_overlay_visible(
+            (360, 640), self.Det(confidence=0.5)))
+        self.assertTrue(runner.modal_overlay_visible(
+            (360, 640), self.Det(board=None)))
+
+
 class RejectionTrustTests(unittest.TestCase):
     """User mechanic (2026-08-22): moves are cross-only from the REAL
     player cell and the cell-highlight hints are buggy, so a 'cannot
