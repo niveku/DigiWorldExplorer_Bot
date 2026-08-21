@@ -133,6 +133,13 @@ def shortest_action(info, player, targets, allow_obstacles=True,
     events 188-192 rode row 0 past row-1 oranges until they turned
     perishable."""
     target_rows = {cell[0] for cell in targets}
+    # A rightward step scrolls the world one column left, so a target
+    # already in the perishable band (columns 0-1) is ERODED by every
+    # right step of its own route. Run 20260821T215254 n=197 priced a
+    # 5-step right-around of two walled-off perishables cheaper than
+    # breaking through, and the first step scrolled both off the board.
+    # No route to a column<=1 target may ever include a right step.
+    fragile_target = any(cell[1] <= 1 for cell in targets)
     queue = [(0, player, [])]
     best = {player: 0}
     while queue:
@@ -155,6 +162,8 @@ def shortest_action(info, player, targets, allow_obstacles=True,
             # rode an empty row past reachable paws).
             free_cost = (0.9 if (values["item"] > .06 or
                                  values.get("claw", 0.0) > .10) else 1)
+            if name == "right" and fragile_target:
+                continue
             step_cost = 5 if obstacle else free_cost
             if name == "right" and pos[0] not in target_rows:
                 step_cost += 0.05

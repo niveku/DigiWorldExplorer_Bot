@@ -1055,6 +1055,42 @@ class UnstableWallPairDashTests(unittest.TestCase):
         self.assertNotEqual(action[0], "dash")
 
 
+class PerishableRoutingTests(unittest.TestCase):
+    """Run 20260821T215254 n=197: perishables at (4,0),(4,1) with the
+    descent walled off by pyramids at (3,0),(3,1). The router priced the
+    5-step right-around cheaper than breaking through - and the very
+    first rightward step scrolled both targets off the board. A step
+    right ERODES a column<=1 target; no route to the perishable band may
+    ever include one. Boxed-in perishables get the garra instead."""
+
+    def boxed_board(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(3, 0)]["pyramid"] = 0.9
+        info[(3, 1)]["pyramid"] = 0.9
+        info[(4, 0)].update(item=0.09, orange=0.09)
+        info[(4, 1)].update(item=0.09, orange=0.09)
+        return info
+
+    def test_boxed_perishables_are_broken_into_not_circled(self):
+        action, reason = strategy.choose(self.boxed_board())
+        self.assertTrue(reason.startswith("orange perishable"))
+        self.assertEqual(action[0], "attack")
+
+    def test_route_to_perishables_never_steps_right(self):
+        step = strategy.shortest_action(
+            self.boxed_board(), (2, 1), {(4, 0), (4, 1)},
+            allow_obstacles=False)
+        if step is not None:
+            self.assertNotEqual(step[2], "right")
+
+    def test_open_descent_still_walks_free(self):
+        info = self.boxed_board()
+        info[(3, 1)]["pyramid"] = 0.0
+        action, reason = strategy.choose(info)
+        self.assertEqual(action, ("move", (3, 1), "down"))
+
+
 class RouteHysteresisTests(unittest.TestCase):
     """Detection noise flips equal-cost routes frame to frame (run
     20260821T213642 n=32-34 bounced between the up-around and the
