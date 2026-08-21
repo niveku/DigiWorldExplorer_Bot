@@ -433,6 +433,19 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     # forever, while a wall of pyramids survives a leftward detour intact.
     # Rescue first, dash after (run 20260820T061407 events 126/247 dashed
     # through a wall and scrolled left oranges to their death).
+    # An adjacent pickup reachable WITHOUT scrolling goes first, urgency
+    # included: up/down/left never advance the scroll, so nothing
+    # perishable ages during the one-step grab (run 20260821T234344 n=9
+    # abandoned a paws card one step away for a perishable three cells
+    # down - the free grab costs the rescue zero erosion).
+    for dr, dc, direction in DIRS:
+        if direction == "right":
+            continue
+        cell = (player[0] + dr, player[1] + dc)
+        if (0 <= cell[0] < 5 and 0 <= cell[1] < 5
+                and cell in (orange_items | mid_items | other_items)):
+            return ("move", cell, direction), f"adjacent item={cell}"
+
     urgent_orange = {cell for cell in orange_items if cell[1] <= 1}
     # Mid-tier pickups die at the left edge exactly like oranges do, and
     # a dash orb (400 shards) outvalues any single orange. Run

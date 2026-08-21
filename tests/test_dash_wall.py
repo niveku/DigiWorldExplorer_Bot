@@ -1167,6 +1167,32 @@ class PerishableRoutingTests(unittest.TestCase):
 # orange. Adding an ordering layer would be overengineering.
 
 
+class FreeAdjacentGrabTests(unittest.TestCase):
+    """Run 20260821T234344 n=9: one step from a paws card, an urgent
+    perishable appeared three cells away and hijacked the route. But
+    perishables only age on OUR rightward moves - an adjacent grab via
+    up/down/left scrolls nothing, so it costs the rescue zero erosion.
+    The free grab goes first, urgency included."""
+
+    def test_adjacent_paws_beat_the_urgent_interrupt(self):
+        info = empty_grid()
+        info[(1, 1)]["player"] = 0.2
+        info[(0, 1)].update(item=0.09, pink=0.09)      # paws, one step up
+        info[(4, 1)].update(item=0.09, orange=0.09)    # urgent, three down
+        action, reason = strategy.choose(info)
+        self.assertEqual(action, ("move", (0, 1), "up"))
+
+    def test_rightward_neighbors_do_not_preempt_urgency(self):
+        # A right grab advances the scroll; the rescue stays first.
+        info = empty_grid()
+        info[(1, 1)]["player"] = 0.2
+        info[(1, 2)].update(item=0.09, pink=0.09)
+        info[(4, 0)].update(item=0.09, orange=0.09)
+        action, reason = strategy.choose(info)
+        self.assertTrue(reason.startswith(("orange perishable",
+                                           "urgent pickup")))
+
+
 class PerishableMidTierTests(unittest.TestCase):
     """Run 20260821T225908 n=182-185: a dash orb (400 shards, a full
     dash) reached column 1 while two oranges sat safely at column 4.
