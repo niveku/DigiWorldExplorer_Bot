@@ -194,6 +194,71 @@ class BatchTests(unittest.TestCase):
         )
         self.assertEqual(moves, [((2, 2), (2, 3))])
 
+    def test_followups_stop_when_distance_to_goals_stalls(self):
+        # Run 20260821T200525 n=353-359: the route to (0,3) turns right
+        # after one step down, but the second down move kept min-distance
+        # flat thanks to the OTHER pickup at (3,3), overshot the turn, and
+        # the replan bounced back up - a 6-move ping-pong on a static
+        # board. A follow-up must get strictly closer to some goal.
+        info = empty_grid()
+        moves = runner.safe_followup_moves(
+            info, (0, 1), (1, 1), "down", 2, {(0, 3), (3, 3)})
+        self.assertEqual(moves, [])
+
+    def test_followups_still_ride_straight_at_a_goal(self):
+        info = empty_grid()
+        moves = runner.safe_followup_moves(
+            info, (2, 0), (2, 1), "right", 1, {(2, 4)})
+        self.assertEqual([m[0] for m in moves], [(2, 2)])
+
+
+class WallStabilityTests(unittest.TestCase):
+    """Run 20260821T200525: a 3-pyramid wall one row up was never hunted
+    while the bot rode rightward, because every scroll shifted the launch
+    cell one column left and the stability check compared raw cells - the
+    wall looked new every frame. Stability now compares scroll-adjusted
+    positions."""
+
+    def test_wall_shifted_by_scroll_is_the_same_wall(self):
+        committed = ((1, 3), 10, 5)      # cell, done, scrolls at sighting
+        self.assertTrue(runner.wall_is_stable(
+            committed, (1, 2), done=11, scrolls_now=6))
+
+    def test_wall_at_an_unexplained_cell_is_new(self):
+        committed = ((1, 3), 10, 5)
+        self.assertFalse(runner.wall_is_stable(
+            committed, (3, 3), done=11, scrolls_now=6))
+
+    def test_stale_commitment_is_not_stable(self):
+        committed = ((1, 3), 10, 5)
+        self.assertFalse(runner.wall_is_stable(
+            committed, (1, 3), done=15, scrolls_now=5))
+
+    def test_committed_wall_dash_accounts_for_scroll(self):
+        committed = ((4, 1), 10, 5)
+        self.assertTrue(runner.committed_wall_dash(
+            committed, (4, 0), 12, scrolls_now=6))
+        self.assertFalse(runner.committed_wall_dash(
+            committed, (4, 1), 12, scrolls_now=6))
+
+
+class CompactStateLogTests(unittest.TestCase):
+    """The event log carried no pyramids, no item categories and no
+    memory, so every forensic session had to reconstruct boards from the
+    annotated debug PNGs (user question 2026-08-21: 'are the logs
+    optimal?' - they were not). Every decision event now records a
+    compact board state."""
+
+    def test_state_records_player_items_pyramids_and_memory(self):
+        info = empty_grid()
+        info[(0, 3)].update(item=0.09, orange=0.09)
+        info[(0, 2)]["pyramid"] = 0.9
+        state = runner.compact_state(info, (0, 1), {(3, 3): ("steps", 7)})
+        self.assertEqual(state["player"], [0, 1])
+        self.assertEqual(state["items"], {"0,3": "orange"})
+        self.assertEqual(state["pyramids"], [[0, 2]])
+        self.assertEqual(state["remembered"], {"3,3": "steps"})
+
 
 if __name__ == "__main__":
     unittest.main()

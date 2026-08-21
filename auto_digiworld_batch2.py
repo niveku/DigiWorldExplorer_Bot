@@ -351,8 +351,23 @@ def out_of_steps(inventory, rejected_streak, threshold=2):
     return steps is not None and steps <= 0
 
 
+def wall_is_stable(committed, wall_now, done, scrolls_now, ttl=3):
+    """Same wall seen on consecutive frames, scroll-adjusted.
+
+    Run 20260821T200525: a 3-pyramid wall one row up was never hunted
+    while the bot rode rightward - every scroll shifted the launch one
+    column left and the raw-cell comparison read it as a brand-new wall
+    each frame. The commitment carries the scroll count at sighting, so
+    the expected position moves with the world."""
+    if committed is None or wall_now is None:
+        return False
+    cell, seen_done, seen_scrolls = committed
+    expected = (cell[0], cell[1] - (scrolls_now - seen_scrolls))
+    return wall_now == expected and done - seen_done <= ttl
+
+
 def committed_wall_dash(committed_wall, player, done, ttl=3, last_dash=None,
-                        suspect_cells=()):
+                        suspect_cells=(), scrolls_now=None):
     """True when standing on a recently confirmed wall launch cell.
 
     Wall detection can flicker for one frame right when the bot arrives at
@@ -368,7 +383,12 @@ def committed_wall_dash(committed_wall, player, done, ttl=3, last_dash=None,
     fired a second 400-shard dash into an almost empty path (runs
     20260820T031845/032120, one wasted dash each).
     """
-    if committed_wall is None or committed_wall[0] != player:
+    if committed_wall is None:
+        return False
+    cell = committed_wall[0]
+    if scrolls_now is not None and len(committed_wall) > 2:
+        cell = (cell[0], cell[1] - (scrolls_now - committed_wall[2]))
+    if cell != player:
         return False
     if last_dash is not None and last_dash >= committed_wall[1]:
         return False
@@ -421,6 +441,25 @@ def shift_items_left(remembered):
     """Scroll compensation: the world moved one column left."""
     return {(row, col - 1): value
             for (row, col), value in remembered.items() if col - 1 >= 0}
+
+
+def compact_state(info, player, remembered):
+    """Compact per-frame board state for the event log.
+
+    Every forensic session so far had to reconstruct boards from the
+    annotated debug PNGs, which carry no pyramids, no item categories
+    and no memory (user question 2026-08-21: the logs were NOT optimal).
+    ~200 bytes per event buys exact offline replays."""
+    return {
+        "player": list(player),
+        "items": {f"{r},{c}": (item_category(v) or "item")
+                  for (r, c), v in info.items()
+                  if is_pickup(v) and (r, c) != tuple(player)},
+        "pyramids": sorted([r, c] for (r, c), v in info.items()
+                           if strategy.is_obstacle(v)),
+        "remembered": {f"{r},{c}": cat
+                       for (r, c), (cat, _) in remembered.items()},
+    }
 
 
 def remember_confirmed_items(remembered, info, player, suspects, done):
@@ -920,7 +959,11 @@ def safe_followup_moves(info, player, first_target, direction, count, goals=None
         if goals:
             distance = min(abs(checked_cell[0]-g[0]) + abs(checked_cell[1]-g[1])
                            for g in goals)
-            if distance > previous_distance:
+            # Strictly closer, not merely no-worse: with several goals a
+            # move can trade distance-to-A for distance-to-B and keep the
+            # min flat while overshooting the route's turn cell (run
+            # 20260821T200525 n=353-359 ping-ponged six moves that way).
+            if distance >= previous_distance:
                 break
             previous_distance = distance
         results.append((screen_target, checked_cell))
@@ -992,6 +1035,7 @@ def main():
     # the phantom-appearance check (guessing it let ghosts hide behind
     # coincidental mappings, run 20260820T184744 events 105/136).
     scrolls_since_frame = 0
+    total_scrolls = 0
     prev_fresh_suspects = set()
     committed_wall = None
     last_dash = None
@@ -1281,9 +1325,11 @@ def main():
                                           current_item_cells)
         prev_fresh_suspects = fresh_suspects
         prev_item_cells = current_item_cells
+        total_scrolls += scrolls_since_frame
         scrolls_since_frame = 0
         remembered_items = remember_confirmed_items(
             remembered_items, detected_info, player, suspect_items, done)
+        event["board"] = compact_state(info, player, remembered_items)
         if suspect_items:
             event["suspect_items"] = sorted(list(cell) for cell in suspect_items)
         if len(visible_items) >= 3 and item_burst_waits < 2 and flickering:
@@ -1409,11 +1455,10 @@ def main():
             event["dash_state"] = {"status": "re-enabled: drops may have refilled dashes"}
         wall_now = (strategy.nearest_dash_wall(info, player, preview=preview)
                     if dashes_enabled else None)
-        wall_stable = (wall_now is not None and committed_wall is not None
-                       and committed_wall[0] == wall_now
-                       and done - committed_wall[1] <= 3)
+        wall_stable = wall_is_stable(committed_wall, wall_now, done,
+                                     total_scrolls)
         if wall_now is not None:
-            committed_wall = (wall_now, done)
+            committed_wall = (wall_now, done, total_scrolls)
         action, reason = strategy.choose(info, previous_direction,
                                          attacks_enabled, dashes_enabled,
                                          ignored_targets=(set(banned_targets.keys())
@@ -1424,7 +1469,8 @@ def main():
         if (action is not None and action[0] != "dash" and dashes_enabled and
                 wall_now is None and committed_wall_dash(committed_wall, player,
                                                          done, last_dash=last_dash,
-                                                         suspect_cells=suspect_items)):
+                                                         suspect_cells=suspect_items,
+                                                         scrolls_now=total_scrolls)):
             action, reason = ("dash", player, "right"), "committed wall dash"
             committed_wall = None
         if corridor_dash_due(action, last_attack, done, preview, dashes_enabled,
