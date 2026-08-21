@@ -871,9 +871,16 @@ class SuspectHoldTests(unittest.TestCase):
         self.assertTrue(runner.should_hold_for_suspects(
             "explore right", {(0, 1)}, {(0, 1)}, holds=0))
 
-    def test_never_holds_twice_in_a_row(self):
-        self.assertFalse(runner.should_hold_for_suspects(
+    def test_holds_match_the_two_frame_suspicion_window(self):
+        # Run 20260821T225908 n=43 (user-spotted): the combined-suspects
+        # carryover keeps a fresh cell suspect for TWO frames, but the
+        # hold only waited one - so the bot explored away from the real
+        # orange after the first hold and had to walk back. The hold now
+        # covers the full adjudication window.
+        self.assertTrue(runner.should_hold_for_suspects(
             "explore right", {(0, 1)}, {(0, 1)}, holds=1))
+        self.assertFalse(runner.should_hold_for_suspects(
+            "explore right", {(0, 1)}, {(0, 1)}, holds=2))
 
     def test_a_confirmed_goal_cancels_the_hold(self):
         self.assertFalse(runner.should_hold_for_suspects(

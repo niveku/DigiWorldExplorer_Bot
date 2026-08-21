@@ -199,6 +199,20 @@ class BatchTests(unittest.TestCase):
         text = runner.plan_status("move", "right", "explore right", 0)
         self.assertIn("Explorando hacia la derecha", text)
 
+    def test_vertical_explore_steps_do_not_batch(self):
+        # Run 20260821T225908 n=127 (user-spotted): with no goals to
+        # guard the batch, an explore detour around a pyramid rode two
+        # cells down when one step plus a fresh look was the whole
+        # point. A vertical exploration step is always single.
+        self.assertEqual(runner.explore_followup_budget(
+            "explore right", "down", 2), 0)
+        self.assertEqual(runner.explore_followup_budget(
+            "explore right", "up", 2), 0)
+        self.assertEqual(runner.explore_followup_budget(
+            "explore right", "right", 2), 2)
+        self.assertEqual(runner.explore_followup_budget(
+            "orange targets=[(1, 1)]", "down", 2), 2)
+
     def test_followup_stops_before_pyramid(self):
         info = empty_grid()
         info[(2, 4)]["pyramid"] = 0.9

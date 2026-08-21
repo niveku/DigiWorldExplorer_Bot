@@ -70,7 +70,11 @@ def should_hold_for_suspects(reason, item_goals, suspect_items, holds):
     (0,1) - four moves for information a single 0.4s hold delivers. The
     two-frame rule adjudicates every suspect on the very next frame, so
     one hold is always enough and a second is never allowed."""
-    if holds >= 1 or not suspect_items:
+    if holds >= 2 or not suspect_items:
+        # The combined-suspects carryover keeps a fresh cell suspect for
+        # TWO frames; a single hold left the bot exploring away from a
+        # real orange right before it confirmed (run 20260821T225908
+        # n=43, user-spotted). The hold covers the full window now.
         return False
     if not str(reason).startswith("explore"):
         return False
@@ -480,6 +484,19 @@ def remember_pending_reveals(pending, cells, done, ttl=4):
 def live_reveal_cells(pending, done):
     """Reveal cells whose grace window is still open."""
     return {cell for cell, expiry in pending.items() if expiry > done}
+
+
+def explore_followup_budget(reason, direction, remaining):
+    """A vertical exploration step never batches.
+
+    With no goals to guard the batch, an explore detour around a pyramid
+    rode two cells down when one step plus a fresh look was the whole
+    point (run 20260821T225908 n=127, user-spotted: 'why not just round
+    the pyramid through the middle?'). Rightward exploration keeps its
+    batch - riding straight is what exploring is for."""
+    if str(reason).startswith("explore") and direction in ("up", "down"):
+        return 0
+    return remaining
 
 
 def warmup_batch_limit(done, limit):
@@ -1838,6 +1855,7 @@ def main():
             if (kind == "move" and not approaching_wall and not first_has_item
                     and done + 1 < args.steps):
                 remaining = min(effective_batch_size - 1, args.steps - done - 1)
+                remaining = explore_followup_budget(reason, direction, remaining)
                 if loop_guard:
                     remaining = 0
                 followups = safe_followup_moves(
