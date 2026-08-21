@@ -918,6 +918,25 @@ class ConfirmedItemMemoryTests(unittest.TestCase):
         self.assertEqual(runner.remember_revealed_pickup(
             {}, {"revealed": None, "broken": True}, (2, 2), done=9), {})
 
+    def test_merge_survives_every_economic_category(self):
+        # Crash in production (run 20260821T195439): memory now stores
+        # economic types, but the merge patch indexed them as if they
+        # were grid color masks - KeyError: 'purple_ticket' on frame 12.
+        # The patch must write the category's underlying color mask and
+        # its discriminator so pickup_type round-trips.
+        for category, expect in (("orange", "orange"),
+                                 ("steps", "steps"),
+                                 ("purple_ticket", "purple_ticket"),
+                                 ("dash_orb", "dash_orb"),
+                                 ("green_ticket", "green_ticket")):
+            with self.subTest(category=category):
+                info = empty_grid()
+                merged = runner.merge_remembered_items(
+                    info, {(2, 1): (category, 5)}, player=(0, 0))
+                values = merged[(2, 1)]
+                self.assertGreater(values["item"], .06)
+                self.assertEqual(strategy.pickup_type(values), expect)
+
 
 class PairLaunchGateTests(unittest.TestCase):
     """Run 20260821T192126 n=117-121: from (0,0) the pair-launch rule

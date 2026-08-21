@@ -399,8 +399,19 @@ def merge_remembered_items(info, remembered, player):
                 patched["claw"] = .12
                 merged[cell] = patched
         elif values["item"] <= .06:
+            # Memory stores ECONOMIC types; the grid scores only carry
+            # color masks. Patch the category's mask plus the
+            # discriminator pickup_type needs to round-trip it (crash
+            # run 20260821T195439: patched['purple_ticket'] KeyError).
             patched = dict(values)
-            patched[category] = max(patched[category], .07)
+            mask = {"orange": "orange", "steps": "pink",
+                    "purple_ticket": "pink", "dash_orb": "green",
+                    "green_ticket": "green"}.get(category, "orange")
+            patched[mask] = max(patched.get(mask, 0.0), .07)
+            if category == "purple_ticket":
+                patched["white"] = max(patched.get("white", 0.0), .06)
+            if category == "green_ticket":
+                patched["card_green"] = max(patched.get("card_green", 0.0), .04)
             patched["item"] = .07
             merged[cell] = patched
     return merged
