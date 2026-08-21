@@ -302,6 +302,31 @@ def close_reward_overlay(tap, capture, classify, max_taps=5, pause=None):
 DISMISS_TAP_XY = (20, 640)
 
 
+def growth_guide_overlay(image):
+    """Recognize the 'Growth Guide' panel; report whether the stage failed.
+
+    The panel (user capture 2026-08-21) has a light-gray title bar around
+    15-20% of the frame height and red-framed advice sections below it;
+    when it pops because the stage ended, a big red 'Stage Failed'
+    headline sits in the top band. On the fixture: 75 gray title rows
+    (floor 2% of height), red-frame density 0.0022 (floor 0.001), red
+    headline density 0.0101 (floor 0.003); nine board fixtures score
+    at most a fifth of each floor. One numpy pass, no OCR."""
+    a = np.asarray(image.convert("RGB")).astype(int)
+    height, width = a.shape[:2]
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    gray = ((np.abs(r - g) < 18) & (np.abs(g - b) < 18)
+            & (r > 120) & (r < 190))
+    title_rows = gray[int(height * .10):int(height * .30)].mean(axis=1)
+    red_frames = ((r > 150) & (g < 60) & (b < 70))[int(height * .20):
+                                                   int(height * .85)]
+    if (int((title_rows > .15).sum()) < int(height * .02)
+            or red_frames.mean() < .001):
+        return None
+    headline = ((r > 190) & (g < 70) & (b < 80))[:int(height * .13)]
+    return {"stage_failed": bool(headline.mean() > .003)}
+
+
 def dismiss_tap_due(unreliable):
     """Tap outside a suspected popup on the 2nd and 4th unreliable strike.
 
@@ -1068,13 +1093,24 @@ def main():
         if det.state != "digiworld" or not det.board or det.confidence < args.min_confidence:
             unreliable += 1
             event["action"] = f"WAIT: unreliable board ({unreliable}/5)"
-            if dismiss_tap_due(unreliable):
+            # A recognized Growth Guide panel is dismissed on every strike
+            # and logged with its stage_failed flag; an unrecognized cover
+            # still gets the blind outside-tap on strikes 2 and 4.
+            panel = growth_guide_overlay(image)
+            if panel is not None:
+                event["overlay"] = dict(panel, kind="growth_guide")
+            if panel is not None or dismiss_tap_due(unreliable):
                 bot.adb(args.adb, args.serial, "shell", "input", "tap",
                         str(DISMISS_TAP_XY[0]), str(DISMISS_TAP_XY[1]))
                 event["dismiss_tap"] = list(DISMISS_TAP_XY)
                 if args.verbose:
-                    progress(done, args.steps,
-                             "Popup sospechado - tap fuera del panel", "33")
+                    label = ("Panel Growth Guide detectado - cerrando"
+                             if panel is not None else
+                             "Popup sospechado - tap fuera del panel")
+                    if panel is not None and panel.get("stage_failed"):
+                        label = ("Stage Failed + Growth Guide - cerrando "
+                                 "para continuar")
+                    progress(done, args.steps, label, "33")
             bot.log_event(log, event)
             if args.verbose: progress(done, args.steps, "Tablero inestable - nuevo escaneo", "33")
             if unreliable >= 5:

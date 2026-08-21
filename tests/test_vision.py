@@ -435,5 +435,26 @@ class ResolvePlayerTests(unittest.TestCase):
         self.assertLess(score, 0.08)
 
 
+class GrowthGuideOverlayTests(unittest.TestCase):
+    """Run 20260821T173052 died blind on the Stage Failed 'Growth Guide'
+    panel: state=unknown, five unreliable waits, no idea what covered
+    the board. The panel is now recognized (gray title bar + red section
+    frames, red headline = failed stage) so the runner can log what it
+    is dismissing and future flows can react to a failed stage."""
+
+    def test_recognizes_the_stage_failed_panel(self):
+        overlay = runner.growth_guide_overlay(
+            Image.open(FIXTURES / "growth_guide_stage_failed.png"))
+        self.assertIsNotNone(overlay)
+        self.assertTrue(overlay["stage_failed"])
+
+    def test_ordinary_boards_are_not_the_panel(self):
+        for name in ("claw_board.png", "chest_ready.png", "chest_claimed.png",
+                     "fm_at_1_1.png", "phantom_blob_cards.png"):
+            with self.subTest(fixture=name):
+                self.assertIsNone(runner.growth_guide_overlay(
+                    Image.open(FIXTURES / name)))
+
+
 if __name__ == "__main__":
     unittest.main()
