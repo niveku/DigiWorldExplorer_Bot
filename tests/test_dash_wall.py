@@ -1140,6 +1140,74 @@ class PerishableRoutingTests(unittest.TestCase):
 # orange. Adding an ordering layer would be overengineering.
 
 
+class BoardMotionTests(unittest.TestCase):
+    """Run 20260821T222310 frame 11 (user-spotted): the screenshot caught
+    the scroll mid-animation - the whole board sat offset from the grid,
+    a real energy straddled two cells at the bottom, and the classifier
+    saw nothing there. A sudden grid jump IS the motion signal (nine
+    board_corrections that run), but the old code swapped in the stale
+    rect and classified the moving frame anyway. The user rule: only
+    look while the grid is at rest - wait and re-capture instead."""
+
+    def test_matching_rects_are_at_rest(self):
+        self.assertFalse(runner.board_in_motion(
+            (77, 426, 625, 870), (77, 426, 625, 870)))
+        self.assertFalse(runner.board_in_motion(
+            (74, 424, 626, 875), (77, 426, 625, 870)))
+
+    def test_a_jumped_rect_means_motion(self):
+        self.assertTrue(runner.board_in_motion(
+            (77, 491, 625, 980), (77, 426, 625, 870)))
+
+    def test_no_baseline_means_no_verdict(self):
+        self.assertFalse(runner.board_in_motion(
+            (77, 491, 625, 980), None))
+
+
+class PendingRevealTests(unittest.TestCase):
+    """Run 20260821T222310 n=4-11, user-confirmed loss: the dash broke
+    the pyramid at (1,4); its drop landed at (1,1) after the dash's own
+    scroll, but the fall animation delayed detection by 3 frames. The
+    reveal whitelist only covered the first post-dash frame, so the real
+    energy was flagged suspect, never reached memory, and three explore
+    rides scrolled it off the board. Broken-pyramid cells now stay
+    whitelisted for several frames and shift with the scroll."""
+
+    def test_reveal_cells_stay_live_for_their_ttl(self):
+        pending = runner.remember_pending_reveals({}, [(1, 1), (1, 0)], done=4)
+        self.assertEqual(runner.live_reveal_cells(pending, done=7),
+                         {(1, 1), (1, 0)})
+        self.assertEqual(runner.live_reveal_cells(pending, done=9), set())
+
+    def test_late_appearance_at_a_reveal_cell_is_not_suspect(self):
+        pending = runner.remember_pending_reveals({}, [(1, 1)], done=4)
+        self.assertEqual(
+            runner.suspect_appearances(
+                frozenset({(1, 1)}), frozenset({(4, 4)}), shift=0,
+                revealed_cells=runner.live_reveal_cells(pending, done=7)),
+            set())
+
+    def test_reveal_cells_shift_with_the_scroll(self):
+        pending = runner.remember_pending_reveals({}, [(1, 1)], done=4)
+        shifted = runner.shift_items_left(pending)
+        self.assertEqual(runner.live_reveal_cells(shifted, done=5), {(1, 0)})
+
+
+class WarmupTests(unittest.TestCase):
+    """User rule 2026-08-21: the first screens carry no verifiable
+    history, so the opening moves must not blind-batch three taps off a
+    single unverified frame (run 20260821T222310 opened with an
+    explore x3 - two scrolls - before any memory existed)."""
+
+    def test_first_actions_move_one_cell_at_a_time(self):
+        self.assertEqual(runner.warmup_batch_limit(0, 3), 1)
+        self.assertEqual(runner.warmup_batch_limit(2, 3), 1)
+
+    def test_after_warmup_the_planned_limit_returns(self):
+        self.assertEqual(runner.warmup_batch_limit(3, 3), 3)
+        self.assertEqual(runner.warmup_batch_limit(10, 2), 2)
+
+
 class SilentRejectionTests(unittest.TestCase):
     """Run 20260821T222310 n=124/129: 'cannot move there' toasts are
     invisible since the confetti gate (they do not degrade board

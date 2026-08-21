@@ -450,6 +450,48 @@ def modal_overlay_visible(overlay_center, det, min_confidence=.75):
             or det.confidence < min_confidence)
 
 
+def board_in_motion(detected, stable, tolerance=18):
+    """The grid rect jumped: the scroll animation is still running.
+
+    Run 20260821T222310 frame 11 (user-spotted): a screenshot mid-scroll
+    put the whole board off the grid, a real energy straddled two cells,
+    and the classifier saw nothing there. A sudden rect jump is the
+    motion signal; the frame must be re-captured, not classified."""
+    if detected is None or stable is None:
+        return False
+    return max(abs(a - b) for a, b in zip(detected, stable)) > tolerance
+
+
+def remember_pending_reveals(pending, cells, done, ttl=4):
+    """Broken-pyramid cells stay legitimate reveal spots for a few frames.
+
+    Run 20260821T222310 n=4-11 (user-confirmed loss): the dash broke the
+    pyramid at (1,4), the drop landed at (1,1) after the dash's scroll,
+    but the fall animation delayed detection by three frames - past the
+    single-frame whitelist - so the real energy was flagged suspect,
+    never reached memory, and scrolled off. The whitelist now survives
+    the animation and shifts with the scroll like all board memory."""
+    updated = dict(pending)
+    for cell in cells:
+        updated[tuple(cell)] = done + ttl
+    return updated
+
+
+def live_reveal_cells(pending, done):
+    """Reveal cells whose grace window is still open."""
+    return {cell for cell, expiry in pending.items() if expiry > done}
+
+
+def warmup_batch_limit(done, limit):
+    """One verified cell per frame until the board has history.
+
+    User rule 2026-08-21: the first screens carry no verifiable memory,
+    so the opening moves must not blind-batch three taps off a single
+    unverified frame (run 20260821T222310 opened with an explore x3 -
+    two scrolls - before anything was confirmed)."""
+    return 1 if done < 3 else limit
+
+
 def silent_rejection(previous_action, expected_rollback, player,
                      first_move_dest, player_source, player_score):
     """The game refused the last move - detected by position, not pixels.
@@ -1145,6 +1187,8 @@ def main():
     overlay_waits = 0
     overlay_evidence_saved = 0
     phantom_obstacles = {}
+    pending_reveals = {}
+    settle_waits = 0
     first_move_dest = None
     last_stamina_check = 0
     last_move_player_source = None
@@ -1378,7 +1422,23 @@ def main():
 
         if stable_board is None:
             stable_board = det.board
-        elif max(abs(a - b) for a, b in zip(det.board, stable_board)) > 18:
+        elif board_in_motion(det.board, stable_board):
+            # Only look while the grid is at rest (user rule 2026-08-21):
+            # a moving frame classified with the stale rect misses items
+            # straddling cell borders. Wait and re-capture; after three
+            # tries proceed with the stable rect so the run cannot stall.
+            settle_waits += 1
+            if settle_waits <= 3:
+                event["action"] = f"WAIT: board in motion ({settle_waits}/3)"
+                event["board_motion"] = {"detected": list(det.board),
+                                         "stable": list(stable_board)}
+                bot.log_event(log, event)
+                if args.verbose:
+                    progress(done, args.steps,
+                             "Tablero en movimiento - espero a que asiente",
+                             "33")
+                time.sleep(.4)
+                continue
             event["board_correction"] = {
                 "detected": list(det.board),
                 "used": list(stable_board),
@@ -1386,6 +1446,8 @@ def main():
             }
             det = bot.Detection(det.state, det.confidence, stable_board,
                                 det.reason + "; stable board retained")
+        if not board_in_motion(det.board, stable_board):
+            settle_waits = 0
 
         info = strategy.cells(image, det.board)
         # After a rejected move with a weak player fix, the resolution runs
@@ -1473,21 +1535,18 @@ def main():
         current_item_cells = frozenset(visible_items)
         # Mid-board arrivals that neither the scroll nor a broken pyramid
         # explains are confetti: ignored as targets for one frame instead
-        # of waiting. A dash's own breaks are as legitimate as a garra's
-        # (game invariant, user 2026-08-21): its path cells - shifted by
-        # the dash's 3-column scroll - may reveal drops.
-        dash_reveals = ()
-        if previous_action == "dash" and pending_dash is not None:
-            dash_reveals = {(r, c - 3)
-                            for r, c in map(tuple,
-                                            pending_dash["path"]["cells_seen"])
-                            if c - 3 >= 0}
+        # of waiting. Broken-pyramid cells (garra AND dash) stay
+        # whitelisted for a few frames via pending_reveals - the fall
+        # animation can delay the drop's detection past the break frame.
+        pending_reveals = {cell: expiry
+                           for cell, expiry in pending_reveals.items()
+                           if expiry > done}
         fresh_suspects = suspect_appearances(
             current_item_cells, prev_item_cells,
             shift=scrolls_since_frame,
             attack_cell=(previous_attack_target
                          if previous_action == "attack" else None),
-            revealed_cells=dash_reveals)
+            revealed_cells=live_reveal_cells(pending_reveals, done))
         suspect_items = combined_suspects(fresh_suspects, prev_fresh_suspects,
                                           current_item_cells)
         suspect_items = drop_remembered_suspects(suspect_items, remembered_items)
@@ -1507,7 +1566,8 @@ def main():
         # Batch-2 is adaptive: on an item-free board it may safely advance up
         # to three cells. Any visible pickup immediately restores the more
         # careful two-click limit.
-        effective_batch_size = adaptive_batch_limit(args.batch_size, item_goals)
+        effective_batch_size = warmup_batch_limit(
+            done, adaptive_batch_limit(args.batch_size, item_goals))
         if previous_action == "attack" and previous_attack_target is not None:
             result = attack_result(info[previous_attack_target])
             inv_after = (read_drop_counters(image)
@@ -1720,7 +1780,16 @@ def main():
                 phantom_obstacles = shift_items_left(phantom_obstacles)
                 banned_targets = shift_items_left(banned_targets)
                 ban_history = shift_cells_left(ban_history)
+                pending_reveals = shift_items_left(pending_reveals)
             scrolls_since_frame += 3
+            # The dash's broken pyramids may reveal drops whose fall
+            # animation outlives the next frame; their (post-shift)
+            # cells stay legitimate arrival spots for a few frames.
+            pending_reveals = remember_pending_reveals(
+                pending_reveals,
+                [(r, c - 3) for r, c in map(tuple, dash_path["cells_seen"])
+                 if c - 3 >= 0],
+                done)
             first_move_dest = None
         else:
             if kind == "move" and not lawful_tap(target):
@@ -1737,6 +1806,8 @@ def main():
             if kind == "attack":
                 pending_attack_inv = read_drop_counters(image)
                 last_attack = (target[0], done)
+                pending_reveals = remember_pending_reveals(
+                    pending_reveals, [target], done)
             bot.adb(args.adb, args.serial, "shell", "input", "tap", str(x), str(y))
             sent.append({"type": kind, "target_cell": list(target), "adb_xy": [x, y]})
             expected_rollback = player
@@ -1755,6 +1826,7 @@ def main():
                 phantom_obstacles = shift_items_left(phantom_obstacles)
                 banned_targets = shift_items_left(banned_targets)
                 ban_history = shift_cells_left(ban_history)
+                pending_reveals = shift_items_left(pending_reveals)
                 committed_wall = None
                 scrolls_since_frame += 1
             pickup = item_category(info[target]) if kind == "move" else None
@@ -1786,6 +1858,7 @@ def main():
                         phantom_obstacles = shift_items_left(phantom_obstacles)
                         banned_targets = shift_items_left(banned_targets)
                         ban_history = shift_cells_left(ban_history)
+                        pending_reveals = shift_items_left(pending_reveals)
                         committed_wall = None
                         scrolls_since_frame += 1
                     pickup = item_category(info[checked])
