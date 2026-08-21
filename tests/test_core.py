@@ -242,6 +242,25 @@ class WallStabilityTests(unittest.TestCase):
             committed, (4, 1), 12, scrolls_now=6))
 
 
+class RejectionTrustTests(unittest.TestCase):
+    """User mechanic (2026-08-22): moves are cross-only from the REAL
+    player cell and the cell-highlight hints are buggy, so a 'cannot
+    move there' toast usually means the believed player cell was wrong -
+    not that the board hides a wall. Only a rejection issued from a
+    confidently SEEN player may blame the destination cell; anything
+    weaker triggers a pure-vision re-resolution of the player instead."""
+
+    def test_confident_vision_rejection_blames_the_cell(self):
+        self.assertTrue(runner.should_trust_rejection("vision", 0.15))
+
+    def test_weak_or_inferred_positions_blame_the_player_fix(self):
+        self.assertFalse(runner.should_trust_rejection("vision", 0.09))
+        self.assertFalse(runner.should_trust_rejection("memory", 0.30))
+        self.assertFalse(runner.should_trust_rejection("highlight-cross", 0.30))
+        self.assertFalse(runner.should_trust_rejection("memory-veto", 0.15))
+        self.assertFalse(runner.should_trust_rejection("large-sprite", 0.15))
+
+
 class PhantomObstacleTests(unittest.TestCase):
     """Run 20260821T203611: ten 'cannot move there' toasts in 200 moves -
     the bot kept walking into pyramids its detector had missed, and the

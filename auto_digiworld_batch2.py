@@ -443,6 +443,17 @@ def shift_items_left(remembered):
             for (row, col), value in remembered.items() if col - 1 >= 0}
 
 
+def should_trust_rejection(player_source, player_score):
+    """Was the rejected move issued from a confidently SEEN player?
+
+    User mechanic (2026-08-22): moves are cross-only from the REAL player
+    cell and the cell-highlight hints are buggy, so a 'cannot move there'
+    toast usually means the believed player cell was wrong - not that the
+    board hides a wall. Only a strong direct sighting justifies blaming
+    the destination cell; weaker fixes blame the player fix itself."""
+    return player_source == "vision" and player_score >= .12
+
+
 def merge_phantom_obstacles(info, obstacles, done):
     """Cells the game refused to enter read as pyramids for a few frames.
 
@@ -1079,6 +1090,9 @@ def main():
     overlay_evidence_saved = 0
     phantom_obstacles = {}
     first_move_dest = None
+    last_move_player_source = None
+    last_move_player_score = 0.0
+    distrust_player = False
     rejected_streak = 0
     recent_states = []
 
@@ -1158,11 +1172,23 @@ def main():
                     event["expected_rollback"] = list(expected_rollback)
                     expected_rollback = None
                     rejected_streak += 1
-                    if first_move_dest is not None:
-                        # The game just proved that cell is blocked even if
-                        # the detector saw it free: route around it.
+                    if (first_move_dest is not None and
+                            should_trust_rejection(last_move_player_source,
+                                                   last_move_player_score)):
+                        # Issued from a confidently seen player: the game
+                        # just proved that cell is blocked even if the
+                        # detector saw it free. Route around it.
                         phantom_obstacles[first_move_dest] = done + 6
                         event["phantom_obstacle"] = list(first_move_dest)
+                    else:
+                        # Weak or inferred player fix: the rejection most
+                        # likely means the believed cell was wrong, so the
+                        # next resolution runs on pure vision - no memory
+                        # bridge, no buggy highlight-cross fallback.
+                        distrust_player = True
+                        event["player_distrust"] = {
+                            "source": last_move_player_source,
+                            "score": round(last_move_player_score, 3)}
                     if out_of_steps(read_inventory_counters(image),
                                     rejected_streak):
                         event["action"] = "STOP: out of steps (stamina 0)"
@@ -1195,8 +1221,10 @@ def main():
                 # Run 20260821T203611: ten overlay episodes in 200 moves ate
                 # taps and forced replans, and no frame of any overlay was
                 # ever saved - the single biggest evidence gap of that
-                # forensic session. Keep the first few frames per run.
-                if overlay_waits == 1 and overlay_evidence_saved < 3:
+                # forensic session. Every episode's first frame is kept:
+                # each toast marks a suboptimal move worth diagnosing
+                # (user request 2026-08-22).
+                if overlay_waits == 1:
                     try:
                         evidence_path = (run_dir /
                                          f"overlay_evidence_{done:04d}.png")
@@ -1289,7 +1317,11 @@ def main():
                                 det.reason + "; stable board retained")
 
         info = strategy.cells(image, det.board)
-        player, player_score, player_source = resolve_player(info, expected_player)
+        # After a rejected move with a weak player fix, the resolution runs
+        # on pure vision once: no memory bridge and no highlight-cross,
+        # because the rejection itself says the believed cell was wrong.
+        player, player_score, player_source = resolve_player(
+            info, None if distrust_player else expected_player)
         # The red sprite blob proved the most stable locator for oversized
         # partners; it also vetoes item-glow false positives that sneak just
         # over the vision threshold. The buggy highlight cross stays last.
@@ -1299,10 +1331,12 @@ def main():
                         if values["item"] > .06})
         player, player_score, player_source = veto_with_blob(
             player, player_score, player_source, large)
-        if player_source == "vision" and player_score < .08:
+        if (player_source == "vision" and player_score < .08
+                and not distrust_player):
             cross = strategy.player_from_highlights(info, expected=expected_player)
             if cross is not None:
                 player, player_score, player_source = cross, .30, "highlight-cross"
+        distrust_player = False
         memory_streak = memory_streak + 1 if player_source == "memory" else 0
         if player_source != "vision":
             event["player_resolution"] = {"cell": list(player), "source": player_source,
@@ -1625,6 +1659,8 @@ def main():
                                else expected_after_move(target, direction))
             first_move_dest = (expected_after_move(target, direction)
                                if kind == "move" else None)
+            last_move_player_source = player_source
+            last_move_player_score = player_score
             if kind == "move":
                 # Stepping onto a cell collects whatever it held: its
                 # memory dies before the scroll shift below relabels it.
