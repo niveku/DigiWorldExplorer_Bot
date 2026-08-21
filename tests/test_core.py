@@ -72,12 +72,25 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(action[0], "move")
         self.assertEqual(action[2], "up")
 
-    def test_explorer_still_attacks_the_forward_blocker(self):
+    def test_explorer_detours_a_forward_blocker_when_a_free_cell_exists(self):
+        # A garra costs 200 shards; the two-step vertical detour costs 80
+        # (user complaint 2026-08-21: repeated 'garras para nada' while
+        # exploring). The forward blocker is only attacked when boxed in.
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
         info[(2, 2)]["pyramid"] = 0.9
         info[(1, 2)]["pyramid"] = 0.9
         info[(3, 2)]["pyramid"] = 0.9
+        action, _ = strategy.choose(info, dashes_enabled=False)
+        self.assertEqual(action[0], "move")
+        self.assertIn(action[2], ("up", "down"))
+
+    def test_boxed_in_explorer_still_attacks_the_forward_blocker(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 2)]["pyramid"] = 0.9
+        info[(1, 1)]["pyramid"] = 0.9
+        info[(3, 1)]["pyramid"] = 0.9
         action, _ = strategy.choose(info, dashes_enabled=False)
         self.assertEqual(action[0], "attack")
         self.assertEqual(action[1], (2, 2))

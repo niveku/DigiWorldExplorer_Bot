@@ -534,6 +534,17 @@ def remember_confirmed_items(remembered, info, player, suspects, done):
     return updated
 
 
+def drop_remembered_suspects(suspects, remembered):
+    """Memory outranks suspicion: a remembered cell cannot be a suspect.
+
+    Run 20260821T213642 n=51-56: the dash orb at (4,0) sat in memory
+    (confirmed) and in the suspect set (its detection flickered into a
+    'fresh arrival' every other frame) at the same time. Suspects feed
+    choose() as ignored targets, so the confirmed orb was never targeted
+    and scrolled off the board."""
+    return {cell for cell in suspects if cell not in remembered}
+
+
 def remember_revealed_pickup(remembered, pyramid_result, cell, done):
     """A pickup revealed by a broken pyramid enters memory immediately.
 
@@ -1455,6 +1466,7 @@ def main():
                          if previous_action == "attack" else None))
         suspect_items = combined_suspects(fresh_suspects, prev_fresh_suspects,
                                           current_item_cells)
+        suspect_items = drop_remembered_suspects(suspect_items, remembered_items)
         prev_fresh_suspects = fresh_suspects
         prev_item_cells = current_item_cells
         total_scrolls += scrolls_since_frame

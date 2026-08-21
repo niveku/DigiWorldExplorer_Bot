@@ -49,14 +49,15 @@ class NearestDashWallTests(unittest.TestCase):
 
 
 class IrresistibleDashTests(unittest.TestCase):
-    def test_wall_of_three_outranks_orange_items(self):
+    def test_confirmed_orange_outranks_the_wall_hunt(self):
+        # Doctrine flip 2026-08-21 (run 213642 n=61-63): oranges perish,
+        # walls survive the detour - the orange is collected first.
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
         wall(info, 0, (2, 3, 4))
         info[(4, 4)].update(item=0.10, orange=0.10)
         action, reason = strategy.choose(info)
-        self.assertEqual(action[0], "move")
-        self.assertTrue(reason.startswith("approach dash wall"))
+        self.assertTrue(reason.startswith("orange"))
 
     def test_dashes_immediately_from_the_launch_cell(self):
         info = empty_grid()
@@ -196,13 +197,16 @@ class PerishableBeatsWallTests(unittest.TestCase):
         action, reason = strategy.choose(info)
         self.assertTrue(reason.startswith("orange perishable"))
 
-    def test_wall_still_wins_over_right_side_oranges(self):
+    def test_right_side_oranges_also_outrank_the_wall(self):
+        # Doctrine flip 2026-08-21 (run 213642 n=61-63): the stabilized
+        # wall hijacked a two-moves-deep route to the orange at (3,3).
+        # Oranges perish, walls survive: ANY confirmed orange wins.
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
         wall(info, 0, (2, 3, 4))
         info[(4, 4)].update(item=0.10, orange=0.10)
         action, reason = strategy.choose(info)
-        self.assertTrue(reason.startswith("approach dash wall"))
+        self.assertTrue(reason.startswith("orange"))
 
 
 class PairDashDefersToWallTests(unittest.TestCase):
@@ -211,11 +215,14 @@ class PairDashDefersToWallTests(unittest.TestCase):
     dash was firing first (long run 20260820T033221: dash on 2 while a
     3-wall sat one row away)."""
 
-    def test_pair_waits_when_a_full_wall_is_visible_elsewhere(self):
+    def test_pair_waits_for_an_imminent_wall_one_row_away(self):
+        # The 033221 lesson holds for a wall the hunt can reach within a
+        # frame or two; a farther wall no longer blocks the pair (run
+        # 20260821T213642 n=128-132 spent two garras that way).
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
         wall(info, 2, (2, 3))
-        wall(info, 0, (2, 3, 4))
+        wall(info, 1, (2, 3, 4))
         action, reason = strategy.choose(info, hunt_walls=False)
         self.assertNotIn("pair", reason)
 
@@ -522,13 +529,15 @@ class WallDashRescueTests(unittest.TestCase):
 
     def test_wall_dash_still_fires_with_right_side_pickups(self):
         # A pickup at column 3+ survives the 3-column scroll shifted to
-        # column 0 and stays rescuable after the dash.
+        # column 0 and stays rescuable after the dash. Since the
+        # orange-first doctrine the dash arrives via the pair rule (the
+        # wall hunt defers to the orange), but it still fires from the
+        # launch cell.
         info = self.wall_board()
         info[(2, 1)]["player"] = 0.2
         info[(4, 3)].update(item=0.09, orange=0.09)
         action, reason = strategy.choose(info, hunt_walls=True)
         self.assertEqual(action[0], "dash")
-        self.assertIn("wall", reason)
 
 
 class SuspectAppearanceTests(unittest.TestCase):
@@ -974,6 +983,105 @@ class PairLaunchGateTests(unittest.TestCase):
         info[(0, 2)].update(item=0.09, claw=0.15)
         action, reason = strategy.choose(info)
         self.assertNotEqual(action[0], "dash")
+
+
+class RememberedSuspectTests(unittest.TestCase):
+    """Run 20260821T213642 n=51-56: the dash orb at (4,0) sat in memory
+    (confirmed) and in the suspect set (its detection flickered into a
+    'fresh arrival' every other frame) at the same time. Suspects are
+    fed to choose() as ignored targets, so the confirmed orb was never
+    targeted and scrolled off the board. Memory outranks suspicion: a
+    remembered cell cannot be a suspect."""
+
+    def test_remembered_cells_are_dropped_from_suspects(self):
+        self.assertEqual(
+            runner.drop_remembered_suspects(
+                {(4, 0), (1, 3)}, {(4, 0): ("dash_orb", 7)}),
+            {(1, 3)})
+
+    def test_without_memory_suspects_pass_through(self):
+        self.assertEqual(
+            runner.drop_remembered_suspects({(4, 0)}, {}), {(4, 0)})
+
+
+class WallVersusOrangeTests(unittest.TestCase):
+    """Run 20260821T213642 n=61-63: two moves into the route toward the
+    orange at (3,3), the wall detour became stable and hijacked the bot
+    back up - a reversal, and the orange kept aging toward the scroll.
+    Oranges perish, walls survive the detour: the wall hunt defers to
+    ANY confirmed orange on the board, not just the left band."""
+
+    def wall_board(self):
+        info = empty_grid()
+        wall(info, 1, (2, 3, 4))
+        info[(3, 1)]["player"] = 0.2
+        return info
+
+    def test_wall_hunt_defers_to_any_orange(self):
+        info = self.wall_board()
+        info[(3, 4)].update(item=0.09, orange=0.09)
+        action, reason = strategy.choose(info, hunt_walls=True)
+        self.assertFalse(reason.startswith(("approach dash wall",
+                                            "3+ pyramid wall")))
+
+    def test_wall_hunt_resumes_once_oranges_are_gone(self):
+        action, reason = strategy.choose(self.wall_board(), hunt_walls=True)
+        self.assertTrue(reason.startswith("approach dash wall"))
+
+
+class UnstableWallPairDashTests(unittest.TestCase):
+    """Run 20260821T213642 n=128-132: a pair sat in the player's row and
+    a 3-wall elsewhere. The wall was not yet stable (hunt_walls False),
+    so it produced no action - but its mere existence still blocked the
+    pair dash, and the explorer spent two garras before the dash finally
+    fired. A wall that cannot be hunted must not veto the pair."""
+
+    def pair_with_far_wall(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 2)]["pyramid"] = 0.9
+        info[(2, 4)]["pyramid"] = 0.9
+        wall(info, 4, (2, 3, 4))
+        return info
+
+    def test_unstable_wall_does_not_block_the_pair_dash(self):
+        action, reason = strategy.choose(self.pair_with_far_wall(),
+                                         hunt_walls=False)
+        self.assertEqual(action[0], "dash")
+
+    def test_stable_wall_still_outranks_the_pair(self):
+        action, reason = strategy.choose(self.pair_with_far_wall(),
+                                         hunt_walls=True)
+        self.assertNotEqual(action[0], "dash")
+
+
+class RouteHysteresisTests(unittest.TestCase):
+    """Detection noise flips equal-cost routes frame to frame (run
+    20260821T213642 n=32-34 bounced between the up-around and the
+    down-around of the same pyramid). On a cost tie the first step that
+    continues the previous direction wins, so a replan under noise keeps
+    walking the same way instead of alternating."""
+
+    def detour_board(self):
+        # Target 2 right, direct path blocked: up-around and down-around
+        # tie exactly.
+        info = empty_grid()
+        info[(2, 0)]["player"] = 0.2
+        info[(2, 1)]["pyramid"] = 0.9
+        info[(2, 2)].update(item=0.09, orange=0.09)
+        return info
+
+    def test_tie_follows_previous_direction_down(self):
+        step = strategy.shortest_action(
+            self.detour_board(), (2, 0), {(2, 2)}, allow_obstacles=False,
+            prefer_direction="down")
+        self.assertEqual(step[2], "down")
+
+    def test_tie_follows_previous_direction_up(self):
+        step = strategy.shortest_action(
+            self.detour_board(), (2, 0), {(2, 2)}, allow_obstacles=False,
+            prefer_direction="up")
+        self.assertEqual(step[2], "up")
 
 
 class UnknownOverlayDismissTests(unittest.TestCase):

@@ -115,7 +115,8 @@ def cells(image, board):
     return result
 
 
-def shortest_action(info, player, targets, allow_obstacles=True):
+def shortest_action(info, player, targets, allow_obstacles=True,
+                    prefer_direction=None):
     """Weighted path: empty field costs 1, destructible pyramid costs 5.
 
     A garra costs 200 shards plus the 40-shard follow-up step, minus
@@ -157,6 +158,12 @@ def shortest_action(info, player, targets, allow_obstacles=True):
             step_cost = 5 if obstacle else free_cost
             if name == "right" and pos[0] not in target_rows:
                 step_cost += 0.05
+            # Hysteresis on ties: detection noise flips equal-cost routes
+            # frame to frame (run 20260821T213642 n=32-34 alternated the
+            # up-around and down-around of one pyramid). The FIRST step
+            # that continues the previous direction gets an epsilon edge.
+            if not path and name == prefer_direction:
+                step_cost -= 0.001
             nc = cost + step_cost
             if nc < best.get(nxt, 999):
                 best[nxt] = nc
@@ -417,7 +424,8 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     urgent_orange = {cell for cell in orange_items if cell[1] <= 1}
     if urgent_orange:
         step = shortest_action(info, player, urgent_orange,
-                               allow_obstacles=attacks_enabled)
+                               allow_obstacles=attacks_enabled,
+                               prefer_direction=previous_direction)
         if step:
             target, obstacle, direction = step
             return (("attack" if obstacle else "move"), target, direction), \
@@ -445,7 +453,12 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                          for col in range(launch[1] + 1, min(5, launch[1] + 4))}
             wall_risk = {cell for cell in (orange_items | mid_items | suspect_risk)
                          if cell not in wall_path and cell[1] <= 2}
-            if wall_risk:
+            # Oranges perish, walls survive the detour: ANY confirmed
+            # orange on the board outranks the wall hunt (run
+            # 20260821T213642 n=61-63: the stabilized wall hijacked the
+            # route to the orange at (3,3) two moves in - a reversal,
+            # and the orange kept aging toward the scroll).
+            if wall_risk or orange_items:
                 launch = None
         if launch == player:
             return ("dash", player, "right"), "3+ pyramid wall: dash"
@@ -491,8 +504,15 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         # veto a dash over scroll loss.
         at_risk = {cell for cell in (orange_items | mid_items | suspect_risk)
                    if cell not in path and cell[1] <= 2}
+        # Only an IMMINENT wall (launch within one row) may hold the pair
+        # back - it stabilizes and fires within a frame or two (run
+        # 20260820T033221). A far wall blocked the pair without producing
+        # any action of its own and the explorer spent two garras instead
+        # (run 20260821T213642 n=128-132).
         if (path_pyramids >= 2 and not at_risk
-                and (full_wall is None or path_pyramids >= 3)):
+                and (full_wall is None
+                     or abs(full_wall[0] - player[0]) > 1
+                     or path_pyramids >= 3)):
             return ("dash", player, "right"), \
                 f"dash pair: {path_pyramids} pyramids in path"
         # A single vertical step that lands on a pair launch is worth taking:
@@ -555,7 +575,9 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         if min_col <= 2:
             targets = {cell for cell in orange_items if cell[1] <= min_col + 1}
     if targets:
-        step = shortest_action(info, player, targets, allow_obstacles=attacks_enabled)
+        step = shortest_action(info, player, targets,
+                               allow_obstacles=attacks_enabled,
+                               prefer_direction=previous_direction)
         if step:
             target, obstacle, direction = step
             kind = ("orange" if orange_items else
@@ -600,11 +622,13 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             continue
         base = {"right": 100, "down": 12, "up": 10, "left": -40}[direction]
         score = base + 20*v["highlight"]
-        # A garra costs 200 shards against 40 for a step: while exploring,
-        # a sideways pyramid loses to any free cell; the forward blocker
-        # keeps its lead and is still attacked.
+        # A garra costs 200 shards against 80 for the two-step vertical
+        # detour: while exploring, ANY pyramid - the forward blocker
+        # included - loses to a free orthogonal cell (user complaint
+        # 2026-08-21, repeated 'garras para nada'). Only a boxed-in
+        # explorer still attacks its way forward.
         if obstacle:
-            score -= 25
+            score -= 95
         if previous_direction and {previous_direction, direction} in ({"left","right"},{"up","down"}):
             score -= 30
         candidates.append((score, nxt, obstacle, direction))
