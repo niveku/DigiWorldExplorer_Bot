@@ -871,5 +871,25 @@ class SuspectHoldTests(unittest.TestCase):
             "explore right", set(), set(), holds=0))
 
 
+class UnknownOverlayDismissTests(unittest.TestCase):
+    """Run 20260821T173052: the Stage Failed 'Growth Guide' panel covered
+    the board, five unreliable-board waits ran out, and the run died with
+    the panel still open - one tap outside its frame closes it (user
+    confirmed). Before giving up, the wait loop now taps the left margin
+    (outside any centered dialog) on the 2nd and 4th strike."""
+
+    def test_dismiss_fires_on_second_and_fourth_strike(self):
+        self.assertFalse(runner.dismiss_tap_due(1))
+        self.assertTrue(runner.dismiss_tap_due(2))
+        self.assertFalse(runner.dismiss_tap_due(3))
+        self.assertTrue(runner.dismiss_tap_due(4))
+        self.assertFalse(runner.dismiss_tap_due(5))
+
+    def test_dismiss_point_sits_outside_centered_dialogs(self):
+        x, y = runner.DISMISS_TAP_XY
+        self.assertLess(x, 60)          # left of any dialog frame
+        self.assertTrue(300 <= y <= 900)  # away from HUD top and bottom bars
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -295,6 +295,23 @@ def close_reward_overlay(tap, capture, classify, max_taps=5, pause=None):
     return max_taps
 
 
+# Left margin of the 720x1280 screen, mid-height: outside every centered
+# dialog frame (the Stage Failed "Growth Guide" panel starts at x~62) and
+# left of the board (x0~77), so on a healthy frame the tap hits inert
+# background.
+DISMISS_TAP_XY = (20, 640)
+
+
+def dismiss_tap_due(unreliable):
+    """Tap outside a suspected popup on the 2nd and 4th unreliable strike.
+
+    Run 20260821T173052: the Stage Failed "Growth Guide" panel covered the
+    board and the run died after five unreliable-board waits with the
+    panel still open. One tap outside its frame closes it (user
+    confirmed), so two attempts fit before the 5-strike stop."""
+    return unreliable in (2, 4)
+
+
 def out_of_steps(inventory, rejected_streak, threshold=2):
     """True when moves keep bouncing and the stamina counter confirms 0.
 
@@ -1051,6 +1068,13 @@ def main():
         if det.state != "digiworld" or not det.board or det.confidence < args.min_confidence:
             unreliable += 1
             event["action"] = f"WAIT: unreliable board ({unreliable}/5)"
+            if dismiss_tap_due(unreliable):
+                bot.adb(args.adb, args.serial, "shell", "input", "tap",
+                        str(DISMISS_TAP_XY[0]), str(DISMISS_TAP_XY[1]))
+                event["dismiss_tap"] = list(DISMISS_TAP_XY)
+                if args.verbose:
+                    progress(done, args.steps,
+                             "Popup sospechado - tap fuera del panel", "33")
             bot.log_event(log, event)
             if args.verbose: progress(done, args.steps, "Tablero inestable - nuevo escaneo", "33")
             if unreliable >= 5:
