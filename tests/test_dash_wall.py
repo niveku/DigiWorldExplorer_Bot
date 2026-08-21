@@ -763,5 +763,113 @@ class CheapDetourTests(unittest.TestCase):
         self.assertIn("claw targets", reason)
 
 
+class DashSuspectDeferenceTests(unittest.TestCase):
+    """Run 20260821T154754 n=578: the wall dash fired while three
+    just-appeared items at (0,1), (0,2) and (1,0) were still one-frame
+    suspects; the 3-column scroll deleted all three before the next
+    frame could confirm them. A suspect in the left band vetoes both
+    dash rules for that single frame: a phantom vanishes and the dash
+    fires on the very next pass, a real pickup gets rescued instead."""
+
+    def pair_board(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 2)]["pyramid"] = 0.9
+        info[(2, 3)]["pyramid"] = 0.9
+        return info
+
+    def test_wall_dash_defers_to_left_band_suspects(self):
+        info = empty_grid()
+        wall(info, 2, (2, 3, 4))
+        info[(2, 1)]["player"] = 0.2
+        action, reason = strategy.choose(info, hunt_walls=True,
+                                         ignored_targets={(0, 1)},
+                                         suspect_cells={(0, 1)})
+        self.assertNotEqual(action[0], "dash")
+
+    def test_pair_dash_defers_to_left_band_suspects(self):
+        action, reason = strategy.choose(self.pair_board(),
+                                         ignored_targets={(4, 0)},
+                                         suspect_cells={(4, 0)})
+        self.assertNotEqual(action[0], "dash")
+
+    def test_pair_dash_fires_once_suspects_clear(self):
+        action, reason = strategy.choose(self.pair_board())
+        self.assertEqual(action[0], "dash")
+
+    def test_right_side_suspects_do_not_veto(self):
+        # A suspect at column 3+ survives the 3-column scroll and stays
+        # adjudicable after the dash.
+        action, reason = strategy.choose(self.pair_board(),
+                                         ignored_targets={(0, 4)},
+                                         suspect_cells={(0, 4)})
+        self.assertEqual(action[0], "dash")
+
+    def test_corridor_dash_defers_to_left_band_suspects(self):
+        action = ("attack", (3, 2), "right")
+        preview = [False, False, False, True, False]
+        self.assertTrue(runner.corridor_dash_due(
+            action, (3, 84), 86, preview, True))
+        self.assertFalse(runner.corridor_dash_due(
+            action, (3, 84), 86, preview, True, suspect_cells={(0, 1)}))
+        self.assertTrue(runner.corridor_dash_due(
+            action, (3, 84), 86, preview, True, suspect_cells={(0, 4)}))
+
+    def test_committed_wall_dash_defers_to_left_band_suspects(self):
+        self.assertTrue(runner.committed_wall_dash(((4, 0), 10), (4, 0), 12))
+        self.assertFalse(runner.committed_wall_dash(
+            ((4, 0), 10), (4, 0), 12, suspect_cells={(1, 2)}))
+        self.assertTrue(runner.committed_wall_dash(
+            ((4, 0), 10), (4, 0), 12, suspect_cells={(0, 3)}))
+
+
+class ExploreBounceBanTests(unittest.TestCase):
+    """Run 20260821T154754 n=770-774: the explorer bounced (3,0)<->(4,0)
+    for six moves on an empty board before the strike counter banned the
+    pocket. A tripped loop guard during goal-less exploration is already
+    proof of waste: ban on the first strike, not the third."""
+
+    def test_goalless_explore_loop_bans_immediately(self):
+        self.assertTrue(runner.explore_bounce(True, set(), "explore right"))
+
+    def test_visible_goals_keep_the_slow_strikes(self):
+        self.assertFalse(runner.explore_bounce(True, {(2, 2)}, "explore right"))
+
+    def test_target_reasons_keep_the_slow_strikes(self):
+        self.assertFalse(runner.explore_bounce(
+            True, set(), "orange targets=[(0, 1)]"))
+
+    def test_untripped_guard_never_bans(self):
+        self.assertFalse(runner.explore_bounce(False, set(), "explore right"))
+
+
+class SuspectHoldTests(unittest.TestCase):
+    """Run 20260821T154754 n=902-904: with every visible pickup still a
+    suspect the bot explored away, backtracked, and only then confirmed
+    (0,1) as a perishable orange - four moves spent on information a
+    single 0.4s hold delivers. When suspects are the only goals on the
+    board, hold exactly one frame instead of exploring."""
+
+    def test_holds_one_frame_when_all_goals_are_suspects(self):
+        self.assertTrue(runner.should_hold_for_suspects(
+            "explore right", {(0, 1)}, {(0, 1)}, holds=0))
+
+    def test_never_holds_twice_in_a_row(self):
+        self.assertFalse(runner.should_hold_for_suspects(
+            "explore right", {(0, 1)}, {(0, 1)}, holds=1))
+
+    def test_a_confirmed_goal_cancels_the_hold(self):
+        self.assertFalse(runner.should_hold_for_suspects(
+            "explore right", {(0, 1), (2, 2)}, {(0, 1)}, holds=0))
+
+    def test_non_explore_reasons_never_hold(self):
+        self.assertFalse(runner.should_hold_for_suspects(
+            "orange targets=[(1, 1)]", {(0, 1)}, {(0, 1)}, holds=0))
+
+    def test_no_suspects_means_no_hold(self):
+        self.assertFalse(runner.should_hold_for_suspects(
+            "explore right", set(), set(), holds=0))
+
+
 if __name__ == "__main__":
     unittest.main()

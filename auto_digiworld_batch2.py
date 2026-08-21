@@ -51,7 +51,41 @@ def loop_guard_tripped(recent_states):
     return recent_states[-12:].count(recent_states[-1]) >= 3
 
 
-def corridor_dash_due(action, last_attack, done, preview, dashes_enabled, ttl=4):
+def explore_bounce(loop_guard, item_goals, previous_reason):
+    """A tripped loop guard during goal-less exploration is pure waste.
+
+    Run 20260821T154754 n=770-774 bounced (3,0)<->(4,0) for six moves on
+    an empty board before the three-strike counter banned the pocket.
+    With no pickups on the board there is nothing a repeat visit could
+    ever gain, so the ban fires on the first strike instead."""
+    return (loop_guard and not item_goals
+            and str(previous_reason or "").startswith("explore"))
+
+
+def should_hold_for_suspects(reason, item_goals, suspect_items, holds):
+    """Hold one frame when every visible pickup is still a suspect.
+
+    Run 20260821T154754 n=902-904: all goals suspect-blocked, so the bot
+    explored away, backtracked, and only then confirmed the perishable at
+    (0,1) - four moves for information a single 0.4s hold delivers. The
+    two-frame rule adjudicates every suspect on the very next frame, so
+    one hold is always enough and a second is never allowed."""
+    if holds >= 1 or not suspect_items:
+        return False
+    if not str(reason).startswith("explore"):
+        return False
+    return not (set(item_goals) - set(suspect_items))
+
+
+def _left_band_suspects(suspect_cells):
+    # A runner-forced dash scrolls three columns and deletes left-band
+    # suspects before their one-frame adjudication, exactly like the
+    # strategy-side dash rules it overrides; both overrides defer to them.
+    return any(cell[1] <= 2 for cell in suspect_cells)
+
+
+def corridor_dash_due(action, last_attack, done, preview, dashes_enabled, ttl=4,
+                      suspect_cells=()):
     """Second garra on the same row with another pyramid incoming: dash.
 
     Run 20260820T025148 events 84-87 spent two garras (400 shards) plus four
@@ -63,6 +97,8 @@ def corridor_dash_due(action, last_attack, done, preview, dashes_enabled, ttl=4)
     if not dashes_enabled or action is None or action[0] != "attack":
         return False
     if preview is None or last_attack is None:
+        return False
+    if _left_band_suspects(suspect_cells):
         return False
     row = action[1][0]
     return (last_attack[0] == row and done - last_attack[1] <= ttl
@@ -273,7 +309,8 @@ def out_of_steps(inventory, rejected_streak, threshold=2):
     return steps is not None and steps <= 0
 
 
-def committed_wall_dash(committed_wall, player, done, ttl=3, last_dash=None):
+def committed_wall_dash(committed_wall, player, done, ttl=3, last_dash=None,
+                        suspect_cells=()):
     """True when standing on a recently confirmed wall launch cell.
 
     Wall detection can flicker for one frame right when the bot arrives at
@@ -292,6 +329,8 @@ def committed_wall_dash(committed_wall, player, done, ttl=3, last_dash=None):
     if committed_wall is None or committed_wall[0] != player:
         return False
     if last_dash is not None and last_dash >= committed_wall[1]:
+        return False
+    if _left_band_suspects(suspect_cells):
         return False
     return done - committed_wall[1] <= ttl
 
@@ -872,6 +911,8 @@ def main():
     previous_dash_obstacles = 0
     pending_dash = None
     previous_direction = None
+    previous_reason = None
+    suspect_holds = 0
     stable_board = None
     unreliable = 0
     player_unreliable = 0
@@ -1216,6 +1257,8 @@ def main():
         recent_states = recent_states[-12:]
         loop_guard = loop_guard_tripped(recent_states)
         loop_strikes = loop_strikes + 1 if loop_guard else 0
+        if explore_bounce(loop_guard, item_goals, previous_reason):
+            loop_strikes = LOOP_STRIKES_TO_BAN
         banned_targets = {cell: expiry for cell, expiry in banned_targets.items()
                           if expiry > done}
         if loop_strikes >= LOOP_STRIKES_TO_BAN:
@@ -1257,14 +1300,30 @@ def main():
                                          ignored_targets=(set(banned_targets.keys())
                                                           | suspect_items),
                                          player=player, preview=preview,
-                                         hunt_walls=wall_stable)
+                                         hunt_walls=wall_stable,
+                                         suspect_cells=suspect_items)
         if (action is not None and action[0] != "dash" and dashes_enabled and
                 wall_now is None and committed_wall_dash(committed_wall, player,
-                                                         done, last_dash=last_dash)):
+                                                         done, last_dash=last_dash,
+                                                         suspect_cells=suspect_items)):
             action, reason = ("dash", player, "right"), "committed wall dash"
             committed_wall = None
-        if corridor_dash_due(action, last_attack, done, preview, dashes_enabled):
+        if corridor_dash_due(action, last_attack, done, preview, dashes_enabled,
+                             suspect_cells=suspect_items):
             action, reason = ("dash", player, "right"), "corridor dash"
+        if should_hold_for_suspects(reason, item_goals, suspect_items,
+                                    suspect_holds):
+            suspect_holds += 1
+            event["reason"] = reason
+            event["action"] = ("WAIT: suspects pending confirmation "
+                               f"{sorted(list(c) for c in suspect_items)}")
+            bot.log_event(log, event)
+            if args.verbose:
+                progress(done, args.steps,
+                         "Sospechosos sin confirmar - espero un frame", "33")
+            time.sleep(.4)
+            continue
+        suspect_holds = 0
         if action is None:
             event["action"] = "STOP: no safe action"
             bot.log_event(log, event)
@@ -1400,6 +1459,7 @@ def main():
             previous_dash_player = player
             previous_dash_obstacles = consecutive_right_obstacles(info, player)
         previous_direction = direction
+        previous_reason = reason
         time.sleep(jittered_delay(
             max(args.interval, 2.0 if kind in ("dash", "attack") else args.interval),
             args.jitter))

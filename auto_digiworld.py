@@ -359,7 +359,8 @@ def nearest_dash_wall(info, player, preview=None):
 
 
 def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
-           ignored_targets=(), player=None, preview=None, hunt_walls=True):
+           ignored_targets=(), player=None, preview=None, hunt_walls=True,
+           suspect_cells=()):
     # A caller that already resolved the player (dead reckoning, large-sprite
     # locator) passes it in; per-cell scores stay authoritative otherwise.
     if player is None:
@@ -395,6 +396,14 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     mid_items = {cell for cell in mid_items if cheap_detour(cell)}
     other_items = {cell for cell in other_items if cheap_detour(cell)}
 
+    # One-frame suspects are excluded as goals, but a dash's forward scroll
+    # would delete them from the left band before the next frame can
+    # adjudicate them (run 20260821T154754 n=578 dashed three suspects to
+    # their death; all three were real). They veto dashes for that single
+    # frame: phantoms vanish and the dash fires on the very next pass.
+    suspect_risk = {cell for cell in suspect_cells
+                    if cell != player and cell[1] <= 2}
+
     # The world only scrolls forward, and it only scrolls on rightward
     # moves: an orange in the left two columns is about to leave the board
     # forever, while a wall of pyramids survives a leftward detour intact.
@@ -429,7 +438,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             # survives the rescue; normal routing resumes after it.
             wall_path = {(launch[0], col)
                          for col in range(launch[1] + 1, min(5, launch[1] + 4))}
-            wall_risk = {cell for cell in (orange_items | mid_items)
+            wall_risk = {cell for cell in (orange_items | mid_items | suspect_risk)
                          if cell not in wall_path and cell[1] <= 2}
             if wall_risk:
                 launch = None
@@ -475,7 +484,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         full_wall = nearest_dash_wall(info, player, preview=preview)
         # Tickets are worth ~nothing: only energy and mid-tier pickups may
         # veto a dash over scroll loss.
-        at_risk = {cell for cell in (orange_items | mid_items)
+        at_risk = {cell for cell in (orange_items | mid_items | suspect_risk)
                    if cell not in path and cell[1] <= 2}
         if (path_pyramids >= 2 and not at_risk
                 and (full_wall is None or path_pyramids >= 3)):
@@ -548,7 +557,16 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             preview is not None and preview[player[0]]):
         right_obstacles += 1
     if dashes_enabled and right_obstacles >= 3:
-        return ("dash", player, "right"), f"{right_obstacles} consecutive right obstacles"
+        # Same scroll-loss veto as the other two dash rules: off-path
+        # pickups and one-frame suspects in the left band die to the
+        # 3-column scroll, so they defer this dash for a frame too.
+        dash_row = {(player[0], col)
+                    for col in range(player[1] + 1, min(5, player[1] + 4))}
+        corridor_risk = {cell for cell in (orange_items | mid_items | suspect_risk)
+                         if cell not in dash_row and cell[1] <= 2}
+        if not corridor_risk:
+            return ("dash", player, "right"), \
+                f"{right_obstacles} consecutive right obstacles"
 
     # Fast exploration: keep moving right. If blocked, destroy the obstacle;
     # if at an edge, choose a highlighted orthogonal neighbor without reversing.
