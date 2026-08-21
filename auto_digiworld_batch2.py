@@ -443,6 +443,27 @@ def shift_items_left(remembered):
             for (row, col), value in remembered.items() if col - 1 >= 0}
 
 
+def merge_phantom_obstacles(info, obstacles, done):
+    """Cells the game refused to enter read as pyramids for a few frames.
+
+    Run 20260821T203611: ten 'cannot move there' toasts in 200 moves -
+    the detector had missed a pyramid, the router walked into it, and the
+    next frame often replanned the very same rejected step. The game's
+    rejection is ground truth, so the cell blocks routing until the
+    ban expires or the world scrolls it away."""
+    live = {cell for cell, expiry in obstacles.items() if expiry > done}
+    if not live:
+        return info
+    merged = dict(info)
+    for cell in live:
+        if cell in merged:
+            values = dict(merged[cell])
+            values["pyramid"] = max(values.get("pyramid", 0.0), .9)
+            values["item"] = 0.0
+            merged[cell] = values
+    return merged
+
+
 def compact_state(info, player, remembered):
     """Compact per-frame board state for the event log.
 
@@ -1055,6 +1076,9 @@ def main():
     player_unreliable = 0
     item_burst_waits = 0
     overlay_waits = 0
+    overlay_evidence_saved = 0
+    phantom_obstacles = {}
+    first_move_dest = None
     rejected_streak = 0
     recent_states = []
 
@@ -1134,6 +1158,11 @@ def main():
                     event["expected_rollback"] = list(expected_rollback)
                     expected_rollback = None
                     rejected_streak += 1
+                    if first_move_dest is not None:
+                        # The game just proved that cell is blocked even if
+                        # the detector saw it free: route around it.
+                        phantom_obstacles[first_move_dest] = done + 6
+                        event["phantom_obstacle"] = list(first_move_dest)
                     if out_of_steps(read_inventory_counters(image),
                                     rejected_streak):
                         event["action"] = "STOP: out of steps (stamina 0)"
@@ -1163,6 +1192,19 @@ def main():
                         return 6
                 overlay_waits += 1
                 event["action"] = f"WAIT: overlay visible ({overlay_waits}/15)"
+                # Run 20260821T203611: ten overlay episodes in 200 moves ate
+                # taps and forced replans, and no frame of any overlay was
+                # ever saved - the single biggest evidence gap of that
+                # forensic session. Keep the first few frames per run.
+                if overlay_waits == 1 and overlay_evidence_saved < 3:
+                    try:
+                        evidence_path = (run_dir /
+                                         f"overlay_evidence_{done:04d}.png")
+                        bot.diagnostic(image, det).save(evidence_path)
+                        event["evidence"] = str(evidence_path)
+                        overlay_evidence_saved += 1
+                    except OSError:
+                        pass
                 if overlay_waits >= 15:
                     # A persistent overlay (e.g. an unclaimed milestone popup)
                     # would otherwise hang the run silently forever.
@@ -1307,6 +1349,10 @@ def main():
         detected_info = info
         if remembered_items:
             info = merge_remembered_items(info, remembered_items, player)
+        phantom_obstacles = {cell: expiry
+                             for cell, expiry in phantom_obstacles.items()
+                             if expiry > done}
+        info = merge_phantom_obstacles(info, phantom_obstacles, done)
         visible_items = [cell for cell, values in info.items() if values["item"] > .06]
         # A pickup animation flickers the item set between frames; a rich but
         # STABLE board is not an animation and deciding on it is safe. Waiting
@@ -1564,7 +1610,9 @@ def main():
             committed_wall = None
             for _ in range(3):
                 remembered_items = shift_items_left(remembered_items)
+                phantom_obstacles = shift_items_left(phantom_obstacles)
             scrolls_since_frame += 3
+            first_move_dest = None
         else:
             x, y = bot.cell_center(det.board, *target)
             if kind == "attack":
@@ -1575,12 +1623,15 @@ def main():
             expected_rollback = player
             expected_player = (player if kind == "attack"
                                else expected_after_move(target, direction))
+            first_move_dest = (expected_after_move(target, direction)
+                               if kind == "move" else None)
             if kind == "move":
                 # Stepping onto a cell collects whatever it held: its
                 # memory dies before the scroll shift below relabels it.
                 remembered_items.pop(tuple(target), None)
             if kind == "move" and direction == "right" and target[1] >= 2:
                 remembered_items = shift_items_left(remembered_items)
+                phantom_obstacles = shift_items_left(phantom_obstacles)
                 committed_wall = None
                 scrolls_since_frame += 1
             pickup = item_category(info[target]) if kind == "move" else None
@@ -1607,6 +1658,7 @@ def main():
                     remembered_items.pop(tuple(checked), None)
                     if direction == "right" and screen_target[1] >= 2:
                         remembered_items = shift_items_left(remembered_items)
+                        phantom_obstacles = shift_items_left(phantom_obstacles)
                         committed_wall = None
                         scrolls_since_frame += 1
                     pickup = item_category(info[checked])

@@ -242,6 +242,29 @@ class WallStabilityTests(unittest.TestCase):
             committed, (4, 1), 12, scrolls_now=6))
 
 
+class PhantomObstacleTests(unittest.TestCase):
+    """Run 20260821T203611: ten 'cannot move there' toasts in 200 moves -
+    the bot kept walking into pyramids its detector had missed, and the
+    next frame often replanned the very same rejected step. A rejection
+    from the game is ground truth: that cell IS blocked. It becomes a
+    phantom obstacle for a few frames so the router walks around it."""
+
+    def test_rejected_cell_becomes_an_obstacle(self):
+        info = empty_grid()
+        merged = runner.merge_phantom_obstacles(info, {(2, 2): 9}, done=5)
+        self.assertTrue(strategy.is_obstacle(merged[(2, 2)]))
+
+    def test_expired_rejection_is_forgotten(self):
+        info = empty_grid()
+        merged = runner.merge_phantom_obstacles(info, {(2, 2): 5}, done=5)
+        self.assertFalse(strategy.is_obstacle(merged[(2, 2)]))
+
+    def test_other_cells_stay_untouched(self):
+        info = empty_grid()
+        merged = runner.merge_phantom_obstacles(info, {(2, 2): 9}, done=5)
+        self.assertFalse(strategy.is_obstacle(merged[(2, 1)]))
+
+
 class CompactStateLogTests(unittest.TestCase):
     """The event log carried no pyramids, no item categories and no
     memory, so every forensic session had to reconstruct boards from the
