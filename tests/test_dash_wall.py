@@ -1132,6 +1132,76 @@ class PerishableRoutingTests(unittest.TestCase):
         self.assertEqual(action, ("move", (3, 1), "down"))
 
 
+# A sweep-order rule (start at the row extreme, collect monotonically)
+# was prototyped for run 20260821T222310 n=95-105 and DROPPED: the
+# route-through-pickups discount already collects mid-column items en
+# route, the candidate tours cost the same, and the observed climb-back
+# came from the urgent-perishable interrupt correctly saving a dying
+# orange. Adding an ordering layer would be overengineering.
+
+
+class SilentRejectionTests(unittest.TestCase):
+    """Run 20260821T222310 n=124/129: 'cannot move there' toasts are
+    invisible since the confetti gate (they do not degrade board
+    detection), so rejections must be caught by POSITION: a confidently
+    seen player still standing on the pre-move cell after a non-scroll
+    move means the game refused it."""
+
+    def test_stuck_confident_player_is_a_rejection(self):
+        self.assertTrue(runner.silent_rejection(
+            "move", (2, 1), (2, 1), (1, 1), "vision", 0.20))
+
+    def test_a_player_that_moved_is_not_stuck(self):
+        self.assertFalse(runner.silent_rejection(
+            "move", (2, 1), (1, 1), (1, 1), "vision", 0.20))
+
+    def test_scroll_rides_cannot_be_judged(self):
+        # Riding right leaves the player on the same screen cell by
+        # design: dest == rollback == player proves nothing.
+        self.assertFalse(runner.silent_rejection(
+            "move", (2, 1), (2, 1), (2, 1), "vision", 0.20))
+
+    def test_weak_or_inferred_positions_prove_nothing(self):
+        self.assertFalse(runner.silent_rejection(
+            "move", (2, 1), (2, 1), (1, 1), "memory", 0.30))
+        self.assertFalse(runner.silent_rejection(
+            "move", (2, 1), (2, 1), (1, 1), "vision", 0.05))
+
+    def test_non_moves_never_reject(self):
+        self.assertFalse(runner.silent_rejection(
+            "attack", (2, 1), (2, 1), (1, 1), "vision", 0.20))
+        self.assertFalse(runner.silent_rejection(
+            "move", None, (2, 1), (1, 1), "vision", 0.20))
+
+
+class CuriousExplorerTests(unittest.TestCase):
+    """Eight explore-pocket loop bans in run 20260821T222310: with an
+    empty board and a blocked lane the explorer dithers between equally
+    boring vertical moves. Curiosity (user idea 2026-08-21): prefer the
+    row whose right side holds more pyramids - each pair there is a
+    potential dash."""
+
+    def blocked_lane(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 2)]["pyramid"] = 0.9
+        return info
+
+    def test_explorer_descends_toward_a_pyramid_pair(self):
+        info = self.blocked_lane()
+        info[(3, 2)]["pyramid"] = 0.9
+        info[(3, 3)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, dashes_enabled=False)
+        self.assertEqual((action[0], action[2]), ("move", "down"))
+
+    def test_explorer_climbs_toward_a_pyramid_pair(self):
+        info = self.blocked_lane()
+        info[(1, 2)]["pyramid"] = 0.9
+        info[(1, 3)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, dashes_enabled=False)
+        self.assertEqual((action[0], action[2]), ("move", "up"))
+
+
 class RouteHysteresisTests(unittest.TestCase):
     """Detection noise flips equal-cost routes frame to frame (run
     20260821T213642 n=32-34 bounced between the up-around and the

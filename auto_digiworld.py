@@ -588,6 +588,9 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         min_col = min(cell[1] for cell in orange_items)
         if min_col <= 2:
             targets = {cell for cell in orange_items if cell[1] <= min_col + 1}
+    # (A sweep-order layer was prototyped and dropped 2026-08-21: the
+    # route-through-pickups discount already collects mid-column items en
+    # route and the candidate tours cost the same - see test_dash_wall.)
     if targets:
         step = shortest_action(info, player, targets,
                                allow_obstacles=attacks_enabled,
@@ -643,6 +646,14 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         # explorer still attacks its way forward.
         if obstacle:
             score -= 95
+        # Curiosity (user idea 2026-08-21): with nothing else to do, a
+        # vertical step toward a row whose right side holds pyramids is
+        # a step toward a potential pair dash; each one breaks the tie
+        # between equally boring lanes (8 explore-pocket loop bans in
+        # run 20260821T222310).
+        if direction in ("up", "down"):
+            score += 6 * sum(1 for c in range(2, 5)
+                             if is_obstacle(info[(nxt[0], c)]))
         if previous_direction and {previous_direction, direction} in ({"left","right"},{"up","down"}):
             score -= 30
         candidates.append((score, nxt, obstacle, direction))

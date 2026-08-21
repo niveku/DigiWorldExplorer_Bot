@@ -450,6 +450,25 @@ def modal_overlay_visible(overlay_center, det, min_confidence=.75):
             or det.confidence < min_confidence)
 
 
+def silent_rejection(previous_action, expected_rollback, player,
+                     first_move_dest, player_source, player_score):
+    """The game refused the last move - detected by position, not pixels.
+
+    'Cannot move there' toasts are invisible since the confetti gate
+    (they do not degrade board detection; run 20260821T222310 n=124/129
+    had two such stuck frames with nothing in the log). A confidently
+    seen player still standing on the pre-move cell after a NON-SCROLL
+    move proves the tap was refused. Scroll rides prove nothing: riding
+    right leaves the player on the same screen cell by design."""
+    if previous_action != "move" or expected_rollback is None:
+        return False
+    if first_move_dest is None or first_move_dest == expected_rollback:
+        return False
+    if player != expected_rollback:
+        return False
+    return player_source == "vision" and player_score >= .12
+
+
 def should_trust_rejection(player_source, player_score):
     """Was the rejected move issued from a confidently SEEN player?
 
@@ -1290,9 +1309,9 @@ def main():
             time.sleep(args.interval); continue
 
         overlay_waits = 0
-        if previous_action == "move" and expected_rollback is not None:
-            # The last move was not followed by a rejection toast: it landed.
-            rejected_streak = 0
+        # (Rejection accounting moved below the player resolution: toasts
+        # are invisible to detection since the confetti gate, so a refused
+        # move is recognized by the player standing still instead.)
         if det.state != "digiworld" or not det.board or det.confidence < args.min_confidence:
             unreliable += 1
             event["action"] = f"WAIT: unreliable board ({unreliable}/5)"
@@ -1389,6 +1408,21 @@ def main():
             if cross is not None:
                 player, player_score, player_source = cross, .30, "highlight-cross"
         distrust_player = False
+        if silent_rejection(previous_action, expected_rollback, player,
+                            first_move_dest, player_source, player_score):
+            rejected_streak += 1
+            phantom_obstacles[first_move_dest] = done + 6
+            event["silent_rejection"] = {"stuck_at": list(player),
+                                         "refused": list(first_move_dest),
+                                         "streak": rejected_streak}
+            expected_player = player
+            if args.verbose:
+                progress(done, args.steps,
+                         f"Movimiento rechazado hacia {list(first_move_dest)} "
+                         "- celda marcada como bloqueada", "33")
+        elif previous_action == "move" and expected_rollback is not None:
+            rejected_streak = 0
+        expected_rollback = None
         memory_streak = memory_streak + 1 if player_source == "memory" else 0
         if player_source != "vision":
             event["player_resolution"] = {"cell": list(player), "source": player_source,
