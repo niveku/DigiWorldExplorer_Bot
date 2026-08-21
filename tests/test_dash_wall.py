@@ -128,9 +128,12 @@ class PairDashTests(unittest.TestCase):
     and 0 of 25 dashes on exactly these shapes)."""
 
     def test_two_adjacent_pyramids_ahead_trigger_a_dash(self):
+        # Since the pair-economics gate (run 20260821T225908) a bare
+        # pair no longer pays; the right-side orange makes it routing.
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
         wall(info, 2, (2, 3))
+        info[(0, 4)].update(item=0.10, orange=0.10)
         action, reason = strategy.choose(info)
         self.assertEqual(action, ("dash", (2, 1), "right"))
         self.assertIn("pair", reason)
@@ -171,6 +174,7 @@ class PairDashTests(unittest.TestCase):
         info = empty_grid()
         info[(2, 2)]["player"] = 0.2
         wall(info, 2, (4,))
+        info[(0, 4)].update(item=0.10, orange=0.10)
         preview = [False, False, True, False, False]
         action, reason = strategy.choose(info, preview=preview)
         self.assertEqual(action, ("dash", (2, 2), "right"))
@@ -251,6 +255,7 @@ class PairLaunchApproachTests(unittest.TestCase):
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
         wall(info, 3, (2, 3))
+        info[(0, 4)].update(item=0.10, orange=0.10)
         action, reason = strategy.choose(info)
         self.assertEqual(action, ("move", (3, 1), "down"))
         self.assertIn("pair launch", reason)
@@ -316,18 +321,23 @@ class PickupPriorityTests(unittest.TestCase):
         self.assertIn("(4, 2)", reason)
         self.assertNotEqual(action[2], "up")
 
-    def test_orange_still_outranks_the_orb(self):
+    def test_dying_orb_outranks_a_safe_orange(self):
+        # Doctrine flip (run 20260821T225908 n=182-185, user-confirmed
+        # loss): the orb at column 1 dies to the next scroll while the
+        # column-4 orange survives many - the orb is rescued first.
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
         info[(4, 1)].update(item=0.10, green=0.10)
         info[(2, 4)].update(item=0.10, orange=0.10)
         action, reason = strategy.choose(info)
-        self.assertTrue(reason.startswith(("orange", "direct")))
+        self.assertTrue(reason.startswith("urgent pickup"))
+        self.assertEqual(action[2], "down")
 
     def test_a_ticket_does_not_veto_the_pair_dash(self):
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
         wall(info, 2, (2, 3))
+        info[(0, 4)].update(item=0.10, orange=0.10)
         info[(4, 1)].update(item=0.10, green=0.10, card_green=0.09)  # ticket at risk
         action, reason = strategy.choose(info)
         self.assertEqual(action, ("dash", (2, 1), "right"))
@@ -368,7 +378,8 @@ class ClawPickupTests(unittest.TestCase):
         info[(4, 1)]["claw"] = 0.15
         info[(1, 3)].update(item=0.10, green=0.10)
         action, reason = strategy.choose(info)
-        self.assertIn("claw", reason)
+        self.assertTrue("claw" in reason or
+                        reason.startswith("urgent pickup"))
 
     def test_adjacent_claw_is_grabbed_first(self):
         info = empty_grid()
@@ -755,7 +766,9 @@ class CheapDetourTests(unittest.TestCase):
         info = self.claw_at((3, 0))
         info[(2, 1)]["player"] = 0.2
         action, reason = strategy.choose(info)
-        self.assertIn("claw targets", reason)
+        # Since the mid-tier rescue it may surface as an urgent pickup.
+        self.assertTrue("claw targets" in reason or
+                        reason.startswith("urgent pickup"))
 
     def test_rightward_claw_keeps_any_distance(self):
         info = self.claw_at((4, 3))
@@ -777,6 +790,9 @@ class DashSuspectDeferenceTests(unittest.TestCase):
         info[(2, 1)]["player"] = 0.2
         info[(2, 2)]["pyramid"] = 0.9
         info[(2, 3)]["pyramid"] = 0.9
+        # Right-side orange: the pair stays worth its 400 shards under
+        # the pair-economics gate.
+        info[(1, 4)].update(item=0.09, orange=0.09)
         return info
 
     def test_wall_dash_defers_to_left_band_suspects(self):
@@ -952,14 +968,17 @@ class PairLaunchGateTests(unittest.TestCase):
         info[(0, 0)]["player"] = 0.2
         info[(1, 1)]["pyramid"] = 0.9
         info[(1, 2)]["pyramid"] = 0.9
+        info[(0, 4)].update(item=0.09, orange=0.09)
         return info
 
     def test_launch_step_refused_when_launch_path_leaves_a_pickup_at_risk(self):
         info = self.launch_board()
         info[(0, 2)]["claw"] = 0.2
         action, reason = strategy.choose(info)
+        # The launch is refused; with the fixture's right-side orange the
+        # routing may then name either endangered pickup - what matters
+        # is that no launch step fires while the claw sits at risk.
         self.assertFalse(reason.startswith("pair launch"))
-        self.assertIn("claw", reason)
 
     def test_launch_step_still_fires_on_a_clean_board(self):
         action, reason = strategy.choose(self.launch_board())
@@ -1041,6 +1060,7 @@ class UnstableWallPairDashTests(unittest.TestCase):
         info[(2, 2)]["pyramid"] = 0.9
         info[(2, 4)]["pyramid"] = 0.9
         wall(info, 4, (2, 3, 4))
+        info[(0, 4)].update(item=0.09, orange=0.09)
         return info
 
     def test_unstable_wall_does_not_block_the_pair_dash(self):
@@ -1138,6 +1158,73 @@ class PerishableRoutingTests(unittest.TestCase):
 # route, the candidate tours cost the same, and the observed climb-back
 # came from the urgent-perishable interrupt correctly saving a dying
 # orange. Adding an ordering layer would be overengineering.
+
+
+class PerishableMidTierTests(unittest.TestCase):
+    """Run 20260821T225908 n=182-185: a dash orb (400 shards, a full
+    dash) reached column 1 while two oranges sat safely at column 4.
+    The urgent rescue only covered oranges, so the bot rode right for
+    the safe fruit and the orb died off the edge. A mid-tier pickup in
+    the perishable band outvalues any single orange and is rescued with
+    the same urgency; the right-side oranges survive the detour."""
+
+    def test_left_band_orb_is_rescued_before_safe_right_oranges(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(0, 1)].update(item=0.09, green=0.09)     # dash orb, dying
+        info[(3, 4)].update(item=0.09, orange=0.09)    # safe
+        action, reason = strategy.choose(info)
+        self.assertTrue(reason.startswith(("orange perishable",
+                                           "urgent pickup")))
+        self.assertEqual(action[2], "up")
+
+    def test_left_band_orange_still_beats_the_orb_by_distance(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 0)].update(item=0.09, orange=0.09)
+        info[(0, 1)].update(item=0.09, green=0.09)
+        action, reason = strategy.choose(info)
+        self.assertEqual(action[0], "move")
+        self.assertIn(action[2], ("left", "up"))
+
+
+class PairDashEconomicsTests(unittest.TestCase):
+    """Run 20260821T225908: nine pair dashes, every one with zero items
+    in its path and a free detour available - 3,600 shards for ~100 of
+    value each. The pair rule priced itself against two garras (600)
+    when the true alternative is the free two-step detour (80). A bare
+    two-pyramid pair no longer justifies 400 shards: the pair dash needs
+    an item in its path, a third pyramid, or a target to the right it
+    genuinely approaches."""
+
+    def bare_pair(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 2)]["pyramid"] = 0.9
+        info[(2, 3)]["pyramid"] = 0.9
+        return info
+
+    def test_bare_pair_with_free_detour_keeps_the_dash(self):
+        action, reason = strategy.choose(self.bare_pair())
+        self.assertNotEqual(action[0], "dash")
+
+    def test_item_in_path_pays_for_the_dash(self):
+        info = self.bare_pair()
+        info[(2, 4)].update(item=0.09, orange=0.09)
+        action, reason = strategy.choose(info)
+        self.assertEqual(action[0], "dash")
+
+    def test_right_side_target_pays_for_the_dash(self):
+        info = self.bare_pair()
+        info[(0, 4)].update(item=0.09, orange=0.09)
+        action, reason = strategy.choose(info)
+        self.assertEqual(action[0], "dash")
+
+    def test_three_pyramids_pay_for_themselves(self):
+        info = self.bare_pair()
+        info[(2, 4)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info)
+        self.assertEqual(action[0], "dash")
 
 
 class BoardMotionTests(unittest.TestCase):

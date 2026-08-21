@@ -434,14 +434,22 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     # Rescue first, dash after (run 20260820T061407 events 126/247 dashed
     # through a wall and scrolled left oranges to their death).
     urgent_orange = {cell for cell in orange_items if cell[1] <= 1}
-    if urgent_orange:
-        step = shortest_action(info, player, urgent_orange,
+    # Mid-tier pickups die at the left edge exactly like oranges do, and
+    # a dash orb (400 shards) outvalues any single orange. Run
+    # 20260821T225908 n=182-185 rode right for two SAFE column-4 oranges
+    # while the orb at (0,1) scrolled off - the rescue covers both now.
+    urgent_mid = {cell for cell in mid_items if cell[1] <= 1}
+    urgent = urgent_orange | urgent_mid
+    if urgent:
+        step = shortest_action(info, player, urgent,
                                allow_obstacles=attacks_enabled,
                                prefer_direction=previous_direction)
         if step:
             target, obstacle, direction = step
+            label = ("orange perishable" if urgent_orange
+                     else "urgent pickup")
             return (("attack" if obstacle else "move"), target, direction), \
-                f"orange perishable targets={sorted(urgent_orange)}"
+                f"{label} targets={sorted(urgent)}"
 
     # A visible wall of three pyramids is irresistible while dashes remain:
     # align with its launch cell and dash through it. Two in a row stay an
@@ -518,12 +526,23 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         # veto a dash over scroll loss.
         at_risk = {cell for cell in (orange_items | mid_items | suspect_risk)
                    if cell not in path and cell[1] <= 2}
+        # A bare two-pyramid pair no longer justifies 400 shards: the true
+        # alternative is the free two-step detour (80), not two garras
+        # (run 20260821T225908 burned nine dashes with empty paths). The
+        # pair pays only with an item in its path, a third pyramid, or a
+        # right-side target the dash genuinely approaches.
+        path_items = any(info[cell]["item"] > .06
+                         or info[cell].get("claw", 0.0) > .10
+                         for cell in path)
+        right_targets = any(cell[1] >= 3
+                            for cell in (orange_items | mid_items))
+        pair_worth = path_items or right_targets or path_pyramids >= 3
         # Only an IMMINENT wall (launch within one row) may hold the pair
         # back - it stabilizes and fires within a frame or two (run
         # 20260820T033221). A far wall blocked the pair without producing
         # any action of its own and the explorer spent two garras instead
         # (run 20260821T213642 n=128-132).
-        if (path_pyramids >= 2 and not at_risk
+        if (path_pyramids >= 2 and pair_worth and not at_risk
                 and (full_wall is None
                      or abs(full_wall[0] - player[0]) > 1
                      or path_pyramids >= 3)):
@@ -548,6 +567,12 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                 launch_path = {(launch[0], col)
                                for col in range(launch[1] + 1,
                                                 min(5, launch[1] + 4))}
+                launch_items = any(info[cell]["item"] > .06
+                                   or info[cell].get("claw", 0.0) > .10
+                                   for cell in launch_path)
+                if not (launch_items or right_targets
+                        or dash_path_pyramids(*launch) >= 3):
+                    continue
                 launch_risk = {cell
                                for cell in (orange_items | mid_items
                                             | suspect_risk)

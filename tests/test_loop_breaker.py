@@ -73,21 +73,27 @@ class ExploreBanTests(unittest.TestCase):
 
 class AdjacentItemTests(unittest.TestCase):
     def test_adjacent_pickup_beats_distant_orange(self):
+        # The orb sits in the perishable band, so since the mid-tier
+        # rescue (run 20260821T225908) it may surface as urgent; either
+        # way the one-step grab happens before the distant orange.
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
         info[(3, 1)].update(item=0.10, green=0.10)
         info[(0, 4)].update(item=0.10, orange=0.10)
         action, reason = strategy.choose(info)
         self.assertEqual(action, ("move", (3, 1), "down"))
-        self.assertTrue(reason.startswith("adjacent item"))
+        self.assertTrue(reason.startswith(("adjacent item", "urgent pickup")))
 
-    def test_no_detour_for_non_adjacent_items_when_orange_exists(self):
+    def test_dying_orb_now_outranks_the_safe_orange(self):
+        # Doctrine flip (run 20260821T225908 n=182-185, user-confirmed
+        # loss): the orb at column 0 dies to the next scroll while the
+        # column-4 orange survives many - the orb is rescued first.
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
         info[(4, 0)].update(item=0.10, green=0.10)
         info[(0, 4)].update(item=0.10, orange=0.10)
         action, reason = strategy.choose(info)
-        self.assertTrue(reason.startswith("orange"))
+        self.assertTrue(reason.startswith("urgent pickup"))
 
 
 class LoopGuardTests(unittest.TestCase):
