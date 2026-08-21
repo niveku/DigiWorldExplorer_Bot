@@ -49,15 +49,15 @@ class NearestDashWallTests(unittest.TestCase):
 
 
 class IrresistibleDashTests(unittest.TestCase):
-    def test_confirmed_orange_outranks_the_wall_hunt(self):
-        # Doctrine flip 2026-08-21 (run 213642 n=61-63): oranges perish,
-        # walls survive the detour - the orange is collected first.
+    def test_wall_still_hunted_past_a_surviving_orange(self):
+        # The dash is routing (user directive 2026-08-21b): an orange at
+        # column >=3 survives the scroll and ends three columns closer.
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
         wall(info, 0, (2, 3, 4))
         info[(4, 4)].update(item=0.10, orange=0.10)
         action, reason = strategy.choose(info)
-        self.assertTrue(reason.startswith("orange"))
+        self.assertTrue(reason.startswith("approach dash wall"))
 
     def test_dashes_immediately_from_the_launch_cell(self):
         info = empty_grid()
@@ -197,16 +197,16 @@ class PerishableBeatsWallTests(unittest.TestCase):
         action, reason = strategy.choose(info)
         self.assertTrue(reason.startswith("orange perishable"))
 
-    def test_right_side_oranges_also_outrank_the_wall(self):
-        # Doctrine flip 2026-08-21 (run 213642 n=61-63): the stabilized
-        # wall hijacked a two-moves-deep route to the orange at (3,3).
-        # Oranges perish, walls survive: ANY confirmed orange wins.
+    def test_surviving_oranges_ride_along_with_the_wall_dash(self):
+        # User directive 2026-08-21b (run 220436 n=136): the dash is
+        # routing - a column>=3 orange survives the scroll and ends
+        # three columns closer, so the wall is hunted first.
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
         wall(info, 0, (2, 3, 4))
         info[(4, 4)].update(item=0.10, orange=0.10)
         action, reason = strategy.choose(info)
-        self.assertTrue(reason.startswith("orange"))
+        self.assertTrue(reason.startswith("approach dash wall"))
 
 
 class PairDashDefersToWallTests(unittest.TestCase):
@@ -1005,11 +1005,12 @@ class RememberedSuspectTests(unittest.TestCase):
 
 
 class WallVersusOrangeTests(unittest.TestCase):
-    """Run 20260821T213642 n=61-63: two moves into the route toward the
-    orange at (3,3), the wall detour became stable and hijacked the bot
-    back up - a reversal, and the orange kept aging toward the scroll.
-    Oranges perish, walls survive the detour: the wall hunt defers to
-    ANY confirmed orange on the board, not just the left band."""
+    """The dash is ROUTING, not abandonment (user directive 2026-08-21,
+    run 220436 n=136: launch one step up, orange at (3,4) - the skipped
+    dash would have broken three pyramids AND left the orange three
+    columns closer). An orange at column >=3 survives the 3-column
+    scroll and gets closer, so it never defers the wall; an orange in
+    the left band would be eroded and still does."""
 
     def wall_board(self):
         info = empty_grid()
@@ -1017,9 +1018,15 @@ class WallVersusOrangeTests(unittest.TestCase):
         info[(3, 1)]["player"] = 0.2
         return info
 
-    def test_wall_hunt_defers_to_any_orange(self):
+    def test_surviving_orange_does_not_defer_the_wall(self):
         info = self.wall_board()
         info[(3, 4)].update(item=0.09, orange=0.09)
+        action, reason = strategy.choose(info, hunt_walls=True)
+        self.assertTrue(reason.startswith("approach dash wall"))
+
+    def test_left_band_orange_still_defers_the_wall(self):
+        info = self.wall_board()
+        info[(3, 0)].update(item=0.09, orange=0.09)
         action, reason = strategy.choose(info, hunt_walls=True)
         self.assertFalse(reason.startswith(("approach dash wall",
                                             "3+ pyramid wall")))
@@ -1053,6 +1060,48 @@ class UnstableWallPairDashTests(unittest.TestCase):
         action, reason = strategy.choose(self.pair_with_far_wall(),
                                          hunt_walls=True)
         self.assertNotEqual(action[0], "dash")
+
+
+class ValueAwareDetourTests(unittest.TestCase):
+    """Run 20260821T220436 n=52-62: a dash orb (worth 400 shards, one
+    full dash) rode from (4,3) to (4,0) over ten frames and was then
+    abandoned because the leftward-detour cap (2 cells, priced for
+    200-shard claws) filtered it out; the next explore step scrolled it
+    off. The cap now scales with the pickup's value: an orb pays for up
+    to five leftward steps."""
+
+    def board_with(self, cell, **scores):
+        info = empty_grid()
+        info[(0, 1)]["player"] = 0.2
+        info[cell].update(**scores)
+        return info
+
+    def test_distant_leftward_orb_is_chased(self):
+        info = self.board_with((4, 0), item=0.09, green=0.09)
+        action, reason = strategy.choose(info)
+        self.assertIn("targets", reason)
+
+    def test_distant_leftward_claw_is_still_dropped(self):
+        info = self.board_with((4, 0), claw=0.2)
+        action, reason = strategy.choose(info)
+        self.assertNotIn("claw targets", reason)
+
+
+class ScrolledBanTests(unittest.TestCase):
+    """Run 20260821T220436: the loop breaker banned (0,1) at n=159
+    during an explore ping-pong; nineteen actions later a REAL orange
+    scrolled into that exact cell, sat invisible to the perishable
+    rescue, and died off the left edge at n=181. Bans mark board
+    content, and the content moves with the scroll - so the bans move
+    with it too, and a ban pushed off the left edge retires."""
+
+    def test_bans_shift_left_with_the_scroll(self):
+        self.assertEqual(runner.shift_items_left({(0, 1): 30, (2, 3): 40}),
+                         {(0, 0): 30, (2, 2): 40})
+
+    def test_ban_history_shifts_and_retires(self):
+        self.assertEqual(runner.shift_cells_left({(0, 0), (1, 2)}),
+                         {(1, 1)})
 
 
 class PerishableRoutingTests(unittest.TestCase):

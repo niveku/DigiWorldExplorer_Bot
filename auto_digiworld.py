@@ -407,13 +407,16 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                               if pickup_type(info[p]) in ("claw", "dash_orb",
                                                           "steps")}
 
-    # A non-orange pickup that needs leftward travel is only worth a simple
-    # detour: at Manhattan distance 3+ the step cost plus the vanish risk
-    # beat its 200-shard value (run 20260820T181916 event 83 chased a
-    # single-frame claw three steps left and it was gone the next frame).
+    # A non-orange pickup that needs leftward travel is only worth a
+    # detour its value pays for: a claw or paws (200 shards) covers two
+    # 40-shard steps plus vanish risk (run 20260820T181916 event 83), but
+    # a dash orb is a full 400-shard dash and pays for five (run
+    # 20260821T220436 n=52-62 abandoned an orb at distance 5 and the
+    # next explore step scrolled it off).
     def cheap_detour(cell):
+        reach = 5 if pickup_type(info[cell]) == "dash_orb" else 2
         return (cell[1] >= player[1] or
-                abs(cell[0] - player[0]) + abs(cell[1] - player[1]) <= 2)
+                abs(cell[0] - player[0]) + abs(cell[1] - player[1]) <= reach)
     mid_items = {cell for cell in mid_items if cheap_detour(cell)}
     other_items = {cell for cell in other_items if cheap_detour(cell)}
 
@@ -462,12 +465,14 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                          for col in range(launch[1] + 1, min(5, launch[1] + 4))}
             wall_risk = {cell for cell in (orange_items | mid_items | suspect_risk)
                          if cell not in wall_path and cell[1] <= 2}
-            # Oranges perish, walls survive the detour: ANY confirmed
-            # orange on the board outranks the wall hunt (run
-            # 20260821T213642 n=61-63: the stabilized wall hijacked the
-            # route to the orange at (3,3) two moves in - a reversal,
-            # and the orange kept aging toward the scroll).
-            if wall_risk or orange_items:
+            # The dash is ROUTING, not abandonment (user directive
+            # 2026-08-21b, run 220436 n=136: launch one step up, orange
+            # at (3,4) - the skipped dash would have broken three
+            # pyramids AND left the orange three columns closer). Only
+            # pickups the scroll would erode (wall_risk: left band,
+            # off-path) defer the wall; a column>=3 orange survives and
+            # rides closer.
+            if wall_risk:
                 launch = None
         if launch == player:
             return ("dash", player, "right"), "3+ pyramid wall: dash"

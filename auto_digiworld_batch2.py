@@ -443,6 +443,17 @@ def shift_items_left(remembered):
             for (row, col), value in remembered.items() if col - 1 >= 0}
 
 
+def shift_cells_left(cells):
+    """Scroll compensation for cell SETS (loop-breaker ban history).
+
+    Run 20260821T220436: the loop breaker banned (0,1) at n=159 during
+    an explore ping-pong; nineteen actions later a real orange scrolled
+    into that exact cell, sat invisible to the perishable rescue, and
+    died off the left edge. Bans mark board content and the content
+    moves with the scroll, so bans move with it and retire off-edge."""
+    return {(row, col - 1) for (row, col) in cells if col - 1 >= 0}
+
+
 def modal_overlay_visible(overlay_center, det, min_confidence=.75):
     """A modal overlay covers the board; a pickup animation does not.
 
@@ -1709,6 +1720,8 @@ def main():
             for _ in range(3):
                 remembered_items = shift_items_left(remembered_items)
                 phantom_obstacles = shift_items_left(phantom_obstacles)
+                banned_targets = shift_items_left(banned_targets)
+                ban_history = shift_cells_left(ban_history)
             scrolls_since_frame += 3
             first_move_dest = None
         else:
@@ -1742,6 +1755,8 @@ def main():
             if kind == "move" and direction == "right" and target[1] >= 2:
                 remembered_items = shift_items_left(remembered_items)
                 phantom_obstacles = shift_items_left(phantom_obstacles)
+                banned_targets = shift_items_left(banned_targets)
+                ban_history = shift_cells_left(ban_history)
                 committed_wall = None
                 scrolls_since_frame += 1
             pickup = item_category(info[target]) if kind == "move" else None
@@ -1771,6 +1786,8 @@ def main():
                     if direction == "right" and screen_target[1] >= 2:
                         remembered_items = shift_items_left(remembered_items)
                         phantom_obstacles = shift_items_left(phantom_obstacles)
+                        banned_targets = shift_items_left(banned_targets)
+                        ban_history = shift_cells_left(ban_history)
                         committed_wall = None
                         scrolls_since_frame += 1
                     pickup = item_category(info[checked])
