@@ -871,6 +871,92 @@ class SuspectHoldTests(unittest.TestCase):
             "explore right", set(), set(), holds=0))
 
 
+class ConfirmedItemMemoryTests(unittest.TestCase):
+    """Run 20260821T192126: eleven confirmed pickups scrolled off the
+    left edge unclaimed. Each flickered for a frame under a pickup
+    animation, re-entered as a fresh suspect, and stayed unconfirmable
+    forever (44 suspect holds in 500 moves). A pickup cannot vanish from
+    the board: it leaves by collection or by the left edge. Confirmed
+    (non-suspect) sightings are remembered, so memory bridges the flicker
+    and the cell never reads as a fresh arrival again."""
+
+    def test_visible_pickups_are_remembered(self):
+        info = empty_grid()
+        info[(2, 1)].update(item=0.09, orange=0.09)
+        remembered = runner.remember_confirmed_items(
+            {}, info, player=(0, 0), suspects=set(), done=7)
+        self.assertEqual(remembered[(2, 1)], ("orange", 7))
+
+    def test_suspect_cells_are_not_remembered(self):
+        info = empty_grid()
+        info[(2, 1)].update(item=0.09, orange=0.09)
+        remembered = runner.remember_confirmed_items(
+            {}, info, player=(0, 0), suspects={(2, 1)}, done=7)
+        self.assertNotIn((2, 1), remembered)
+
+    def test_player_cell_is_not_remembered(self):
+        info = empty_grid()
+        info[(2, 1)].update(item=0.09, orange=0.09, player=0.2)
+        remembered = runner.remember_confirmed_items(
+            {}, info, player=(2, 1), suspects=set(), done=7)
+        self.assertNotIn((2, 1), remembered)
+
+    def test_still_visible_items_refresh_their_timestamp(self):
+        info = empty_grid()
+        info[(2, 1)].update(item=0.09, orange=0.09)
+        remembered = runner.remember_confirmed_items(
+            {(2, 1): ("orange", 2)}, info, player=(0, 0), suspects=set(),
+            done=9)
+        self.assertEqual(remembered[(2, 1)], ("orange", 9))
+
+    def test_revealed_pickup_enters_memory(self):
+        remembered = runner.remember_revealed_pickup(
+            {}, {"revealed": "orange", "broken": True}, (2, 2), done=9)
+        self.assertEqual(remembered[(2, 2)], ("orange", 9))
+
+    def test_empty_reveal_is_not_remembered(self):
+        self.assertEqual(runner.remember_revealed_pickup(
+            {}, {"revealed": None, "broken": True}, (2, 2), done=9), {})
+
+
+class PairLaunchGateTests(unittest.TestCase):
+    """Run 20260821T192126 n=117-121: from (0,0) the pair-launch rule
+    approved the step down to (1,0) because the claw at (0,2) sat in the
+    CURRENT row's path and was exempt from at_risk; from (1,0) the same
+    claw was off-path and vetoed the dash, so the claw rule sent the bot
+    straight back up - a two-cell decision loop that burned five moves.
+    The launch approach now judges risk against the LAUNCH row's path."""
+
+    def launch_board(self):
+        info = empty_grid()
+        info[(0, 0)]["player"] = 0.2
+        info[(1, 1)]["pyramid"] = 0.9
+        info[(1, 2)]["pyramid"] = 0.9
+        return info
+
+    def test_launch_step_refused_when_launch_path_leaves_a_pickup_at_risk(self):
+        info = self.launch_board()
+        info[(0, 2)]["claw"] = 0.2
+        action, reason = strategy.choose(info)
+        self.assertFalse(reason.startswith("pair launch"))
+        self.assertIn("claw", reason)
+
+    def test_launch_step_still_fires_on_a_clean_board(self):
+        action, reason = strategy.choose(self.launch_board())
+        self.assertTrue(reason.startswith("pair launch"))
+
+    def test_claw_with_item_score_still_vetoes_the_pair_dash(self):
+        # n=122: the claw's item mask crossed .06 for one frame, dropped
+        # it out of mid_items, and the pair dash scrolled it off board.
+        info = empty_grid()
+        info[(2, 0)]["player"] = 0.2
+        info[(2, 1)]["pyramid"] = 0.9
+        info[(2, 2)]["pyramid"] = 0.9
+        info[(0, 2)].update(item=0.09, claw=0.15)
+        action, reason = strategy.choose(info)
+        self.assertNotEqual(action[0], "dash")
+
+
 class UnknownOverlayDismissTests(unittest.TestCase):
     """Run 20260821T173052: the Stage Failed 'Growth Guide' panel covered
     the board, five unreliable-board waits ran out, and the run died with

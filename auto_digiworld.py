@@ -383,8 +383,13 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     claw_items = {p for p, v in info.items()
                   if v.get("claw", 0.0) > .10 and v["item"] <= .06
                   and p != player and p not in ignored}
+    # "claw" is listed here too: a claw whose item mask flickers past .06
+    # leaves claw_items for that frame, and run 20260821T192126 n=122
+    # dashed exactly such a claw off the board because the veto no longer
+    # saw it as mid-tier.
     mid_items = claw_items | {p for p in other_items
-                              if pickup_type(info[p]) in ("dash_orb", "steps")}
+                              if pickup_type(info[p]) in ("claw", "dash_orb",
+                                                          "steps")}
 
     # A non-orange pickup that needs leftward travel is only worth a simple
     # detour: at Manhattan distance 3+ the step cost plus the vanish risk
@@ -493,16 +498,30 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         # A single vertical step that lands on a pair launch is worth taking:
         # the pair rule fires from there on the next frame. Only when no
         # full wall is in sight and no left-band pickup would pay for it.
-        if path_pyramids < 2 and not at_risk and full_wall is None:
+        # The risk is judged against the LAUNCH row's path, not the current
+        # row's: run 20260821T192126 n=117-121 looped (0,0)<->(1,0) for five
+        # moves because a claw sat in the current row's path (exempt here)
+        # but off the launch row's path (vetoing the dash there).
+        if path_pyramids < 2 and full_wall is None:
             for dr in (-1, 1):
                 launch = (player[0] + dr, player[1])
                 if not 0 <= launch[0] < 5:
                     continue
                 if launch in ignored or is_obstacle(info[launch]):
                     continue
-                if dash_path_pyramids(*launch) >= 2:
-                    return ("move", launch, "up" if dr == -1 else "down"), \
-                        f"pair launch at {launch}"
+                if dash_path_pyramids(*launch) < 2:
+                    continue
+                launch_path = {(launch[0], col)
+                               for col in range(launch[1] + 1,
+                                                min(5, launch[1] + 4))}
+                launch_risk = {cell
+                               for cell in (orange_items | mid_items
+                                            | suspect_risk)
+                               if cell not in launch_path and cell[1] <= 2}
+                if launch_risk:
+                    continue
+                return ("move", launch, "up" if dr == -1 else "down"), \
+                    f"pair launch at {launch}"
 
     # Never walk around a green/purple pickup that already lies on the clear
     # horizontal route to the right. This costs no detour and still preserves

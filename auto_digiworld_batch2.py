@@ -412,6 +412,46 @@ def shift_items_left(remembered):
             for (row, col), value in remembered.items() if col - 1 >= 0}
 
 
+def remember_confirmed_items(remembered, info, player, suspects, done):
+    """Record every confirmed pickup sighting; a pickup cannot vanish.
+
+    It leaves the board by collection or by the left edge, nothing else
+    (game physics, user-confirmed). Run 20260821T192126 lost eleven
+    confirmed pickups to the left edge because each flickered one frame
+    under a pickup animation and re-entered as a fresh suspect forever.
+    Memory recorded from PRE-merge detections (so a remembered ghost can
+    never refresh itself through its own merged patch) bridges the
+    flicker: the cell stays visible to the pathfinder and never reads as
+    a fresh arrival again. Suspects are not recorded - confetti phantoms
+    live shorter than the two-frame adjudication."""
+    updated = dict(remembered)
+    for cell, values in info.items():
+        if cell == player or cell in suspects:
+            continue
+        if not is_pickup(values):
+            continue
+        category = item_category(values)
+        if category is not None:
+            updated[cell] = (category, done)
+    return updated
+
+
+def remember_revealed_pickup(remembered, pyramid_result, cell, done):
+    """A pickup revealed by a broken pyramid enters memory immediately.
+
+    The reveal animation can hide the drop from the very next frame's
+    detector (user report 2026-08-21: broke a pyramid, walked to the
+    middle cell, only then saw the energy and walked back). The attack
+    result already names the revealed category, so the cell becomes a
+    remembered goal before the detector ever needs to see it."""
+    revealed = (pyramid_result or {}).get("revealed")
+    if not revealed or not (pyramid_result or {}).get("broken"):
+        return remembered
+    updated = dict(remembered)
+    updated[tuple(cell)] = (revealed, done)
+    return updated
+
+
 def should_reenable(disabled_at, done, span=REENABLE_ACTIONS):
     """True once enough actions have passed to justify retrying the consumable."""
     return disabled_at is not None and done - disabled_at >= span
@@ -1206,6 +1246,10 @@ def main():
                     and cell != player):
                 remembered_items[cell] = ("claw", done)
         remembered_items = prune_remembered_items(remembered_items, done, player)
+        # Memory is recorded from this pre-merge snapshot further down, so
+        # a remembered cell can never refresh its own timestamp through
+        # the just-over-threshold patch the merge injects.
+        detected_info = info
         if remembered_items:
             info = merge_remembered_items(info, remembered_items, player)
         visible_items = [cell for cell, values in info.items() if values["item"] > .06]
@@ -1227,6 +1271,8 @@ def main():
         prev_fresh_suspects = fresh_suspects
         prev_item_cells = current_item_cells
         scrolls_since_frame = 0
+        remembered_items = remember_confirmed_items(
+            remembered_items, detected_info, player, suspect_items, done)
         if suspect_items:
             event["suspect_items"] = sorted(list(cell) for cell in suspect_items)
         if len(visible_items) >= 3 and item_burst_waits < 2 and flickering:
@@ -1264,6 +1310,8 @@ def main():
                                            counters_before=pending_attack_inv,
                                            counters_after=inv_after)
             pending_attack_inv = None
+            remembered_items = remember_revealed_pickup(
+                remembered_items, result, previous_attack_target, done)
             if not result["broken"]:
                 attacks_enabled = False
                 attacks_disabled_at = done
@@ -1470,6 +1518,10 @@ def main():
             expected_rollback = player
             expected_player = (player if kind == "attack"
                                else expected_after_move(target, direction))
+            if kind == "move":
+                # Stepping onto a cell collects whatever it held: its
+                # memory dies before the scroll shift below relabels it.
+                remembered_items.pop(tuple(target), None)
             if kind == "move" and direction == "right" and target[1] >= 2:
                 remembered_items = shift_items_left(remembered_items)
                 committed_wall = None
@@ -1494,6 +1546,8 @@ def main():
                     sent.append({"type": "move", "target_cell": list(screen_target),
                                  "validated_from_cell": list(checked), "adb_xy": [x2, y2]})
                     expected_player = expected_after_move(screen_target, direction)
+                    remembered_items.pop(tuple(screen_target), None)
+                    remembered_items.pop(tuple(checked), None)
                     if direction == "right" and screen_target[1] >= 2:
                         remembered_items = shift_items_left(remembered_items)
                         committed_wall = None
