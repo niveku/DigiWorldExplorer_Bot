@@ -379,39 +379,10 @@ class ClawPickupTests(unittest.TestCase):
         self.assertEqual(action, ("move", (3, 1), "down"))
 
 
-class ItemsFlickeringTests(unittest.TestCase):
-    """194 of 214 WAITs across four runs were the burst guard re-firing on
-    plain scroll shifts: the item set 'changed' because every cell moved
-    one column left. Only an unexplained disappearance - an item gone
-    without scrolling off or being newly collected - suggests a real
-    pickup animation."""
-
-    def test_identical_sets_are_stable(self):
-        cells = frozenset({(1, 2), (3, 4)})
-        self.assertFalse(runner.items_flickering(cells, cells))
-
-    def test_pure_scroll_shift_is_stable(self):
-        previous = frozenset({(1, 2), (3, 4)})
-        current = frozenset({(1, 1), (3, 3)})
-        self.assertFalse(runner.items_flickering(current, previous))
-
-    def test_scroll_with_new_arrivals_is_stable(self):
-        previous = frozenset({(1, 2)})
-        current = frozenset({(1, 1), (0, 4), (2, 4)})
-        self.assertFalse(runner.items_flickering(current, previous))
-
-    def test_scroll_off_the_left_edge_is_stable(self):
-        previous = frozenset({(1, 0), (3, 4)})
-        current = frozenset({(3, 3)})
-        self.assertFalse(runner.items_flickering(current, previous))
-
-    def test_unexplained_disappearance_flickers(self):
-        previous = frozenset({(1, 2), (3, 3)})
-        current = frozenset({(1, 2)})
-        self.assertTrue(runner.items_flickering(current, previous))
-
-    def test_first_frame_has_no_evidence(self):
-        self.assertFalse(runner.items_flickering(frozenset({(1, 2)}), None))
+# ItemsFlickeringTests removed 2026-08-21 with the burst WAIT itself:
+# the per-cell suspect filter adjudicates phantoms and the confirmed-item
+# memory holds real items through animation frames, so the whole-board
+# flicker guard only added 0.4-0.8s of dead time per pickup wave.
 
 
 class CloseRewardOverlayTests(unittest.TestCase):
@@ -581,6 +552,20 @@ class SuspectAppearanceTests(unittest.TestCase):
                                        shift=0),
             set())
 
+    def test_dash_reveals_are_legit(self):
+        # Game invariant (user, 2026-08-21): a dash-broken pyramid can
+        # also reveal a collectible; those path cells (shifted 3 by the
+        # dash's own scroll) are as legitimate as a garra's target cell.
+        previous = frozenset({(2, 4)})
+        current = frozenset({(2, 1), (3, 0)})
+        self.assertEqual(
+            runner.suspect_appearances(current, previous, shift=3,
+                                       revealed_cells={(3, 0)}),
+            set())
+        self.assertEqual(
+            runner.suspect_appearances(current, previous, shift=3),
+            {(3, 0)})
+
     def test_survivor_is_no_longer_suspect_next_frame(self):
         previous = frozenset({(2, 2), (0, 1)})
         current = frozenset({(2, 2), (0, 1)})
@@ -691,12 +676,19 @@ class ClawMemoryTests(unittest.TestCase):
         # the bot steps onto the remembered claw instead of dropping it.
         self.assertEqual(action, ("move", (2, 2), "right"))
 
-    def test_claw_memory_expires_quickly(self):
+    def test_all_categories_share_one_ttl(self):
+        # Game invariant (user, 2026-08-21): no pickup - claws included -
+        # ever vanishes except by collection or the left edge, so the
+        # old claw-specific 4-frame TTL only recreated the flicker churn
+        # the memory exists to prevent. One unified TTL guards against
+        # our own coordinate errors.
         remembered = {(2, 2): ("claw", 5), (3, 3): ("orange", 5)}
         pruned = runner.prune_remembered_items(remembered, done=10,
                                                player=(0, 0))
-        self.assertNotIn((2, 2), pruned)   # claw TTL 4 exceeded
-        self.assertIn((3, 3), pruned)      # item TTL 25 still valid
+        self.assertIn((2, 2), pruned)
+        self.assertIn((3, 3), pruned)
+        self.assertEqual(runner.prune_remembered_items(
+            remembered, done=31, player=(0, 0)), {})
 
     def test_visited_cell_is_forgotten(self):
         remembered = {(2, 2): ("claw", 9)}

@@ -200,55 +200,35 @@ def milestone_chest_ready(image):
     return int(badge_x), int(badge_y) + y0
 
 
-def items_flickering(current, previous):
-    """True when the item set changed in a way scroll cannot explain.
-
-    194 of 214 WAITs across four runs (045220..055223) were the burst
-    guard re-firing on plain scroll shifts. A frame is suspicious only
-    when some previous item is missing without having scrolled off the
-    left edge (shifts of 0-3 columns are tried; new arrivals from the
-    right are normal). A genuine pickup animation removes an item
-    mid-board, which no shift explains.
-    """
-    if not previous:
-        return False
-    best_missing = None
-    for shift in (0, 1, 2, 3):
-        shifted = {(row, col - shift) for row, col in previous}
-        missing = {cell for cell in shifted if cell[1] >= 0} - set(current)
-        if best_missing is None or len(missing) < len(best_missing):
-            best_missing = missing
-    return bool(best_missing)
+# items_flickering + the burst WAIT were retired 2026-08-21: the per-cell
+# suspect filter adjudicates phantoms and the confirmed-item memory holds
+# real items through animation frames, so the whole-board flicker guard
+# only added 0.4-0.8s of dead time per pickup wave.
 
 
-def suspect_appearances(current, previous, shift=None, attack_cell=None):
+def suspect_appearances(current, previous, shift=0, attack_cell=None,
+                        revealed_cells=()):
     """Item cells that appeared where nothing can appear.
 
-    Items only enter the board two ways: scrolling in from the right
-    edge, or revealed at a cell whose pyramid was just broken. Any other
-    arrival is animation residue - the +20 confetti painted 6-9 phantom
-    oranges per pickup (run 20260820T183527) and two ghosts still leaked
-    past the burst WAIT (run 20260820T184744 events 105/136). Suspects
-    are ignored as targets for one frame; a real item survives into the
-    next frame's previous-set and stops being suspect.
+    Game invariants (user-confirmed 2026-08-21): items only enter the
+    board from the right edge, or revealed at a cell whose pyramid was
+    just broken - by a garra (attack_cell) or by a dash (revealed_cells,
+    the dash path shifted by its own 3-column scroll). Any other arrival
+    is animation residue - the +20 confetti painted 6-9 phantom oranges
+    per pickup (run 20260820T183527). Suspects are ignored as targets
+    for one frame; a real item survives into the next frame's
+    previous-set and stops being suspect. The caller always counts the
+    scroll exactly (the old guess-the-shift fallback hid ghost 105 of
+    run 20260820T184744 behind a coincidental mapping).
     """
     if not previous:
         return set()
-    if shift is None:
-        # Fallback when the caller cannot count the scroll: guess the
-        # shift that explains the most cells. A wrong guess can hide a
-        # ghost behind a coincidental mapping - prefer the exact count.
-        best_new = None
-        for guess in (0, 1, 2, 3):
-            shifted = {(row, col - guess) for row, col in previous}
-            new = set(current) - shifted
-            if best_new is None or len(new) < len(best_new):
-                best_new = new
-    else:
-        shifted = {(row, col - shift) for row, col in previous}
-        best_new = set(current) - shifted
-    legit = {tuple(attack_cell)} if attack_cell else set()
-    return {cell for cell in best_new if cell[1] < 4 and cell not in legit}
+    shifted = {(row, col - shift) for row, col in previous}
+    fresh = set(current) - shifted
+    legit = {tuple(cell) for cell in revealed_cells}
+    if attack_cell:
+        legit.add(tuple(attack_cell))
+    return {cell for cell in fresh if cell[1] < 4 and cell not in legit}
 
 
 def combined_suspects(fresh, previous_fresh, current):
@@ -263,18 +243,18 @@ def combined_suspects(fresh, previous_fresh, current):
     return set(fresh) | (set(previous_fresh) & set(current))
 
 
-def prune_remembered_items(remembered, done, player, ttl_by_category=None):
+def prune_remembered_items(remembered, done, player, ttl=25):
     """Drop remembered pickups that expired or were just visited.
 
-    Claws expire fast: their memory only exists to bridge one or two
-    frames where the detector loses a real claw (border-contact zeroing
-    while the partner walks nearby). Items remembered by the big-sprite
-    path keep the long TTL they always had.
+    Game invariant (user, 2026-08-21): no pickup - claws included - ever
+    vanishes except by collection or the left edge, so the old
+    claw-specific 4-frame TTL only recreated the flicker churn the
+    memory exists to prevent. One unified TTL guards against our own
+    coordinate errors; collection pops and the scroll shift handle the
+    legitimate exits.
     """
-    ttl_by_category = ttl_by_category or {"claw": 4}
     return {cell: value for cell, value in remembered.items()
-            if done - value[1] <= ttl_by_category.get(value[0], 25)
-            and cell != player}
+            if done - value[1] <= ttl and cell != player}
 
 
 def close_reward_overlay(tap, capture, classify, max_taps=5, pause=None):
@@ -1143,7 +1123,6 @@ def main():
     stable_board = None
     unreliable = 0
     player_unreliable = 0
-    item_burst_waits = 0
     overlay_waits = 0
     overlay_evidence_saved = 0
     phantom_obstacles = {}
@@ -1442,14 +1421,9 @@ def main():
             for cell, values in info.items():
                 if values["item"] > .06 and cell != player:
                     remembered_items[cell] = (item_category(values) or "orange", done)
-        # Claw sightings are remembered for every partner: the detector
-        # drops a real claw for a frame when the sprite brushes its border
-        # (user-confirmed at run 20260820T181916 event 83), and claws only
-        # move with the scroll.
-        for cell, values in info.items():
-            if (values.get("claw", 0.0) > .10 and values["item"] <= .06
-                    and cell != player):
-                remembered_items[cell] = ("claw", done)
+        # (The separate claw-sighting loop retired 2026-08-21: claws are
+        # ordinary confirmed pickups now - remember_confirmed_items
+        # records them with the same suspect gating as everything else.)
         remembered_items = prune_remembered_items(remembered_items, done, player)
         # Memory is recorded from this pre-merge snapshot further down, so
         # a remembered cell can never refresh its own timestamp through
@@ -1462,19 +1436,24 @@ def main():
                              if expiry > done}
         info = merge_phantom_obstacles(info, phantom_obstacles, done)
         visible_items = [cell for cell, values in info.items() if values["item"] > .06]
-        # A pickup animation flickers the item set between frames; a rich but
-        # STABLE board is not an animation and deciding on it is safe. Waiting
-        # two frames on every re-plan burned ~25s of wall clock in one run.
         current_item_cells = frozenset(visible_items)
-        flickering = items_flickering(current_item_cells, prev_item_cells)
         # Mid-board arrivals that neither the scroll nor a broken pyramid
         # explains are confetti: ignored as targets for one frame instead
-        # of waiting (the burst WAIT cost ~9s per run and still leaked).
+        # of waiting. A dash's own breaks are as legitimate as a garra's
+        # (game invariant, user 2026-08-21): its path cells - shifted by
+        # the dash's 3-column scroll - may reveal drops.
+        dash_reveals = ()
+        if previous_action == "dash" and pending_dash is not None:
+            dash_reveals = {(r, c - 3)
+                            for r, c in map(tuple,
+                                            pending_dash["path"]["cells_seen"])
+                            if c - 3 >= 0}
         fresh_suspects = suspect_appearances(
             current_item_cells, prev_item_cells,
             shift=scrolls_since_frame,
             attack_cell=(previous_attack_target
-                         if previous_action == "attack" else None))
+                         if previous_action == "attack" else None),
+            revealed_cells=dash_reveals)
         suspect_items = combined_suspects(fresh_suspects, prev_fresh_suspects,
                                           current_item_cells)
         suspect_items = drop_remembered_suspects(suspect_items, remembered_items)
@@ -1487,21 +1466,6 @@ def main():
         event["board"] = compact_state(info, player, remembered_items)
         if suspect_items:
             event["suspect_items"] = sorted(list(cell) for cell in suspect_items)
-        if len(visible_items) >= 3 and item_burst_waits < 2 and flickering:
-            item_burst_waits += 1
-            event["action"] = (f"WAIT: possible pickup animation; {len(visible_items)} "
-                               f"item cells ({item_burst_waits}/2)")
-            if args.debug_screenshots:
-                safe_stamp = stamp.replace(":", "").replace("+", "_")
-                wait_path = run_dir / f"animation_wait_{done:04d}_{safe_stamp}.png"
-                bot.diagnostic(image, det).save(wait_path)
-                event["debug"] = str(wait_path)
-            bot.log_event(log, event)
-            # The sparkle animation clears in well under a second, and the
-            # next loop pass re-verifies with a fresh frame anyway; the old
-            # max(interval, 1.0) doubled every wait's real cost.
-            time.sleep(.4); continue
-        item_burst_waits = 0
         preview = strategy.sixth_column_preview(image, det.board)
         if preview is not None and any(preview):
             event["sixth_column"] = preview
