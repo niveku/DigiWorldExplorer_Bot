@@ -614,6 +614,27 @@ def drop_remembered_suspects(suspects, remembered):
     return {cell for cell in suspects if cell not in remembered}
 
 
+def drop_shift_ghosts(remembered, info):
+    """Kill memory twins created by an over-counted scroll.
+
+    Run 20260821T225908 n=13-14 (user-confirmed: ONE claw on screen, two
+    in memory): a scroll tap the game swallowed still counted in the
+    shift accounting, so memory slid the claw one column left while the
+    live detection re-recorded it in place - and after grabbing the real
+    one the bot stepped left into the ghost. A remembered cell that is
+    NOT detected while its right neighbor holds a live detection of the
+    same category is such a ghost and dies."""
+    def detected_category(cell):
+        values = info.get(cell)
+        if values is None or not is_pickup(values):
+            return None
+        return item_category(values)
+
+    return {cell: value for cell, value in remembered.items()
+            if not (detected_category(cell) is None
+                    and detected_category((cell[0], cell[1] + 1)) == value[0])}
+
+
 def remember_revealed_pickup(remembered, pyramid_result, cell, done):
     """A pickup revealed by a broken pyramid enters memory immediately.
 
@@ -1573,6 +1594,7 @@ def main():
         scrolls_since_frame = 0
         remembered_items = remember_confirmed_items(
             remembered_items, detected_info, player, suspect_items, done)
+        remembered_items = drop_shift_ghosts(remembered_items, detected_info)
         event["board"] = compact_state(info, player, remembered_items)
         if suspect_items:
             event["suspect_items"] = sorted(list(cell) for cell in suspect_items)

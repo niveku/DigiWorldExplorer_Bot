@@ -1258,6 +1258,43 @@ class BoardMotionTests(unittest.TestCase):
             (77, 491, 625, 980), None))
 
 
+class ShiftGhostTests(unittest.TestCase):
+    """Run 20260821T225908 n=13-14 (user-confirmed: ONE claw on screen,
+    two in memory). A scroll tap the game swallowed still counted in our
+    shift accounting, so the memory slid the claw to (3,0) while the
+    live detection re-recorded it at (3,1) - and after grabbing the real
+    one the bot stepped left into the ghost. When a remembered cell is
+    undetected but its RIGHT neighbor holds a live detection of the same
+    category, the left entry is an over-count ghost and dies."""
+
+    def cell(self, **scores):
+        base = {"player": 0.0, "orange": 0.0, "pink": 0.0, "green": 0.0,
+                "item": 0.0, "pyramid": 0.0, "highlight": 1.0, "claw": 0.0}
+        base.update(scores)
+        return base
+
+    def board(self, claw_at):
+        info = {(r, c): self.cell() for r in range(5) for c in range(5)}
+        if claw_at:
+            info[claw_at]["claw"] = 0.2
+        return info
+
+    def test_ghost_twin_left_of_a_live_detection_dies(self):
+        remembered = {(3, 0): ("claw", 5), (3, 1): ("claw", 6)}
+        deduped = runner.drop_shift_ghosts(remembered, self.board((3, 1)))
+        self.assertEqual(deduped, {(3, 1): ("claw", 6)})
+
+    def test_lone_memory_without_a_right_twin_survives(self):
+        remembered = {(3, 0): ("claw", 5)}
+        deduped = runner.drop_shift_ghosts(remembered, self.board(None))
+        self.assertEqual(deduped, remembered)
+
+    def test_different_categories_are_not_twins(self):
+        remembered = {(3, 0): ("orange", 5), (3, 1): ("claw", 6)}
+        deduped = runner.drop_shift_ghosts(remembered, self.board((3, 1)))
+        self.assertEqual(deduped, remembered)
+
+
 class PendingRevealTests(unittest.TestCase):
     """Run 20260821T222310 n=4-11, user-confirmed loss: the dash broke
     the pyramid at (1,4); its drop landed at (1,1) after the dash's own
