@@ -414,14 +414,15 @@ def grid_with_player(cell, score, extra=()):
 
 class ResolvePlayerTests(unittest.TestCase):
     def test_strong_vision_wins(self):
-        info = grid_with_player((2, 2), 0.30)
-        cell, score, source = runner.resolve_player(info, expected=(2, 1))
-        self.assertEqual((cell, source), ((2, 2), "vision"))
+        # Cells are lawful (columns 0-1) since the column law landed.
+        info = grid_with_player((2, 1), 0.30)
+        cell, score, source = runner.resolve_player(info, expected=(2, 0))
+        self.assertEqual((cell, source), ((2, 1), "vision"))
 
     def test_impossible_jump_is_vetoed_by_memory(self):
-        info = grid_with_player((4, 4), 0.12, extra=[((2, 1), 0.05)])
-        cell, score, source = runner.resolve_player(info, expected=(2, 1))
-        self.assertEqual((cell, source), ((2, 1), "memory-veto"))
+        info = grid_with_player((4, 1), 0.12, extra=[((1, 1), 0.05)])
+        cell, score, source = runner.resolve_player(info, expected=(1, 1))
+        self.assertEqual((cell, source), ((1, 1), "memory-veto"))
 
     def test_weak_vision_falls_back_to_memory(self):
         info = grid_with_player((0, 1), 0.04, extra=[((1, 1), 0.03)])
@@ -433,6 +434,36 @@ class ResolvePlayerTests(unittest.TestCase):
         cell, score, source = runner.resolve_player(info, expected=None)
         self.assertEqual(source, "vision")
         self.assertLess(score, 0.08)
+
+
+class PlayerColumnLawTests(unittest.TestCase):
+    """Game law (user-confirmed 2026-08-22): the digi only ever stands in
+    the two leftmost columns; a rightward move into the third column
+    scrolls the world back under him. Run 20260821T212701 locked onto a
+    'player' at (2,3) for 31 straight frames and sprayed taps at columns
+    3-4 - every one answered by 'cannot move to this location'. Any
+    player signal beyond column 1 is a misdetection by definition."""
+
+    def test_confident_blob_beyond_column_one_is_ignored(self):
+        info = grid_with_player((2, 3), 0.30, extra=[((1, 1), 0.09)])
+        cell, score, source = runner.resolve_player(info, expected=None)
+        self.assertEqual(cell, (1, 1))
+
+    def test_unlawful_vision_falls_back_to_expected(self):
+        info = grid_with_player((2, 3), 0.30, extra=[((1, 0), 0.03)])
+        cell, score, source = runner.resolve_player(info, expected=(1, 0))
+        self.assertEqual(cell, (1, 0))
+
+    def test_unlawful_expected_is_discarded_too(self):
+        info = grid_with_player((0, 1), 0.20)
+        cell, score, source = runner.resolve_player(info, expected=(2, 3))
+        self.assertEqual((cell, source), ((0, 1), "vision"))
+
+    def test_lawful_tap_rejects_columns_beyond_the_third(self):
+        self.assertTrue(runner.lawful_tap((2, 2)))
+        self.assertTrue(runner.lawful_tap((0, 0)))
+        self.assertFalse(runner.lawful_tap((1, 3)))
+        self.assertFalse(runner.lawful_tap((2, 4)))
 
 
 class GrowthGuideOverlayTests(unittest.TestCase):

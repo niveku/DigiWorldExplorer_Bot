@@ -902,6 +902,13 @@ def expected_after_move(screen_target, direction):
     return (row, col)
 
 
+def lawful_tap(cell):
+    """Game law: with the digi pinned to columns 0-1, a cross move can
+    reach column 2 at most - any tap beyond it is invalid by definition
+    and answered with 'cannot move to this location'."""
+    return cell[1] <= 2
+
+
 def resolve_player(info, expected):
     """Blend vision with dead reckoning: veto teleports, bridge weak frames.
 
@@ -909,8 +916,21 @@ def resolve_player(info, expected):
     detection more than two cells from the expected position is treated as a
     misdetection when the expected cell still shows any player signal, and a
     weak frame falls back to the expected position instead of stalling.
+
+    Game law (user-confirmed 2026-08-22): the digi only ever stands in
+    the two leftmost columns - the scroll returns him there after every
+    rightward step. Any player signal beyond column 1 is a misdetection
+    (run 20260821T212701 locked onto (2,3) for 31 frames and sprayed
+    invalid taps), so those cells are masked before resolving, and an
+    unlawful expected position is discarded outright.
     """
+    if expected is not None and expected[1] > 1:
+        expected = None
     best, score = player_cell(info)
+    if best[1] > 1:
+        masked = {cell: (values if cell[1] <= 1 else dict(values, player=0.0))
+                  for cell, values in info.items()}
+        best, score = player_cell(masked)
     memory_score = (info[expected]["player"]
                     if expected is not None and expected in info else 0.0)
     if score >= .08:
@@ -1372,7 +1392,8 @@ def main():
         if player_source != "vision":
             event["player_resolution"] = {"cell": list(player), "source": player_source,
                                           "score": round(player_score, 3)}
-        if (player_source == "vision" and player_score < .08) or memory_streak > 2:
+        if ((player_source == "vision" and player_score < .08)
+                or memory_streak > 2 or player[1] > 1):
             player_unreliable += 1
             event["action"] = f"WAIT: player score {player_score:.3f} ({player_unreliable}/5)"
             bot.log_event(log, event)
@@ -1679,6 +1700,16 @@ def main():
             scrolls_since_frame += 3
             first_move_dest = None
         else:
+            if kind == "move" and not lawful_tap(target):
+                # Defense in depth: no tap ever goes beyond column 2.
+                event["action"] = f"SKIP: unlawful tap at {list(target)}"
+                bot.log_event(log, event)
+                if args.verbose:
+                    progress(done, args.steps,
+                             f"Tap ilegal a {list(target)} suprimido - "
+                             "replanificando", "33")
+                time.sleep(args.interval)
+                continue
             x, y = bot.cell_center(det.board, *target)
             if kind == "attack":
                 pending_attack_inv = read_drop_counters(image)
@@ -1715,6 +1746,8 @@ def main():
                 followups = safe_followup_moves(
                     info, player, target, direction, remaining, item_goals)
                 for screen_target, checked in followups:
+                    if not lawful_tap(screen_target):
+                        break
                     time.sleep(jittered_delay(args.interval, args.jitter))
                     x2, y2 = bot.cell_center(det.board, *screen_target)
                     bot.adb(args.adb, args.serial, "shell", "input", "tap", str(x2), str(y2))
