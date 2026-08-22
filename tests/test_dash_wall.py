@@ -1262,6 +1262,25 @@ class MidTierDetourCapTests(unittest.TestCase):
         action, reason = strategy.choose(info, hunt_walls=False)
         self.assertEqual(action, ("dash", (2, 1), "right"))
 
+    def test_blocked_path_counts_at_its_real_walking_cost(self):
+        # Run 20260822T153206 n=52-56: the steps card at (0,1) sat 3
+        # Manhattan steps away (inside the allowance) but the pyramid
+        # at (2,1) forced a 5-step walk around - 5 paticas spent for a
+        # +4 card. The pruner charges the real walk now.
+        info = empty_grid()
+        info[(3, 1)]["player"] = 0.2
+        info[(0, 1)].update(item=0.10, pink=0.10)
+        info[(2, 1)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info)
+        self.assertNotIn("(0, 1)", reason)
+
+    def test_unblocked_same_distance_card_is_still_collected(self):
+        info = empty_grid()
+        info[(3, 1)]["player"] = 0.2
+        info[(0, 1)].update(item=0.10, pink=0.10)
+        action, reason = strategy.choose(info)
+        self.assertIn("(0, 1)", reason)
+
     def test_dash_orb_earns_a_longer_detour(self):
         kept = strategy.prune_low_value_mids(
             (2, 1), set(), {(4, 0)}, {(4, 0): "dash_orb"})
@@ -1711,6 +1730,50 @@ class UnknownOverlayDismissTests(unittest.TestCase):
         x, y = runner.DISMISS_TAP_XY
         self.assertLess(x, 60)          # left of any dialog frame
         self.assertTrue(300 <= y <= 900)  # away from HUD top and bottom bars
+
+
+class UnstableWallHoldTests(unittest.TestCase):
+    """Run 20260822T153206 n=97-101 (user: 'indecisión para hacer un
+    dash sobre 3 pirámides'): frame one sights the 3-wall but stability
+    needs a second frame, so the tour acted (a step DOWN toward an orb)
+    and frame two's stabilized hunt walked it right back - three wasted
+    steps. When a fresh wall is in sight and not yet stable, a plain
+    move waits one frame instead of acting on the frame of doubt. Free
+    grabs and perishable rescues still go; two holds max so a
+    flickering wall cannot stall the bot."""
+
+    def test_plain_move_holds_while_the_wall_stabilizes(self):
+        self.assertTrue(runner.should_hold_for_wall(
+            (2, 0), False, ("move", (4, 1), "down"),
+            "dash_orb targets=[(3, 4)]", holds=0))
+
+    def test_stable_wall_never_holds(self):
+        self.assertFalse(runner.should_hold_for_wall(
+            (2, 0), True, ("move", (4, 1), "down"),
+            "dash_orb targets=[(3, 4)]", holds=0))
+
+    def test_no_wall_never_holds(self):
+        self.assertFalse(runner.should_hold_for_wall(
+            None, False, ("move", (4, 1), "down"),
+            "dash_orb targets=[(3, 4)]", holds=0))
+
+    def test_free_grab_and_rescue_still_go(self):
+        self.assertFalse(runner.should_hold_for_wall(
+            (2, 0), False, ("move", (2, 2), "right"),
+            "adjacent item=(2, 2)", holds=0))
+        self.assertFalse(runner.should_hold_for_wall(
+            (2, 0), False, ("move", (3, 0), "left"),
+            "orange perishable targets=[(3, 0)]", holds=0))
+
+    def test_two_holds_break_the_stall(self):
+        self.assertFalse(runner.should_hold_for_wall(
+            (2, 0), False, ("move", (4, 1), "down"),
+            "dash_orb targets=[(3, 4)]", holds=2))
+
+    def test_non_move_actions_never_hold(self):
+        self.assertFalse(runner.should_hold_for_wall(
+            (2, 0), False, ("dash", (2, 1), "right"),
+            "dash pair: 2 pyramids in path", holds=0))
 
 
 class HiddenGarraTests(unittest.TestCase):

@@ -371,6 +371,25 @@ def wall_is_stable(committed, wall_now, done, scrolls_now, ttl=3):
     return wall_now == expected and done - seen_done <= ttl
 
 
+def should_hold_for_wall(wall_now, wall_stable, action, reason, holds,
+                         max_holds=2):
+    """Do not act on the frame of doubt: a fresh wall holds plain moves.
+
+    Wall hunting needs the same launch on two consecutive frames, and
+    in the gap the tour acts - run 20260822T153206 n=97-101 stepped
+    DOWN toward an orb on the sighting frame and the stabilized hunt
+    walked it right back: three wasted steps. A plain move now waits
+    one frame while the wall stabilizes. Free grabs and perishable
+    rescues still go (they never regret themselves), non-moves are
+    never held, and two holds break the stall if the wall flickers."""
+    if wall_now is None or wall_stable or holds >= max_holds:
+        return False
+    if action is None or action[0] != "move":
+        return False
+    return not reason.startswith(("adjacent item", "orange perishable",
+                                  "urgent pickup", "approach dash wall"))
+
+
 def committed_wall_dash(committed_wall, player, done, ttl=3, last_dash=None,
                         suspect_cells=(), scrolls_now=None):
     """True when standing on a recently confirmed wall launch cell.
@@ -1270,6 +1289,7 @@ def main():
     total_scrolls = 0
     prev_fresh_suspects = set()
     committed_wall = None
+    wall_holds = 0
     last_dash = None
     chest_cooldown = 0
     prev_item_cells = None
@@ -1810,6 +1830,20 @@ def main():
         if corridor_dash_due(action, last_attack, done, preview, dashes_enabled,
                              suspect_cells=suspect_items):
             action, reason = ("dash", player, "right"), "corridor dash"
+        if (dashes_enabled and should_hold_for_wall(wall_now, wall_stable,
+                                                    action, reason,
+                                                    wall_holds)):
+            wall_holds += 1
+            event["reason"] = reason
+            event["action"] = (f"WAIT: wall at {list(wall_now)} stabilizing "
+                               f"({wall_holds}/2)")
+            bot.log_event(log, event)
+            if args.verbose:
+                progress(done, args.steps,
+                         "Muro a la vista sin confirmar - espero un frame", "33")
+            time.sleep(.4)
+            continue
+        wall_holds = 0
         if should_hold_for_suspects(reason, item_goals, suspect_items,
                                     suspect_holds):
             suspect_holds += 1

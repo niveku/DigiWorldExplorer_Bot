@@ -409,7 +409,32 @@ def plan_tour(player, items, max_items=6):
 MID_DETOUR_ALLOWANCE = {"steps": 3, "claw": 5, "dash_orb": 10}
 
 
-def prune_low_value_mids(player, oranges, mids, types):
+def walk_distance(info, start, goal):
+    """Real steps from start to goal walking around pyramids (BFS)."""
+    if start == goal:
+        return 0
+    frontier = [start]
+    seen = {start}
+    dist = 0
+    while frontier:
+        dist += 1
+        nxt = []
+        for pos in frontier:
+            for dr, dc, _ in DIRS:
+                cell = (pos[0] + dr, pos[1] + dc)
+                if not (0 <= cell[0] < 5 and 0 <= cell[1] < 5):
+                    continue
+                if cell == goal:
+                    return dist
+                if cell in seen or is_obstacle(info[cell]):
+                    continue
+                seen.add(cell)
+                nxt.append(cell)
+        frontier = nxt
+    return 99
+
+
+def prune_low_value_mids(player, oranges, mids, types, info=None):
     """Drop mid-tier cards whose detour costs more than they refund.
 
     Paticas ROI: one move consumes 1 patica and a steps card returns
@@ -438,6 +463,14 @@ def prune_low_value_mids(player, oranges, mids, types):
         _, cost_with, scrolls_with = simulate_tour(player, with_mid)
         _, cost_without, scrolls_without = simulate_tour(player, without)
         detour = (cost_with - scrolls_with) - (cost_without - scrolls_without)
+        if info is not None:
+            # The tour costs Manhattan steps, but pyramids force real
+            # walking: the card at (0,1) priced at 3 steps cost 5 around
+            # the pyramid at (2,1) - 5 paticas for a +4 card (run
+            # 20260822T153206 n=52-56). Charge the mid the surcharge of
+            # actually reaching it.
+            detour += max(0, walk_distance(info, player, mid)
+                          - abs(mid[0] - player[0]) - abs(mid[1] - player[1]))
         if detour > MID_DETOUR_ALLOWANCE.get(types.get(mid), 3):
             keep.discard(mid)
     return keep
@@ -719,7 +752,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     if mid_items:
         mid_types = {cell: pickup_type(info[cell]) for cell in mid_items}
         tour_mids = prune_low_value_mids(player, orange_items, mid_items,
-                                         mid_types)
+                                         mid_types, info=info)
     tour_items = orange_items | tour_mids
     if tour_items:
         order = plan_tour(player, tour_items)
@@ -751,14 +784,18 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                     f"{label} targets={order}"
 
     # Tickets remain as a last-resort target - never worth a garra.
-    if other_items:
-        step = shortest_action(info, player, other_items,
+    # Mid-tier cards are excluded here: a card the pruner judged not
+    # worth its walk must not sneak back in as a "ticket" (run
+    # 20260822T153206 n=53 chased the pruned steps card this way).
+    ticket_goals = other_items - mid_items
+    if ticket_goals:
+        step = shortest_action(info, player, ticket_goals,
                                allow_obstacles=False,
                                prefer_direction=previous_direction)
         if step:
             target, obstacle, direction = step
             return ("attack" if obstacle else "move", target, direction), \
-                f"item targets={sorted(other_items)}"
+                f"item targets={sorted(ticket_goals)}"
 
     # Per game behavior confirmed by the user, Dash always goes right. A dash
     # costs 400 shards and measured drops average +14 energy, so spend it
