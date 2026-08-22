@@ -85,6 +85,32 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(action[0], "move")
         self.assertIn(action[2], ("up", "down"))
 
+    def test_cornered_with_attacks_disabled_has_no_action(self):
+        # Run 20260821T235432 n=167: boxed at (4,1) - pyramids left, up
+        # and right, board edge below - twelve frames after a phantom
+        # attack had disabled garras. choose() returned None and the run
+        # died at 82% with 77 garras in stock. The runner's answer is to
+        # re-enable attacks when cornered (next test proves the garra
+        # breaks out) instead of stopping.
+        info = empty_grid()
+        info[(4, 1)]["player"] = 0.2
+        info[(4, 0)]["pyramid"] = 0.9
+        info[(3, 1)]["pyramid"] = 0.9
+        info[(4, 2)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, attacks_enabled=False,
+                                         dashes_enabled=False)
+        self.assertIsNone(action)
+
+    def test_cornered_reenabled_garra_breaks_out(self):
+        info = empty_grid()
+        info[(4, 1)]["player"] = 0.2
+        info[(4, 0)]["pyramid"] = 0.9
+        info[(3, 1)]["pyramid"] = 0.9
+        info[(4, 2)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, attacks_enabled=True,
+                                         dashes_enabled=False)
+        self.assertEqual(action[0], "attack")
+
     def test_boxed_in_explorer_still_attacks_the_forward_blocker(self):
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2

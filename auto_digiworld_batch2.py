@@ -1227,6 +1227,7 @@ def main():
     phantom_obstacles = {}
     pending_reveals = {}
     settle_waits = 0
+    no_action_waits = 0
     first_move_dest = None
     last_stamina_check = 0
     last_move_player_source = None
@@ -1741,12 +1742,40 @@ def main():
             time.sleep(.4)
             continue
         suspect_holds = 0
+        if action is None and not attacks_enabled:
+            # Run 20260821T235432 n=167: boxed at (4,1) by three real
+            # pyramids twelve frames after a phantom attack disabled the
+            # garras - the run died at 82% with 77 garras in stock. A
+            # cornered bot re-arms and breaks out.
+            attacks_enabled = True
+            attacks_disabled_at = None
+            event["attack_state"] = {
+                "status": "re-enabled: cornered with no safe action"}
+            action, reason = strategy.choose(info, previous_direction,
+                                             attacks_enabled, dashes_enabled,
+                                             ignored_targets=(set(banned_targets.keys())
+                                                              | suspect_items),
+                                             player=player, preview=preview,
+                                             hunt_walls=wall_stable,
+                                             suspect_cells=suspect_items)
         if action is None:
+            # One unreadable frame must not kill a run: rescan a few
+            # times before giving up.
+            no_action_waits += 1
+            if no_action_waits < 3:
+                event["action"] = f"WAIT: no safe action ({no_action_waits}/3)"
+                bot.log_event(log, event)
+                if args.verbose:
+                    progress(done, args.steps,
+                             "Sin acción segura - nuevo escaneo", "33")
+                time.sleep(.4)
+                continue
             event["action"] = "STOP: no safe action"
             bot.log_event(log, event)
             if args.verbose: progress(done, args.steps, "STOP - sin acción segura", "31")
             show_run_summary(done, args.steps, started_at, collected, energy_start, read_energy_counter(image), "33")
             return 4
+        no_action_waits = 0
         kind, target, direction = action
         if args.verbose:
             color = "93" if item_goals else "36"
