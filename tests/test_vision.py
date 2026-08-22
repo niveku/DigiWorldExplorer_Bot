@@ -466,6 +466,44 @@ class PlayerColumnLawTests(unittest.TestCase):
         self.assertFalse(runner.lawful_tap((2, 4)))
 
 
+class ImpossiblePlayerJumpTests(unittest.TestCase):
+    """Game law: nothing ever moves the digi except our taps, and a
+    single move shifts him at most one cell. After one commanded move
+    the player can only be at the origin (tap swallowed or rejected) or
+    the destination. Run 20260822T004437 n=15 and n=194, identical
+    signature: pickup at (2,1), confetti burst, commanded down to (3,1),
+    and the locator latched onto the confetti card back at (1,1) - two
+    cells from where the digi could possibly be. The bot then tapped
+    (2,1) 'downward' from the ghost, yanking the real digi back a step."""
+
+    def test_detection_at_neither_origin_nor_destination_is_impossible(self):
+        self.assertTrue(runner.impossible_player_jump(
+            "move", (2, 1), (3, 1), (1, 1), single_move=True))
+
+    def test_destination_is_a_lawful_outcome(self):
+        self.assertFalse(runner.impossible_player_jump(
+            "move", (2, 1), (3, 1), (3, 1), single_move=True))
+
+    def test_origin_is_a_lawful_outcome(self):
+        # Swallowed or rejected tap: the digi stayed put.
+        self.assertFalse(runner.impossible_player_jump(
+            "move", (2, 1), (3, 1), (2, 1), single_move=True))
+
+    def test_batches_are_exempt(self):
+        # A 3-move batch can be interrupted anywhere along its path;
+        # only single moves pin the outcome to two cells.
+        self.assertFalse(runner.impossible_player_jump(
+            "move", (2, 1), (3, 1), (1, 1), single_move=False))
+
+    def test_only_moves_are_checked(self):
+        self.assertFalse(runner.impossible_player_jump(
+            "attack", (2, 1), (2, 1), (1, 1), single_move=True))
+        self.assertFalse(runner.impossible_player_jump(
+            "move", None, (3, 1), (1, 1), single_move=True))
+        self.assertFalse(runner.impossible_player_jump(
+            "move", (2, 1), None, (1, 1), single_move=True))
+
+
 class GrowthGuideOverlayTests(unittest.TestCase):
     """Run 20260821T173052 died blind on the Stage Failed 'Growth Guide'
     panel: state=unknown, five unreliable waits, no idea what covered

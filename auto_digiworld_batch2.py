@@ -335,6 +335,27 @@ def out_of_steps(inventory, rejected_streak, threshold=2):
     return steps is not None and steps <= 0
 
 
+def impossible_player_jump(previous_action, origin, destination, player,
+                           single_move):
+    """Detection that breaks the one-move law is a misdetection.
+
+    Nothing moves the digi except our taps, and one commanded move
+    shifts him at most one cell: after a single move he is at the
+    destination (executed) or the origin (tap swallowed or rejected).
+    Any other cell is the locator latching onto animation residue.
+    Run 20260822T004437 n=15 and n=194, identical signature: pickup at
+    (2,1) under a confetti burst, commanded down to (3,1), and the next
+    frame 'found' the player back at (1,1) - so the bot tapped (2,1)
+    "downward" from the ghost and yanked the real digi back a step.
+    Batches are exempt: a 3-move run can be interrupted anywhere along
+    its path, so only single moves pin the outcome to two cells."""
+    if previous_action != "move" or not single_move:
+        return False
+    if origin is None or destination is None:
+        return False
+    return tuple(player) not in (tuple(origin), tuple(destination))
+
+
 def wall_is_stable(committed, wall_now, done, scrolls_now, ttl=3):
     """Same wall seen on consecutive frames, scroll-adjusted.
 
@@ -1215,6 +1236,7 @@ def main():
     pending_attack_inv = None
     expected_player = None
     expected_rollback = None
+    last_single_move = False
     memory_streak = 0
     attacks_enabled = True
     dashes_enabled = True
@@ -1548,13 +1570,20 @@ def main():
                          "- celda marcada como bloqueada", "33")
         elif previous_action == "move" and expected_rollback is not None:
             rejected_streak = 0
+        ghost_player = impossible_player_jump(previous_action, expected_rollback,
+                                              expected_player, player,
+                                              last_single_move)
+        if ghost_player:
+            event["player_ghost"] = {"detected": list(player),
+                                     "lawful": [list(expected_rollback),
+                                                list(expected_player)]}
         expected_rollback = None
         memory_streak = memory_streak + 1 if player_source == "memory" else 0
         if player_source != "vision":
             event["player_resolution"] = {"cell": list(player), "source": player_source,
                                           "score": round(player_score, 3)}
         if ((player_source == "vision" and player_score < .08)
-                or memory_streak > 2 or player[1] > 1):
+                or memory_streak > 2 or player[1] > 1 or ghost_player):
             player_unreliable += 1
             event["action"] = f"WAIT: player score {player_score:.3f} ({player_unreliable}/5)"
             bot.log_event(log, event)
@@ -1929,7 +1958,12 @@ def main():
                 banned_targets = shift_items_left(banned_targets)
                 ban_history = shift_cells_left(ban_history)
                 pending_reveals = shift_items_left(pending_reveals)
-                committed_wall = None
+                # The wall commitment survives the scroll: wall_is_stable
+                # carries the scroll count at sighting and adjusts the
+                # expected launch column. Clearing it here made a wall
+                # seen while riding rightward permanently "unstable" -
+                # run 20260822T004437 n=48-49 exploring right past a
+                # 3-pyramid wall one step down, never hunted.
                 scrolls_since_frame += 1
             pickup = item_category(info[target]) if kind == "move" else None
             if pickup:
@@ -1962,7 +1996,6 @@ def main():
                         banned_targets = shift_items_left(banned_targets)
                         ban_history = shift_cells_left(ban_history)
                         pending_reveals = shift_items_left(pending_reveals)
-                        committed_wall = None
                         scrolls_since_frame += 1
                     pickup = item_category(info[checked])
                     if pickup:
@@ -1980,6 +2013,7 @@ def main():
             while next_progress <= done:
                 next_progress += progress_step
         previous_action = kind
+        last_single_move = (kind == "move" and len(sent) == 1)
         previous_attack_target = target if kind == "attack" else None
         if kind == "dash":
             previous_dash_player = player
