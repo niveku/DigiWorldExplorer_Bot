@@ -1776,6 +1776,57 @@ class UnstableWallHoldTests(unittest.TestCase):
             "dash pair: 2 pyramids in path", holds=0))
 
 
+class ExplorerNeverAttacksLeftTests(unittest.TestCase):
+    """Run 20260822T160202 n=72: up and right were suspect-blocked
+    (confetti), so the explorer's only 'preferred' candidate was the
+    pyramid on its LEFT - 200 shards to explore backwards. The world
+    itself moves left: a left pyramid never needs breaking. Waiting a
+    frame for the suspects to adjudicate is always cheaper."""
+
+    def test_left_pyramid_is_never_an_explore_attack(self):
+        info = empty_grid()
+        info[(4, 1)]["player"] = 0.2
+        info[(4, 0)]["pyramid"] = 0.9
+        info[(3, 1)].update(item=0.10, orange=0.10)
+        info[(4, 2)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(
+            info, ignored_targets={(3, 1), (4, 2)},
+            suspect_cells={(3, 1), (4, 2)})
+        if action is not None:
+            self.assertNotEqual(
+                (action[0], action[2] if len(action) > 2 else None),
+                ("attack", "left"))
+            self.assertFalse(action[0] == "attack"
+                             and action[1] == (4, 0))
+
+
+class BurstZoneTests(unittest.TestCase):
+    """Run 20260822T160202 n=36-38: the pickup at (0,1) sprayed
+    confetti; the card at (1,0) survived the standard two sightings
+    (the SKIP frame donated one) and walked the bot to an empty cell.
+    Confetti only exists around a fresh pickup, so appearances within
+    2 cells of a pickup made in the last 3 frames need one extra
+    surviving frame before they are believed."""
+
+    def test_fresh_survivor_near_a_pickup_stays_suspect(self):
+        holds = runner.burst_holds(
+            prev_fresh={(1, 0)}, current_cells={(1, 0)},
+            recent_pickups=[((0, 1), 36)], done=37)
+        self.assertEqual(holds, {(1, 0)})
+
+    def test_far_from_any_pickup_is_believed_on_survival(self):
+        holds = runner.burst_holds(
+            prev_fresh={(4, 4)}, current_cells={(4, 4)},
+            recent_pickups=[((0, 1), 36)], done=37)
+        self.assertEqual(holds, set())
+
+    def test_stale_pickup_no_longer_holds(self):
+        holds = runner.burst_holds(
+            prev_fresh={(1, 0)}, current_cells={(1, 0)},
+            recent_pickups=[((0, 1), 30)], done=37)
+        self.assertEqual(holds, set())
+
+
 class DashScrollCountTests(unittest.TestCase):
     """Run 20260822T153206 n=123-126, user PNG debug_0124: the world
     scrolls only what it takes to clamp the digi back to column 1 -
@@ -1821,6 +1872,17 @@ class HiddenGarraTests(unittest.TestCase):
         info[(1, 0)]["pyramid"] = 0.9
         self.assertTrue(runner.unsafe_move_tap(info, (1, 0)))
         self.assertFalse(runner.unsafe_move_tap(info, (1, 1)))
+
+    def test_move_tap_onto_a_suspect_is_unsafe(self):
+        # Run 20260822T160202 n=89: the route stepped UP onto the
+        # suspect cell (1,1) - confetti covering a pyramid the vision
+        # could not see - and the tap executed a garra. A suspect cell
+        # is unknown ground: never tap it, wait for adjudication.
+        info = empty_grid()
+        self.assertTrue(runner.unsafe_move_tap(info, (1, 1),
+                                               suspects={(1, 1)}))
+        self.assertFalse(runner.unsafe_move_tap(info, (1, 1),
+                                                suspects={(2, 2)}))
 
 
 if __name__ == "__main__":

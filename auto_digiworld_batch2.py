@@ -474,6 +474,12 @@ def shift_items_left(remembered):
             for (row, col), value in remembered.items() if col - 1 >= 0}
 
 
+def shift_pickup_log_left(recent_pickups):
+    """Scroll compensation for the burst-zone pickup log."""
+    return [((row, col - 1), when)
+            for (row, col), when in recent_pickups if col - 1 >= 0]
+
+
 def shift_cells_left(cells):
     """Scroll compensation for cell SETS (loop-breaker ban history).
 
@@ -1088,14 +1094,38 @@ def expected_after_move(screen_target, direction):
     return (row, col)
 
 
-def unsafe_move_tap(info, target):
-    """A 'move' tap onto a cell the game shows as a pyramid EXECUTES a
-    garra. HUD counter audit (run 20260822T142042): the attack counter
+def unsafe_move_tap(info, target, suspects=()):
+    """A 'move' tap onto a pyramid or a suspect cell must not go out.
+
+    A tap onto a cell the game shows as a pyramid EXECUTES a garra.
+    HUD counter audit (run 20260822T142042): the attack counter
     dropped ~7 more times than the log sent attacks - every one a move
-    tap landing on a pyramid the planner did not see (memory ghosts,
-    confetti-covered cells, mid-scroll boards). The user watched them
-    on screen (debug 21, 26, 153, 499) while the log said 'move'."""
-    return strategy.is_obstacle(info[tuple(target)])
+    tap landing on a pyramid the planner did not see. The guards cut
+    that to one hidden garra the very next run (20260822T160202): the
+    survivor at n=89 stepped onto the SUSPECT cell (1,1) - confetti
+    covering a pyramid the vision could not see. A suspect cell is
+    unknown ground: never tap it, wait for adjudication."""
+    return (strategy.is_obstacle(info[tuple(target)])
+            or tuple(target) in suspects)
+
+
+def burst_holds(prev_fresh, current_cells, recent_pickups, done,
+                radius=2, ttl=3):
+    """Confetti-zone survivors need one extra frame of belief.
+
+    Confetti only exists around a fresh pickup, and its cards can
+    survive the standard two sightings (run 20260822T160202 n=36-38:
+    the SKIP frame donated one, and the bot walked to an empty cell).
+    A fresh appearance from the PREVIOUS frame that sits within radius
+    cells of a pickup made in the last ttl frames stays suspect for
+    one more frame; real items are untouched - nothing legitimately
+    appears mid-board except garra drops (whitelisted) and right-edge
+    arrivals (outside any burst zone by the time they matter)."""
+    zones = [cell for cell, when in recent_pickups if done - when < ttl]
+    return {cell for cell in prev_fresh
+            if cell in current_cells
+            and any(abs(cell[0] - z[0]) <= radius
+                    and abs(cell[1] - z[1]) <= radius for z in zones)}
 
 
 def lawful_tap(cell):
@@ -1302,6 +1332,7 @@ def main():
     scrolls_since_frame = 0
     total_scrolls = 0
     prev_fresh_suspects = set()
+    recent_pickups = []
     committed_wall = None
     wall_holds = 0
     last_dash = None
@@ -1695,6 +1726,8 @@ def main():
         suspect_items = combined_suspects(fresh_suspects, prev_fresh_suspects,
                                           current_item_cells)
         suspect_items = drop_remembered_suspects(suspect_items, remembered_items)
+        suspect_items |= burst_holds(prev_fresh_suspects, current_item_cells,
+                                     recent_pickups, done)
         prev_fresh_suspects = fresh_suspects
         prev_item_cells = current_item_cells
         total_scrolls += scrolls_since_frame
@@ -1987,6 +2020,7 @@ def main():
                 banned_targets = shift_items_left(banned_targets)
                 ban_history = shift_cells_left(ban_history)
                 pending_reveals = shift_items_left(pending_reveals)
+                recent_pickups = shift_pickup_log_left(recent_pickups)
             scrolls_since_frame += dash_shift
             # No reveal window after a dash: it breaks and collects in
             # the same motion, so nothing it touches ever stays on the
@@ -2005,18 +2039,23 @@ def main():
                              "replanificando", "33")
                 time.sleep(args.interval)
                 continue
-            if kind == "move" and unsafe_move_tap(info, target):
-                # The tap would land on a pyramid and execute a garra
-                # (~7 hidden attacks in run 20260822T142042). Whatever
-                # painted an item there was a ghost: kill its memory,
-                # remember the obstacle, replan.
-                remembered_items.pop(tuple(target), None)
-                phantom_obstacles[tuple(target)] = done + 6
-                event["action"] = f"SKIP: move onto pyramid at {list(target)}"
+            if kind == "move" and unsafe_move_tap(info, target, suspect_items):
+                # The tap would land on a pyramid (executes a garra -
+                # ~7 hidden attacks in run 20260822T142042) or on an
+                # unadjudicated suspect (confetti can hide a pyramid:
+                # run 20260822T160202 n=89 tapped 'up' through one).
+                if strategy.is_obstacle(info[tuple(target)]):
+                    remembered_items.pop(tuple(target), None)
+                    phantom_obstacles[tuple(target)] = done + 6
+                    event["action"] = f"SKIP: move onto pyramid at {list(target)}"
+                    note = "pirámide"
+                else:
+                    event["action"] = f"SKIP: move onto suspect at {list(target)}"
+                    note = "sospechoso"
                 bot.log_event(log, event)
                 if args.verbose:
                     progress(done, args.steps,
-                             f"Tap sobre pirámide en {list(target)} suprimido - "
+                             f"Tap sobre {note} en {list(target)} suprimido - "
                              "replanificando", "33")
                 time.sleep(args.interval)
                 continue
@@ -2045,6 +2084,7 @@ def main():
                 banned_targets = shift_items_left(banned_targets)
                 ban_history = shift_cells_left(ban_history)
                 pending_reveals = shift_items_left(pending_reveals)
+                recent_pickups = shift_pickup_log_left(recent_pickups)
                 # The wall commitment survives the scroll: wall_is_stable
                 # carries the scroll count at sighting and adjusts the
                 # expected launch column. Clearing it here made a wall
@@ -2055,6 +2095,7 @@ def main():
             pickup = item_category(info[target]) if kind == "move" else None
             if pickup:
                 collected[pickup] += 1
+                recent_pickups.append((tuple(target), done))
 
             # Never batch through an attack or a pickup animation.
             first_has_item = is_pickup(info[target])
@@ -2068,7 +2109,7 @@ def main():
                     info, player, target, direction, remaining, item_goals)
                 for screen_target, checked in followups:
                     if (not lawful_tap(screen_target)
-                            or unsafe_move_tap(info, checked)):
+                            or unsafe_move_tap(info, checked, suspect_items)):
                         break
                     time.sleep(jittered_delay(args.interval, args.jitter))
                     x2, y2 = bot.cell_center(det.board, *screen_target)
@@ -2084,10 +2125,12 @@ def main():
                         banned_targets = shift_items_left(banned_targets)
                         ban_history = shift_cells_left(ban_history)
                         pending_reveals = shift_items_left(pending_reveals)
+                        recent_pickups = shift_pickup_log_left(recent_pickups)
                         scrolls_since_frame += 1
                     pickup = item_category(info[checked])
                     if pickup:
                         collected[pickup] += 1
+                        recent_pickups.append((tuple(checked), done))
 
         event["action"] = sent
         event["collected_detected"] = dict(collected)

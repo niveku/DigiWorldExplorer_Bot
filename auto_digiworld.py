@@ -833,6 +833,13 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         obstacle = is_obstacle(v)
         if obstacle and not attacks_enabled:
             continue
+        if obstacle and direction == "left":
+            # The world itself moves left: a left pyramid never needs
+            # breaking. With up and right suspect-blocked it became the
+            # only 'preferred' candidate and the explorer spent 200
+            # shards exploring backwards (run 20260822T160202 n=72).
+            # Waiting a frame for suspects to adjudicate is cheaper.
+            continue
         base = {"right": 100, "down": 12, "up": 10, "left": -40}[direction]
         score = base + 20*v["highlight"]
         # A garra costs 200 shards against 80 for the two-step vertical
