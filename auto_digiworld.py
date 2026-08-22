@@ -117,7 +117,7 @@ def cells(image, board):
 
 
 def shortest_action(info, player, targets, allow_obstacles=True,
-                    prefer_direction=None, protect=()):
+                    prefer_direction=None, protect=(), avoid=()):
     """Weighted path: empty field costs 1, destructible pyramid costs 5.
 
     A garra costs 200 shards plus the 40-shard follow-up step, minus
@@ -164,6 +164,13 @@ def shortest_action(info, player, targets, allow_obstacles=True,
                 continue
             obstacle = is_obstacle(info[nxt])
             if obstacle and not allow_obstacles:
+                continue
+            # avoid: unadjudicated suspect cells are impassable ground
+            # (replay harness 2026-08-22: choose() kept routing THROUGH
+            # suspects the tap gate then refused - a decision/guard
+            # contradiction that starved the tour in skip loops).
+            # Targets themselves stay reachable.
+            if nxt in avoid and nxt not in targets:
                 continue
             values = info[nxt]
             # A cell holding a pickup is slightly cheaper: between two
@@ -528,8 +535,13 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     # shards), dash orb +1 dash (400), paws +5 steps (200). Tickets (+1,
     # negligible per the user) stay in the lowest tier and never justify
     # passing up a mid-tier target.
+    # A pyramid's glints trip the claw slash detector, and a cell
+    # cannot be both: the pyramid score (.88-.99, the strongest signal)
+    # wins (replay harness 2026-08-22 n=107: claw .15 + pyramid .9 on
+    # one cell, four identical refused decisions).
     claw_items = {p for p, v in info.items()
                   if v.get("claw", 0.0) > .10 and v["item"] <= .06
+                  and not is_obstacle(v)
                   and p != player and p not in ignored}
     # "claw" is listed here too: a claw whose item mask flickers past .06
     # leaves claw_items for that frame, and run 20260821T192126 n=122
@@ -637,7 +649,9 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         if launch == player:
             return ("dash", player, "right"), "3+ pyramid wall: dash"
         if launch is not None:
-            step = shortest_action(info, player, {launch}, allow_obstacles=False)
+            step = shortest_action(info, player, {launch},
+                                   allow_obstacles=False,
+                                   avoid=set(suspect_cells))
             if step:
                 target, _, direction = step
                 return ("move", target, direction), f"approach dash wall via {launch}"
@@ -798,7 +812,8 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                                    allow_obstacles=(attacks_enabled
                                                     and first in orange_items),
                                    prefer_direction=previous_direction,
-                                   protect=order[1:])
+                                   protect=order[1:],
+                                   avoid=set(suspect_cells))
             if step:
                 target, obstacle, direction = step
                 # The label names the FIRST target's real category: every
@@ -823,7 +838,8 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     if ticket_goals:
         step = shortest_action(info, player, ticket_goals,
                                allow_obstacles=False,
-                               prefer_direction=previous_direction)
+                               prefer_direction=previous_direction,
+                               avoid=set(suspect_cells))
         if step:
             target, obstacle, direction = step
             return ("attack" if obstacle else "move", target, direction), \
@@ -906,7 +922,17 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     # Cells banned by the loop breaker are avoided while any alternative
     # exists; falling back to them beats stalling in a fully banned pocket.
     preferred = [entry for entry in candidates if entry[1] not in ignored]
-    _, target, obstacle, direction = max(preferred or candidates)
+    # The fallback may reuse loop-banned cells, but never suspect cells:
+    # stepping onto unadjudicated ground is what the tap gate refuses
+    # (replay harness 2026-08-22, STARVATION class).
+    fallback = [entry for entry in candidates
+                if entry[1] not in suspect_cells]
+    if not (preferred or fallback):
+        # Every orthogonal cell is an unadjudicated suspect: stepping
+        # onto one is exactly what the tap gate refuses. Rescan; the
+        # suspects adjudicate within a few frames.
+        return None, "boxed by suspects"
+    _, target, obstacle, direction = max(preferred or fallback)
     return ("attack" if obstacle else "move", target, direction), "explore right"
 
 

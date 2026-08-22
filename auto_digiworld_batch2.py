@@ -1039,7 +1039,11 @@ def is_pickup(values):
 
     The claw scores low on the color "item" mask (it has its own mask), so
     checking only values["item"] left claw-only boards looking item-free:
-    batches grew to 3 moves and overshot the turn cell toward the claw."""
+    batches grew to 3 moves and overshot the turn cell toward the claw.
+    A pyramid's glints trip the claw detector, and a cell cannot be
+    both - the pyramid score wins (replay harness 2026-08-22 n=107)."""
+    if strategy.is_obstacle(values):
+        return False
     return values["item"] > .06 or values.get("claw", 0.0) > .10
 
 
@@ -2084,6 +2088,32 @@ def main():
         # minted the phantom, and the wall math then saw a "pyramid"
         # in the player's own cell and launched one step back).
         phantom_obstacles.pop(tuple(player), None)
+        # Standing on a cell also COLLECTS whatever it held: an orphan
+        # memory under the player froze the tour on a prize it was
+        # standing on (replay harness 2026-08-22, BLIND-TOUR class -
+        # 'explore' while a remembered orange sat under its own feet).
+        remembered_items.pop(tuple(player), None)
+        mem_misses.pop(tuple(player), None)
+        # A cell cannot be a remembered ITEM and a phantom OBSTACLE at
+        # once: choose() wants it, the tap gate vetoes it, and the bot
+        # deadlocks for frames (replay harness 2026-08-22, n=107 of run
+        # 183056: claw memory + stale phantom on (2,2), four identical
+        # refused decisions). A contradictory belief is no belief -
+        # drop both sides and let fresh vision decide.
+        for cell in set(remembered_items) & set(phantom_obstacles):
+            remembered_items.pop(cell, None)
+            phantom_obstacles.pop(cell, None)
+            mem_misses.pop(cell, None)
+        # Same law against DETECTED pyramids: a remembered item on a
+        # cell the screen shows as a pyramid is a contradicted belief -
+        # the merge rightly refuses to paint it, so it can only linger
+        # as dead weight (replay harness n=101 of run 183056). The
+        # world outranks memory: drop it now; if the pyramid was a
+        # one-frame flicker, the next sighting re-records the item.
+        for cell in [c for c in remembered_items
+                     if strategy.is_obstacle(detected_info[c])]:
+            remembered_items.pop(cell, None)
+            mem_misses.pop(cell, None)
         phantom_obstacles = {cell: expiry
                              for cell, expiry in phantom_obstacles.items()
                              if expiry > done}
@@ -2341,8 +2371,10 @@ def main():
             # One unreadable frame must not kill a run: rescan a few
             # times before giving up.
             no_action_waits += 1
-            if no_action_waits < 3:
-                event["action"] = f"WAIT: no safe action ({no_action_waits}/3)"
+            # 5, not 3: 'boxed by suspects' legitimately holds up to the
+            # sticky TTL (4 frames) before the surroundings adjudicate.
+            if no_action_waits < 5:
+                event["action"] = f"WAIT: no safe action ({no_action_waits}/5)"
                 bot.log_event(log, event)
                 if args.verbose:
                     progress(done, args.steps,

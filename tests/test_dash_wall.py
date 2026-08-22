@@ -1477,6 +1477,69 @@ class PairDashEconomicsTests(unittest.TestCase):
         self.assertEqual(action[0], "dash")
 
 
+class PyramidKillsClawTests(unittest.TestCase):
+    """Replay harness n=107 (run 183056): a cell scored claw .15 AND
+    pyramid .9 at once - the pyramid's glints trip the claw slash
+    detector. Memory re-confirmed the 'claw' every frame, the tour
+    targeted it, and the tap gate vetoed it every frame: four identical
+    refused decisions. A cell cannot be both; the pyramid score
+    (.88-.99, the strongest signal we have) wins."""
+
+    def test_claw_on_a_pyramid_is_not_a_goal(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 2)]["claw"] = 0.15
+        info[(2, 2)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info)
+        self.assertNotIn("claw", str(reason))
+        if action is not None and action[0] == "move":
+            self.assertNotEqual(tuple(action[1]), (2, 2))
+
+
+class BoxedExplorerWaitsTests(unittest.TestCase):
+    """Replay harness STARVATION class: with every orthogonal cell
+    suspect the explorer's last-resort fallback stepped onto one - the
+    exact cell the tap gate then refused. All-suspect surroundings now
+    return no action; the runner rescans and the suspects adjudicate
+    within a few frames."""
+
+    def test_all_suspect_surroundings_yield_no_action(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        neighbors = {(1, 1), (3, 1), (2, 0), (2, 2)}
+        for cell in neighbors:
+            info[cell].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(
+            info, ignored_targets=neighbors, suspect_cells=neighbors)
+        self.assertIsNone(action)
+
+
+class SuspectImpassableTests(unittest.TestCase):
+    """Replay harness, first sweep (15 STARVATION hits across the
+    2026-08-22 runs): choose() kept routing THROUGH suspect cells the
+    tap gate then refused - a decision/guard contradiction that
+    starved the tour in four-skip loops. The constraint belongs in the
+    router: an unadjudicated suspect cell is impassable ground."""
+
+    def test_route_walks_around_a_suspect_cell(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 3)].update(item=0.10, orange=0.10)
+        step = strategy.shortest_action(info, (2, 1), {(2, 3)},
+                                        avoid={(2, 2)})
+        self.assertIsNotNone(step)
+        target, obstacle, direction = step
+        self.assertNotEqual(target, (2, 2))
+
+    def test_avoid_never_blocks_the_target_itself(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 2)].update(item=0.10, orange=0.10)
+        step = strategy.shortest_action(info, (2, 1), {(2, 2)},
+                                        avoid={(2, 2)})
+        self.assertIsNotNone(step)
+
+
 class FragileDetourTests(unittest.TestCase):
     """Run 20260822T142042 n=194 (user: 'podía continuar su camino'):
     the route to the perishable orange at (4,1) banned EVERY right step,
