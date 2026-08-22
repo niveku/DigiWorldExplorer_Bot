@@ -900,11 +900,17 @@ class SuspectHoldTests(unittest.TestCase):
     suspect the bot explored away, backtracked, and only then confirmed
     (0,1) as a perishable orange - four moves spent on information a
     single 0.4s hold delivers. When suspects are the only goals on the
-    board, hold exactly one frame instead of exploring."""
+    board, hold exactly one frame instead of exploring.
+
+    Since the known-world doctrine (2026-08-22), only RIGHT-band
+    suspects (columns 3-4, real ingestion doubt) justify the hold:
+    left-band suspects are confetti that can never be believed or
+    targeted, so waiting on them was pure lag (run 20260822T174628:
+    22 of 58 frames were WAITs, mostly post-pickup confetti)."""
 
     def test_holds_one_frame_when_all_goals_are_suspects(self):
         self.assertTrue(runner.should_hold_for_suspects(
-            "explore right", {(0, 1)}, {(0, 1)}, holds=0))
+            "explore right", {(0, 3)}, {(0, 3)}, holds=0))
 
     def test_holds_match_the_two_frame_suspicion_window(self):
         # Run 20260821T225908 n=43 (user-spotted): the combined-suspects
@@ -913,9 +919,9 @@ class SuspectHoldTests(unittest.TestCase):
         # orange after the first hold and had to walk back. The hold now
         # covers the full adjudication window.
         self.assertTrue(runner.should_hold_for_suspects(
-            "explore right", {(0, 1)}, {(0, 1)}, holds=1))
+            "explore right", {(0, 3)}, {(0, 3)}, holds=1))
         self.assertFalse(runner.should_hold_for_suspects(
-            "explore right", {(0, 1)}, {(0, 1)}, holds=2))
+            "explore right", {(0, 3)}, {(0, 3)}, holds=2))
 
     def test_a_confirmed_goal_cancels_the_hold(self):
         self.assertFalse(runner.should_hold_for_suspects(
@@ -1804,30 +1810,29 @@ class AdjacentSuspectHoldTests(unittest.TestCase):
     suspect, so the tour left it out and stepped UP toward a far
     orange; the card confirmed on the very next frame and the tour
     walked right back down. A suspect ONE step away decides the plan
-    either way - one 0.4s hold replaces the two-step vaiven. Adjacent
-    grabs of something real are exempt (they lose nothing), and any
-    move between orthogonal neighbors is 'away' in Manhattan terms, so
-    no alongside exemption exists."""
+    either way - one 0.4s hold replaces the two-step vaiven.
 
-    def test_moving_away_from_an_adjacent_suspect_holds(self):
-        self.assertTrue(runner.should_hold_for_adjacent_suspect(
-            (4, 1), {(4, 2)}, "orange targets=[(0, 2)]",
-            ("move", (3, 1), "up"), holds=0))
+    RETIRED 2026-08-22 (user: 'ya sabemos que genera confeti,
+    deberíamos simplemente ignorarlo, se queda trabado ahí'): under
+    the known-world doctrine a left-band suspect can never be believed
+    or targeted, so there is nothing to wait FOR - and an adjacent
+    suspect is ALWAYS left-band because the digi lives in columns 0-1.
+    The n=49-50 vaiven this hold fixed is covered by the sticky TTL
+    now (the card is ignored for a few frames and the plan holds its
+    course). Run 20260822T174628: 22 of 58 frames were WAITs."""
 
-    def test_adjacent_grab_never_holds(self):
-        self.assertFalse(runner.should_hold_for_adjacent_suspect(
-            (4, 1), {(4, 2)}, "adjacent item=(3, 1)",
-            ("move", (3, 1), "up"), holds=0))
+    def test_adjacent_suspect_hold_is_retired(self):
+        self.assertFalse(hasattr(runner, "should_hold_for_adjacent_suspect"))
 
-    def test_far_suspects_never_hold(self):
-        self.assertFalse(runner.should_hold_for_adjacent_suspect(
-            (4, 1), {(0, 2)}, "orange targets=[(0, 2)]",
-            ("move", (3, 1), "up"), holds=0))
+    def test_left_band_only_suspects_never_hold_the_frame(self):
+        # All goals suspect but every suspect is known-world confetti:
+        # nothing to adjudicate, keep moving.
+        self.assertFalse(runner.should_hold_for_suspects(
+            "explore right", [(2, 1)], {(2, 1), (1, 0)}, holds=0))
 
-    def test_two_holds_break_the_stall(self):
-        self.assertFalse(runner.should_hold_for_adjacent_suspect(
-            (4, 1), {(4, 2)}, "orange targets=[(0, 2)]",
-            ("move", (3, 1), "up"), holds=2))
+    def test_right_band_suspects_still_hold(self):
+        self.assertTrue(runner.should_hold_for_suspects(
+            "explore right", [(2, 3)], {(2, 3)}, holds=0))
 
 
 class ClawCellVisibilityTests(unittest.TestCase):

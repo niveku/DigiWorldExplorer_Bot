@@ -76,6 +76,13 @@ def should_hold_for_suspects(reason, item_goals, suspect_items, holds):
         # real orange right before it confirmed (run 20260821T225908
         # n=43, user-spotted). The hold covers the full window now.
         return False
+    if not any(cell[1] >= 3 for cell in suspect_items):
+        # Known-world doctrine (user 2026-08-22): left-band suspects
+        # are confetti that can never be believed or targeted - there
+        # is nothing to wait FOR. Only right-band ingestion doubt
+        # (columns 3-4) is worth a frame. Run 20260822T174628 spent 22
+        # of 58 frames waiting, mostly on post-pickup confetti.
+        return False
     if not str(reason).startswith("explore"):
         return False
     return not (set(item_goals) - set(suspect_items))
@@ -390,22 +397,10 @@ def should_hold_for_wall(wall_now, wall_stable, action, reason, holds,
                                   "urgent pickup", "approach dash wall"))
 
 
-def should_hold_for_adjacent_suspect(player, suspect_items, reason, action,
-                                     holds, max_holds=2):
-    """A suspect ONE step away decides the plan either way: wait for it.
-
-    Run 20260822T162851 n=49-50: the steps card at (4,2) was suspect,
-    so the tour left it out and stepped UP toward a far orange; the
-    card confirmed on the very next frame and the tour walked right
-    back down. Any plain move with an orthogonally adjacent suspect
-    waits (an adjacent grab of something REAL is exempt - it loses
-    nothing either way); two holds cover the adjudication window."""
-    if holds >= max_holds or action is None or action[0] != "move":
-        return False
-    if str(reason).startswith("adjacent item"):
-        return False
-    return any(abs(cell[0] - player[0]) + abs(cell[1] - player[1]) == 1
-               for cell in suspect_items)
+# (should_hold_for_adjacent_suspect retired 2026-08-22: under the
+# known-world doctrine an adjacent suspect is always left-band confetti
+# that can never be believed or targeted, so there was nothing to wait
+# for - the n=49-50 vaiven it once fixed is covered by the sticky TTL.)
 
 
 def item_cells_of(info):
@@ -646,12 +641,17 @@ def sticky_left_band_suspects(prev_suspects, current_cells, ages, band=2,
 RESCAN_DELAY = 0.5
 
 ACTION_DELAYS = {
-    "move": 0.35,
-    "move_scroll": 0.60,
-    "move_pickup": 0.65,
-    "move_pickup_scroll": 0.80,
-    "attack": 0.90,
-    "dash": 1.40,
+    # Tuned 2026-08-22 after the sensor fix: run 174628 had ONE
+    # shortfall in 52 steps, so the scroll floor holds; pickups no
+    # longer need to outwait their confetti (known-world ignores it),
+    # per the user: 'ya sabemos que genera confeti, simplemente
+    # ignorarlo - se queda un poquito trabado ahí'.
+    "move": 0.30,
+    "move_scroll": 0.55,
+    "move_pickup": 0.45,
+    "move_pickup_scroll": 0.60,
+    "attack": 0.85,
+    "dash": 1.30,
 }
 JITTER_FRACTION = 0.45
 
@@ -2205,11 +2205,8 @@ def main():
             time.sleep(.4)
             continue
         wall_holds = 0
-        if (should_hold_for_suspects(reason, item_goals, suspect_items,
-                                     suspect_holds)
-                or should_hold_for_adjacent_suspect(player, suspect_items,
-                                                    reason, action,
-                                                    suspect_holds)):
+        if should_hold_for_suspects(reason, item_goals, suspect_items,
+                                    suspect_holds):
             suspect_holds += 1
             event["reason"] = reason
             event["action"] = ("WAIT: suspects pending confirmation "
