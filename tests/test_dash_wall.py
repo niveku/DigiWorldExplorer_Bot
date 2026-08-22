@@ -1284,6 +1284,35 @@ class BoardMotionTests(unittest.TestCase):
             (77, 491, 625, 980), None))
 
 
+class DashPathMemoryTests(unittest.TestCase):
+    """Run 20260821T235432 n=64-65 (user-spotted 'why step back?'): the
+    dash collected the orange sitting in its path, but its memory entry
+    survived, slid three columns with the dash's own shift, and the bot
+    stepped back left to grab the ghost. Everything in a dash's path is
+    collected or destroyed: its memory dies with the dash."""
+
+    def test_dash_path_memories_are_forgotten(self):
+        remembered = {(1, 3): ("orange", 5), (4, 4): ("orange", 5)}
+        cleaned = runner.forget_dash_path(
+            remembered, [[1, 2], [1, 3], [1, 4]])
+        self.assertEqual(cleaned, {(4, 4): ("orange", 5)})
+
+
+class AttackNoEffectTests(unittest.TestCase):
+    """Run 20260821T235432 n=155: the attack tap was swallowed by the
+    game (the pyramid at (4,2) was real and still standing), and the
+    no-effect guard read that as a phantom pyramid - garras disabled 25
+    actions, and twelve frames later the cornered bot stopped the run.
+    One swallowed tap retries naturally; only two consecutive no-effect
+    attacks prove the target is phantom."""
+
+    def test_one_no_effect_attack_is_retried(self):
+        self.assertFalse(runner.should_disable_attacks(1))
+
+    def test_two_consecutive_no_effects_disable(self):
+        self.assertTrue(runner.should_disable_attacks(2))
+
+
 class ShiftGhostTests(unittest.TestCase):
     """Run 20260821T225908 n=13-14 (user-confirmed: ONE claw on screen,
     two in memory). A scroll tap the game swallowed still counted in our

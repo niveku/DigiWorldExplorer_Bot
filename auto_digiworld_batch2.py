@@ -614,6 +614,30 @@ def drop_remembered_suspects(suspects, remembered):
     return {cell for cell in suspects if cell not in remembered}
 
 
+def forget_dash_path(remembered, cells):
+    """Everything in a dash's path is collected or destroyed.
+
+    Run 20260821T235432 n=64-65 (user-spotted): the dash collected the
+    orange in its path, but its memory entry survived, slid three
+    columns with the dash's own shift, and the bot stepped back left to
+    grab the ghost."""
+    updated = dict(remembered)
+    for cell in cells:
+        updated.pop(tuple(cell), None)
+    return updated
+
+
+def should_disable_attacks(no_effect_streak):
+    """Two consecutive no-effect attacks prove a phantom target.
+
+    Run 20260821T235432 n=155: one attack tap swallowed by the game (the
+    pyramid was real, the frame shows it standing) read as a phantom
+    pyramid and disabled garras for 25 actions - twelve frames later the
+    cornered bot stopped the run. A single swallowed tap retries
+    naturally on the next frame."""
+    return no_effect_streak >= 2
+
+
 def drop_shift_ghosts(remembered, info):
     """Kill memory twins created by an over-counted scroll.
 
@@ -1228,6 +1252,7 @@ def main():
     pending_reveals = {}
     settle_waits = 0
     no_action_waits = 0
+    attack_noeffect_streak = 0
     first_move_dest = None
     last_stamina_check = 0
     last_move_player_source = None
@@ -1622,7 +1647,16 @@ def main():
             pending_attack_inv = None
             remembered_items = remember_revealed_pickup(
                 remembered_items, result, previous_attack_target, done)
-            if not result["broken"]:
+            attack_noeffect_streak = (attack_noeffect_streak + 1
+                                      if not result["broken"] else 0)
+            if not result["broken"] and not should_disable_attacks(
+                    attack_noeffect_streak):
+                # A single swallowed tap (run 20260821T235432 n=155: real
+                # pyramid, still standing) retries naturally next frame.
+                event["attack_state"] = {
+                    "status": "no visual effect - retrying before disabling",
+                    "target_cell": list(previous_attack_target)}
+            elif not result["broken"]:
                 attacks_enabled = False
                 attacks_disabled_at = done
                 previous_action = None
@@ -1843,6 +1877,8 @@ def main():
             # three columns, so remembered items shift with it.
             last_dash = done
             committed_wall = None
+            remembered_items = forget_dash_path(remembered_items,
+                                                dash_path["cells_seen"])
             for _ in range(3):
                 remembered_items = shift_items_left(remembered_items)
                 phantom_obstacles = shift_items_left(phantom_obstacles)
