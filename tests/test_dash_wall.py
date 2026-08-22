@@ -2013,6 +2013,24 @@ class PixelScrollTests(unittest.TestCase):
         self.assertEqual(runner.measure_scroll_columns(prev, cur), 1)
 
 
+class RejectionGraceTests(unittest.TestCase):
+    """Run 20260822T175424 n=2-5: the up-move was flagged 'refused'
+    (player still at origin) and a phantom obstacle was minted - then
+    the NEXT frame showed the player standing exactly where the
+    'refused' tap aimed: the tap had landed late, not been rejected.
+    The false phantom sent the explorer attacking around a wall that
+    did not exist. A stuck move now gets ONE grace frame (matching the
+    scroll shortfall grace); only a move still stuck on the second
+    look mints the phantom."""
+
+    def test_first_stuck_frame_gets_grace(self):
+        self.assertTrue(runner.rejection_needs_grace((1, 1), None))
+        self.assertTrue(runner.rejection_needs_grace((1, 1), (2, 1)))
+
+    def test_second_stuck_frame_confirms_the_rejection(self):
+        self.assertFalse(runner.rejection_needs_grace((1, 1), (1, 1)))
+
+
 class SlidingBoardTests(unittest.TestCase):
     """Run 20260822T171206: seventeen claimed>measured reconciliations
     (five consecutive at n=91-95) because the scroll lands AFTER the

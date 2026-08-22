@@ -403,6 +403,19 @@ def should_hold_for_wall(wall_now, wall_stable, action, reason, holds,
 # for - the n=49-50 vaiven it once fixed is covered by the sticky TTL.)
 
 
+def rejection_needs_grace(refused, pending_rejection):
+    """One grace frame before believing a 'cannot move' rejection.
+
+    Run 20260822T175424 n=2-5: a stuck player was read as a rejection
+    and a phantom obstacle minted - and the NEXT frame showed the
+    player standing exactly where the 'refused' tap aimed. The tap had
+    landed late, not been rejected. Only a move still stuck on the
+    second consecutive look is a real rejection (mirrors the scroll
+    shortfall grace)."""
+    return tuple(refused) != (tuple(pending_rejection)
+                              if pending_rejection else None)
+
+
 def item_cells_of(info):
     """Cells the suspect system and scroll reconciler treat as items.
 
@@ -1530,6 +1543,7 @@ def main():
     pending_attack_inv = None
     expected_player = None
     expected_rollback = None
+    pending_rejection = None
     last_single_move = False
     memory_streak = 0
     attacks_enabled = True
@@ -1859,7 +1873,23 @@ def main():
         distrust_player = False
         if silent_rejection(previous_action, expected_rollback, player,
                             first_move_dest, player_source, player_score):
+            if rejection_needs_grace(first_move_dest, pending_rejection):
+                # The tap may simply not have landed yet (run
+                # 20260822T175424: two 'refusals' whose moves executed
+                # one frame later). One grace frame; a move still stuck
+                # on the second look is a real rejection.
+                pending_rejection = tuple(first_move_dest)
+                event["action"] = (f"WAIT: tap to {list(first_move_dest)} "
+                                   "not landed - grace frame")
+                bot.log_event(log, event)
+                if args.verbose:
+                    progress(done, args.steps,
+                             f"Tap hacia {list(first_move_dest)} sin aterrizar"
+                             " - frame de gracia", "33")
+                time.sleep(0.6)
+                continue
             rejected_streak += 1
+            pending_rejection = None
             phantom_obstacles[first_move_dest] = done + 6
             event["silent_rejection"] = {"stuck_at": list(player),
                                          "refused": list(first_move_dest),
@@ -1871,6 +1901,7 @@ def main():
                          "- celda marcada como bloqueada", "33")
         elif previous_action == "move" and expected_rollback is not None:
             rejected_streak = 0
+            pending_rejection = None
         ghost_player = impossible_player_jump(previous_action, expected_rollback,
                                               expected_player, player,
                                               last_single_move)
