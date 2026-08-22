@@ -1436,7 +1436,12 @@ def main():
     p.add_argument("--steps", type=int, default=10)
     # --interval/--jitter retired 2026-08-22 (user directive): pacing is
     # internal now - see ACTION_DELAYS/action_delay. Fast where nothing
-    # animates, slower where the game swallows taps.
+    # animates, slower where the game swallows taps. The flags are still
+    # ACCEPTED so existing launch commands keep working, but ignored.
+    p.add_argument("--interval", type=float, default=None,
+                   help="ignored: pacing is internal per action type")
+    p.add_argument("--jitter", type=float, default=None,
+                   help="ignored: pacing is internal per action type")
     p.add_argument("--batch-size", type=int, default=2, choices=(1, 2, 3))
     p.add_argument("--debug-screenshots", action="store_true")
     p.add_argument("--verbose", action="store_true", help="human-readable status for every scan")
@@ -1446,6 +1451,9 @@ def main():
     p.add_argument("--serial", default=bot.SERIAL_DEFAULT)
     p.add_argument("--out", type=Path, default=Path("outputs"))
     args = p.parse_args()
+    if args.interval is not None or args.jitter is not None:
+        print("Aviso: --interval/--jitter ya no aplican - los tiempos "
+              "son internos por tipo de acción (ACTION_DELAYS).")
     if args.steps <= 0:
         raise SystemExit("--steps must be positive")
 
