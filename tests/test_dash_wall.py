@@ -732,11 +732,13 @@ class ClawMemoryTests(unittest.TestCase):
         # ever vanishes except by collection or the left edge, so the
         # old claw-specific 4-frame TTL only recreated the flicker churn
         # the memory exists to prevent. One unified TTL guards against
-        # our own coordinate errors.
-        remembered = {(2, 2): ("claw", 5), (3, 3): ("orange", 5)}
+        # our own coordinate errors. (Since 2026-08-22b the LEFT BAND
+        # decays in band_ttl frames instead - fully visible, so unseen
+        # there means ghost - hence the col>=3 cells here.)
+        remembered = {(2, 3): ("claw", 5), (3, 3): ("orange", 5)}
         pruned = runner.prune_remembered_items(remembered, done=10,
                                                player=(0, 0))
-        self.assertIn((2, 2), pruned)
+        self.assertIn((2, 3), pruned)
         self.assertIn((3, 3), pruned)
         self.assertEqual(runner.prune_remembered_items(
             remembered, done=31, player=(0, 0)), {})
@@ -1929,6 +1931,107 @@ class ScrollUndoTests(unittest.TestCase):
                          {(1, 2): ("steps", 4)})
         self.assertEqual(runner.shift_items_right({(1, 4): ("steps", 4)}),
                          {})
+
+
+class ExplorerNeverStepsBackTests(unittest.TestCase):
+    """Run 20260822T183056 n=14: with up and right suspect-blocked the
+    explorer stepped plain LEFT - a free move backward that buys
+    nothing (the user's vaiven). Same law as the left attack: while
+    suspects block the alternatives, waiting a frame beats walking
+    backward. A genuinely cornered explorer (real pyramids, no
+    suspects) may still escape left."""
+
+    def test_left_step_yields_to_waiting_while_suspects_block(self):
+        info = empty_grid()
+        info[(4, 1)]["player"] = 0.2
+        info[(3, 1)].update(item=0.10, pink=0.10)
+        info[(4, 2)].update(item=0.10, pink=0.10)
+        action, reason = strategy.choose(
+            info, ignored_targets={(3, 1), (4, 2)},
+            suspect_cells={(3, 1), (4, 2)})
+        if action is not None:
+            self.assertFalse(action[0] == "move" and action[2] == "left")
+
+    def test_cornered_without_suspects_still_escapes_left(self):
+        info = empty_grid()
+        info[(4, 1)]["player"] = 0.2
+        info[(3, 1)]["pyramid"] = 0.9
+        info[(4, 2)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, attacks_enabled=False)
+        self.assertEqual(action, ("move", (4, 0), "left"))
+
+
+class LeftBandMemoryDecayTests(unittest.TestCase):
+    """Run 20260822T183056 n=25/54: the tour rescued remembered
+    oranges the detection did not show anywhere - ghosts that survive
+    the global TTL of 25 frames. The left band (columns 0-2) is fully
+    visible, so a remembered item unseen there for a few settled
+    frames does not exist. Cells the player sprite may occlude
+    (Chebyshev 1) keep the long TTL."""
+
+    def test_unseen_left_band_memory_decays_fast(self):
+        remembered = {(3, 0): ("orange", 10)}
+        pruned = strategy_prune = runner.prune_remembered_items(
+            remembered, done=15, player=(0, 1))
+        self.assertEqual(pruned, {})
+
+    def test_recently_seen_left_band_memory_survives(self):
+        remembered = {(3, 0): ("orange", 13)}
+        pruned = runner.prune_remembered_items(
+            remembered, done=15, player=(0, 1))
+        self.assertIn((3, 0), pruned)
+
+    def test_cell_beside_the_player_keeps_the_long_ttl(self):
+        remembered = {(3, 0): ("orange", 10)}
+        pruned = runner.prune_remembered_items(
+            remembered, done=15, player=(3, 1))
+        self.assertIn((3, 0), pruned)
+
+    def test_right_band_memory_keeps_the_long_ttl(self):
+        remembered = {(3, 4): ("orange", 10)}
+        pruned = runner.prune_remembered_items(
+            remembered, done=15, player=(0, 1))
+        self.assertIn((3, 4), pruned)
+
+
+class DashStockGateTests(unittest.TestCase):
+    """Second user complaint about pair dashes ('un dash sobre 2 y no
+    sobre 3'): run 20260822T183056 spent six freshly bought dashes,
+    every one on a bare pair. A bare 2-pyramid pair (no items in path,
+    no right-side target) is roughly break-even, so it only fires when
+    dashes are plentiful; walls of three and pairs with payload always
+    fire."""
+
+    def bare_pair(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 2)]["pyramid"] = 0.9
+        info[(2, 3)]["pyramid"] = 0.9
+        return info
+
+    def test_bare_pair_fires_with_plenty_of_dashes(self):
+        action, reason = strategy.choose(self.bare_pair(), dash_stock=30)
+        self.assertEqual(action[0], "dash")
+
+    def test_bare_pair_defers_when_stock_is_low(self):
+        action, reason = strategy.choose(self.bare_pair(), dash_stock=5)
+        self.assertNotEqual(action[0], "dash")
+
+    def test_unknown_stock_keeps_the_doctrine(self):
+        action, reason = strategy.choose(self.bare_pair())
+        self.assertEqual(action[0], "dash")
+
+    def test_payload_pair_ignores_the_stock(self):
+        info = self.bare_pair()
+        info[(2, 4)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(info, dash_stock=5)
+        self.assertEqual(action[0], "dash")
+
+    def test_wall_of_three_ignores_the_stock(self):
+        info = self.bare_pair()
+        info[(2, 4)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, dash_stock=5)
+        self.assertEqual(action[0], "dash")
 
 
 class ExplorerNeverAttacksLeftTests(unittest.TestCase):

@@ -254,7 +254,7 @@ def combined_suspects(fresh, previous_fresh, current):
     return set(fresh) | (set(previous_fresh) & set(current))
 
 
-def prune_remembered_items(remembered, done, player, ttl=25):
+def prune_remembered_items(remembered, done, player, ttl=25, band_ttl=4):
     """Drop remembered pickups that expired or were just visited.
 
     Game invariant (user, 2026-08-21): no pickup - claws included - ever
@@ -263,9 +263,23 @@ def prune_remembered_items(remembered, done, player, ttl=25):
     memory exists to prevent. One unified TTL guards against our own
     coordinate errors; collection pops and the scroll shift handle the
     legitimate exits.
-    """
-    return {cell: value for cell, value in remembered.items()
-            if done - value[1] <= ttl and cell != player}
+
+    The LEFT BAND (columns 0-2) is fully visible: a remembered item
+    the detection has not re-seen there for band_ttl settled frames
+    does not exist - it is a shift-accounting ghost, and the tour kept
+    'rescuing' them (run 20260822T183056 n=25/54, the user's backsteps
+    for nothing). Cells beside the player keep the long TTL: the
+    sprite suppression blinds detection there."""
+    kept = {}
+    for cell, value in remembered.items():
+        if cell == player:
+            continue
+        near_player = (abs(cell[0] - player[0]) <= 1
+                       and abs(cell[1] - player[1]) <= 1)
+        limit = ttl if (cell[1] > 2 or near_player) else band_ttl
+        if done - value[1] <= limit:
+            kept[cell] = value
+    return kept
 
 
 def close_reward_overlay(tap, capture, classify, max_taps=5, pause=None):
@@ -659,10 +673,13 @@ ACTION_DELAYS = {
     # longer need to outwait their confetti (known-world ignores it),
     # per the user: 'ya sabemos que genera confeti, simplemente
     # ignorarlo - se queda un poquito trabado ahí'.
-    "move": 0.30,
-    "move_scroll": 0.55,
-    "move_pickup": 0.45,
-    "move_pickup_scroll": 0.60,
+    # Re-tuned 2026-08-22b: at 0.30 the game's own hop animation lost
+    # the race ~7 grace frames per 200 steps (run 183056), and every
+    # grace frame costs ~1.1s - pricier than +0.1s on every move.
+    "move": 0.42,
+    "move_scroll": 0.60,
+    "move_pickup": 0.55,
+    "move_pickup_scroll": 0.70,
     "attack": 0.85,
     "dash": 1.30,
 }
@@ -1540,6 +1557,7 @@ def main():
     energy_start = None
     last_energy_read = None
     inventory_start = None
+    dash_stock = None
     pending_attack_inv = None
     expected_player = None
     expected_rollback = None
@@ -1810,6 +1828,8 @@ def main():
             if any(value is not None for value in reading.values()):
                 inventory_start = reading
                 event["inventory_start"] = reading
+                if reading and reading.get("dashes") is not None:
+                    dash_stock = reading["dashes"]
                 # Shopping advice for the whole planned run, from measured
                 # burn rates - printed once, before spending anything.
                 recommendation = purchase_recommendation(
@@ -2150,6 +2170,9 @@ def main():
                     "inventory_before": pending_dash.get("inventory_before"),
                     "inventory_after": read_drop_counters(image),
                 }
+                inv_after = event["dash_result"]["inventory_after"]
+                if inv_after and inv_after.get("dashes") is not None:
+                    dash_stock = inv_after["dashes"]
                 pending_dash = None
             current_right_obstacles = consecutive_right_obstacles(info, player)
             if (player == previous_dash_player and
@@ -2212,7 +2235,8 @@ def main():
                                                           | suspect_items),
                                          player=player, preview=preview,
                                          hunt_walls=wall_stable,
-                                         suspect_cells=suspect_items)
+                                         suspect_cells=suspect_items,
+                                         dash_stock=dash_stock)
         left_band_risk = any(
             cell[1] <= 2 and strategy.pickup_type(info[cell])
             not in (None, "purple_ticket", "green_ticket", "steps")
@@ -2352,6 +2376,8 @@ def main():
             bot.adb(args.adb, args.serial, "shell", "input", "tap",
                     str(control[0]), str(control[1]))
             sent.append({"type": "dash", "adb_xy": list(control)})
+            if dash_stock is not None:
+                dash_stock = max(0, dash_stock - 1)
             expected_player = None
             # The dash consumes any wall commitment; the world scrolls
             # only what clamps the digi back to column 1 (3 from a

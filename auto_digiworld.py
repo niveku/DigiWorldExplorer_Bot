@@ -508,7 +508,7 @@ def simulate_tour(player, order):
 
 def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
            ignored_targets=(), player=None, preview=None, hunt_walls=True,
-           suspect_cells=()):
+           suspect_cells=(), dash_stock=None):
     # A caller that already resolved the player (dead reckoning, large-sprite
     # locator) passes it in; per-cell scores stay authoritative otherwise.
     if player is None:
@@ -703,8 +703,14 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         # flicker, and run 20260821T225908's nine dashes bought nothing.
         real_path_pyramids = sum(1 for cell in path
                                  if is_obstacle(info[cell]))
+        # A bare 2-real pair is roughly break-even, so it only spends a
+        # dash while stock is comfortable (second user complaint about
+        # 2-dashes, run 20260822T183056: six fresh dashes, all pairs).
+        # Payload pairs and threes always fire.
+        stock_ok = dash_stock is None or dash_stock >= 12
         pair_worth = (path_items or right_targets
-                      or real_path_pyramids >= 2 or path_pyramids >= 3)
+                      or (real_path_pyramids >= 2 and stock_ok)
+                      or path_pyramids >= 3)
         # Only an IMMINENT wall (launch one row above or below) may hold
         # the pair back - it stabilizes and fires within a frame or two
         # (run 20260820T033221). A far wall blocked the pair without
@@ -746,7 +752,8 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                                    for cell in launch_path)
                 launch_real = sum(1 for cell in launch_path
                                   if is_obstacle(info[cell]))
-                if not (launch_items or right_targets or launch_real >= 2
+                if not (launch_items or right_targets
+                        or (launch_real >= 2 and stock_ok)
                         or dash_path_pyramids(*launch) >= 3):
                     continue
                 launch_risk = {cell
@@ -864,6 +871,13 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             # only 'preferred' candidate and the explorer spent 200
             # shards exploring backwards (run 20260822T160202 n=72).
             # Waiting a frame for suspects to adjudicate is cheaper.
+            continue
+        if direction == "left" and suspect_cells:
+            # Same law for the plain left step: while suspects block
+            # the alternatives, waiting a frame beats walking backward
+            # (run 20260822T183056 n=14 stepped left for nothing). A
+            # genuinely cornered explorer - real pyramids, no suspects
+            # - may still escape left.
             continue
         base = {"right": 100, "down": 12, "up": 10, "left": -40}[direction]
         score = base + 20*v["highlight"]
