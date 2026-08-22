@@ -548,25 +548,66 @@ def measure_scroll_columns(prev_strip, cur_strip, max_cols=3):
     (two hidden garras, HUD 41->39), and a dash followed. The board
     strip is compared at shifts 0..max_cols; the best alignment IS the
     scroll. Confetti and sprites are local noise against a whole-board
-    alignment. Returns None when the strips are unusable."""
+    alignment. Returns None when the strips are unusable. (Thin wrapper
+    over measure_scroll_px, which adds mid-slide detection.)"""
+    cols, _ = measure_scroll_px(prev_strip, cur_strip, max_cols)
+    return cols
+
+
+def measure_scroll_px(prev_strip, cur_strip, max_cols=3, slide_tolerance=0.2):
+    """Pixel-granular scroll measurement with mid-slide detection.
+
+    The grid rectangle stays put while the CONTENTS slide, so
+    board_in_motion cannot see a scroll in flight - run 20260822T171206
+    took screenshots mid-slide seventeen times, read scroll 0, and
+    desynced memory from the world (cannot-move toasts, a garra on an
+    empty cell). The strip alignment is searched at ~pixel steps: a
+    best offset near a whole column is a settled measurement; anything
+    in between means the board is still moving. Returns
+    (columns, sliding) or (None, False) when unusable."""
     import numpy as np
     if prev_strip is None or cur_strip is None:
-        return None
+        return None, False
     if prev_strip.shape != cur_strip.shape or prev_strip.shape[1] < 10:
-        return None
+        return None, False
     width = prev_strip.shape[1]
     col_px = max(1, width // 5)
-    scores = []
-    for k in range(max_cols + 1):
-        off = k * col_px
-        if off >= width:
-            break
+    max_off = min(max_cols * col_px, width - 5)
+    best_off, best_score = 0, None
+    for off in range(0, max_off + 1, 2):
         a = prev_strip[:, off:]
         b = cur_strip[:, :width - off]
-        scores.append(float(np.mean(np.abs(a - b))))
-    if not scores:
-        return None
-    return int(min(range(len(scores)), key=scores.__getitem__))
+        score = float(np.mean(np.abs(a - b)))
+        if best_score is None or score < best_score:
+            best_off, best_score = off, score
+    cols_f = best_off / col_px
+    nearest = int(round(cols_f))
+    sliding = abs(cols_f - nearest) > slide_tolerance
+    return min(nearest, max_cols), sliding
+
+
+def scroll_shortfall_wait(measured, claimed, waits, max_waits=1):
+    """Give a late scroll one extra frame before reconciling.
+
+    A tap's scroll often lands AFTER the next screenshot: the sensor
+    reads short, and reconciling immediately unshifts memory that the
+    late scroll then re-desyncs (run 20260822T171206 n=91-95, five
+    'swallowed' taps in a row that were merely late). One held frame
+    lets the animation land; a shortfall that persists is a genuinely
+    swallowed tap and reconciles."""
+    if measured is None or measured >= claimed:
+        return False
+    return waits < max_waits
+
+
+def pointless_attack(detected_info, target):
+    """A garra may only go to a cell DETECTION shows as a pyramid.
+
+    Run 20260822T171206 n=163: a cannot-move toast minted a phantom
+    obstacle, the router attacked it - 200 shards swung at an empty
+    cell - and then walked an 8-step detour around a wall that did not
+    exist. A phantom vision cannot confirm gets dropped, not hit."""
+    return not strategy.is_obstacle(detected_info[tuple(target)])
 
 
 def sticky_left_band_suspects(prev_suspects, current_cells, ages, band=2,
@@ -1501,6 +1542,7 @@ def main():
     prev_suspect_items = set()
     sticky_ages = {}
     prev_strip = None
+    scroll_waits = 0
     lag_cooldown = 0
     recent_pickups = []
     committed_wall = None
@@ -1881,7 +1923,29 @@ def main():
         # from memory running one column ahead of a latency-swallowed
         # tap).
         cur_strip = board_strip(image, det.board)
-        measured = measure_scroll_columns(prev_strip, cur_strip)
+        measured, board_sliding = measure_scroll_px(prev_strip, cur_strip)
+        if board_sliding:
+            # The grid stands still while its CONTENTS slide: this
+            # screenshot caught the scroll in flight. Acting on it
+            # desynced memory 17 times in run 20260822T171206.
+            event["action"] = "WAIT: board content sliding"
+            bot.log_event(log, event)
+            if args.verbose:
+                progress(done, args.steps,
+                         "Contenido del tablero en movimiento - espero", "33")
+            time.sleep(0.6)
+            continue
+        if scroll_shortfall_wait(measured, scrolls_since_frame, scroll_waits):
+            scroll_waits += 1
+            event["action"] = (f"WAIT: scroll shortfall measured={measured} "
+                               f"claimed={scrolls_since_frame} ({scroll_waits}/1)")
+            bot.log_event(log, event)
+            if args.verbose:
+                progress(done, args.steps,
+                         "Scroll aún no aterriza - espero un frame", "33")
+            time.sleep(0.7)
+            continue
+        scroll_waits = 0
         prev_strip = cur_strip
         if measured is not None and measured != scrolls_since_frame:
             delta = scrolls_since_frame - measured
@@ -2271,6 +2335,21 @@ def main():
                 if args.verbose:
                     progress(done, args.steps,
                              f"Tap ilegal a {list(target)} suprimido - "
+                             "replanificando", "33")
+                time.sleep(RESCAN_DELAY)
+                continue
+            if kind == "attack" and pointless_attack(detected_info, target):
+                # A garra only goes to a visually confirmed pyramid: a
+                # phantom obstacle minted by a cannot-move toast took a
+                # 200-shard swing at an empty cell (run 20260822T171206
+                # n=163) and then forced an 8-step detour around a wall
+                # that did not exist. Drop the phantom, replan.
+                phantom_obstacles.pop(tuple(target), None)
+                event["action"] = f"SKIP: garra at visually empty {list(target)}"
+                bot.log_event(log, event)
+                if args.verbose:
+                    progress(done, args.steps,
+                             f"Garra a celda vacía {list(target)} suprimida - "
                              "replanificando", "33")
                 time.sleep(RESCAN_DELAY)
                 continue

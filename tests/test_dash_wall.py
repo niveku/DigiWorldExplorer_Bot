@@ -2000,6 +2000,67 @@ class PixelScrollTests(unittest.TestCase):
         self.assertEqual(runner.measure_scroll_columns(prev, cur), 1)
 
 
+class SlidingBoardTests(unittest.TestCase):
+    """Run 20260822T171206: seventeen claimed>measured reconciliations
+    (five consecutive at n=91-95) because the scroll lands AFTER the
+    screenshot - the sensor read 0, memory was unshifted, and when the
+    scroll arrived late the board and memory were desynced: cannot-move
+    toasts, phantom obstacles, and a garra spent on an empty cell
+    (n=163). Two defenses: pixel-granular measurement detects a board
+    caught MID-slide (best alignment far from a whole column), and a
+    measured shortfall waits one extra frame for the late scroll before
+    reconciling."""
+
+    @staticmethod
+    def strip_with_block(px_off, width=135, height=30):
+        import numpy as np
+        z = np.zeros((height, width), dtype=float)
+        z[5:25, 60 - px_off:100 - px_off] = 200.0
+        return z
+
+    def test_whole_column_shift_is_settled(self):
+        prev = self.strip_with_block(0)
+        cur = self.strip_with_block(27)   # exactly one column (135/5)
+        cols, sliding = runner.measure_scroll_px(prev, cur)
+        self.assertEqual(cols, 1)
+        self.assertFalse(sliding)
+
+    def test_half_column_shift_is_sliding(self):
+        prev = self.strip_with_block(0)
+        cur = self.strip_with_block(13)   # mid-animation
+        cols, sliding = runner.measure_scroll_px(prev, cur)
+        self.assertTrue(sliding)
+
+    def test_static_board_is_settled_zero(self):
+        prev = self.strip_with_block(0)
+        cols, sliding = runner.measure_scroll_px(prev, prev)
+        self.assertEqual((cols, sliding), (0, False))
+
+    def test_shortfall_waits_once_then_reconciles(self):
+        self.assertTrue(runner.scroll_shortfall_wait(0, 1, waits=0))
+        self.assertFalse(runner.scroll_shortfall_wait(0, 1, waits=1))
+        self.assertFalse(runner.scroll_shortfall_wait(1, 1, waits=0))
+        self.assertFalse(runner.scroll_shortfall_wait(2, 1, waits=0))
+
+
+class PointlessGarraTests(unittest.TestCase):
+    """Run 20260822T171206 n=163: a cannot-move toast minted a phantom
+    obstacle at (1,1), and one decision later the router ATTACKED it -
+    200 shards swung at an empty cell, then an 8-step detour around a
+    wall that did not exist. A garra only ever goes to a cell the
+    DETECTION shows as a pyramid; a phantom that vision cannot confirm
+    is dropped instead of attacked."""
+
+    def test_attack_on_visually_empty_cell_is_pointless(self):
+        info = empty_grid()
+        self.assertTrue(runner.pointless_attack(info, (1, 1)))
+
+    def test_attack_on_a_real_pyramid_is_fine(self):
+        info = empty_grid()
+        info[(1, 1)]["pyramid"] = 0.9
+        self.assertFalse(runner.pointless_attack(info, (1, 1)))
+
+
 class KnownWorldTests(unittest.TestCase):
     """Doctrine 2026-08-22 (user): 'ya deberíamos estar súper
     confirmados de qué hay y qué no hay' - nothing NEW can exist in
