@@ -967,7 +967,16 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         # onto one is exactly what the tap gate refuses. Rescan; the
         # suspects adjudicate within a few frames.
         return None, "boxed by suspects"
-    _, target, obstacle, direction = max(preferred or fallback)
+    pool = preferred or fallback
+    # A garra never outbids a free step that advances or flanks
+    # (up/down/right). Run 20260822T215547 n=47: the anti-reverse
+    # hysteresis (-30) sank the free step up below the attack's score
+    # and bought a 200-shard garra beside a free move. The left escape
+    # does not count as an alternative: it buys no progress, so a
+    # truly cornered explorer (only left open) still breaks forward.
+    movers = [entry for entry in pool
+              if not entry[2] and entry[3] != "left"]
+    _, target, obstacle, direction = max(movers or pool)
     return ("attack" if obstacle else "move", target, direction), "explore right"
 
 

@@ -1587,6 +1587,34 @@ class EarlyAdvanceTieBreakTests(unittest.TestCase):
         self.assertEqual(direction, "right")
 
 
+class ExplorerNeverBuysGarraOverFreeStepTests(unittest.TestCase):
+    """Run 20260822T215547 n=47: boxed left and right by pyramids at
+    (4,0)/(4,2) with a FREE step up at (3,1), the explorer spent a
+    200-shard garra on (4,2) - the anti-reverse hysteresis (-30) sank
+    the free move below the attack's score because the bot had just
+    walked down. A garra never outbids a free step while exploring:
+    attacks only when EVERY candidate is an obstacle."""
+
+    def test_free_reverse_step_beats_the_attack(self):
+        info = empty_grid()
+        info[(4, 1)]["player"] = 0.2
+        info[(4, 0)]["pyramid"] = 0.9
+        info[(4, 2)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, previous_direction="down",
+                                         player=(4, 1))
+        self.assertEqual(action[0], "move")
+        self.assertEqual(tuple(action[1]), (3, 1))
+
+    def test_truly_boxed_explorer_still_attacks(self):
+        info = empty_grid()
+        info[(4, 1)]["player"] = 0.2
+        for cell in ((4, 0), (4, 2), (3, 1)):
+            info[cell]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, previous_direction="down",
+                                         player=(4, 1))
+        self.assertEqual(action[0], "attack")
+
+
 class SlidingWaitCapTests(unittest.TestCase):
     """Run 20260822T212332 n=82: the mid-slide WAIT had no retry cap
     and never refreshed its reference strip, so a board whose content

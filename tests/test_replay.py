@@ -29,6 +29,8 @@ CORPUS = [
                                  # suspect-detour horseshoe walks
     "20260822T212332_788505Z",   # uncapped sliding wait deadlocked at
                                  # n=82 (47 straight waits)
+    "20260822T215547_461705Z",   # explore garra bought over a free
+                                 # step by the anti-reverse hysteresis
 ]
 
 
