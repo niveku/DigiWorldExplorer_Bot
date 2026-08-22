@@ -1941,6 +1941,23 @@ class ExplorerNeverStepsBackTests(unittest.TestCase):
     backward. A genuinely cornered explorer (real pyramids, no
     suspects) may still escape left."""
 
+    def test_explorer_never_attacks_while_suspects_block(self):
+        # Run 20260822T184638 n=41 (user: 'garra hacia arriba en vez
+        # de un dash claro'): surrounded by post-pickup suspects, the
+        # explorer attacked the pyramid ABOVE - the left-only law was
+        # too narrow. While suspects block alternatives, no explore
+        # attack in ANY direction: wait the frame instead.
+        info = empty_grid()
+        info[(1, 1)]["player"] = 0.2
+        info[(0, 1)]["pyramid"] = 0.9
+        info[(1, 2)].update(item=0.10, orange=0.10)
+        info[(2, 1)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(
+            info, ignored_targets={(1, 2), (2, 1)},
+            suspect_cells={(1, 2), (2, 1)})
+        if action is not None:
+            self.assertNotEqual(action[0], "attack")
+
     def test_left_step_yields_to_waiting_while_suspects_block(self):
         info = empty_grid()
         info[(4, 1)]["player"] = 0.2
@@ -1962,36 +1979,47 @@ class ExplorerNeverStepsBackTests(unittest.TestCase):
 
 
 class LeftBandMemoryDecayTests(unittest.TestCase):
-    """Run 20260822T183056 n=25/54: the tour rescued remembered
-    oranges the detection did not show anywhere - ghosts that survive
-    the global TTL of 25 frames. The left band (columns 0-2) is fully
-    visible, so a remembered item unseen there for a few settled
-    frames does not exist. Cells the player sprite may occlude
-    (Chebyshev 1) keep the long TTL."""
+    """v1 (time-based TTL 4) was a regression: confetti covers a REAL
+    tracked item for a frame, the item is not 're-seen', the TTL kills
+    it, and its reappearance reads as an unexplained arrival - sticky,
+    ignored, scrolled off (run 20260822T184638, user: 'falló muchos
+    drops'). v2 counts CLEAN MISSES instead: memory dies only after
+    its cell was seen truly EMPTY - no item, no suspect covering it,
+    no player sprite nearby - three times. Ghost cells look clean
+    every frame and die just as fast; covered real items never decay."""
 
-    def test_unseen_left_band_memory_decays_fast(self):
+    def test_three_clean_misses_kill_a_left_band_ghost(self):
         remembered = {(3, 0): ("orange", 10)}
-        pruned = strategy_prune = runner.prune_remembered_items(
-            remembered, done=15, player=(0, 1))
-        self.assertEqual(pruned, {})
+        misses = {(3, 0): 2}
+        kept, misses = runner.decay_unseen_left_band(
+            remembered, misses, frozenset(), set(), (0, 3))
+        self.assertEqual(kept, {})
 
-    def test_recently_seen_left_band_memory_survives(self):
-        remembered = {(3, 0): ("orange", 13)}
-        pruned = runner.prune_remembered_items(
-            remembered, done=15, player=(0, 1))
-        self.assertIn((3, 0), pruned)
-
-    def test_cell_beside_the_player_keeps_the_long_ttl(self):
+    def test_a_covering_suspect_does_not_count_as_a_miss(self):
         remembered = {(3, 0): ("orange", 10)}
-        pruned = runner.prune_remembered_items(
-            remembered, done=15, player=(3, 1))
-        self.assertIn((3, 0), pruned)
+        kept, misses = runner.decay_unseen_left_band(
+            remembered, {(3, 0): 2}, frozenset(), {(3, 0)}, (0, 3))
+        self.assertIn((3, 0), kept)
+        self.assertEqual(misses.get((3, 0)), 2)
 
-    def test_right_band_memory_keeps_the_long_ttl(self):
+    def test_a_sighting_resets_the_misses(self):
+        remembered = {(3, 0): ("orange", 12)}
+        kept, misses = runner.decay_unseen_left_band(
+            remembered, {(3, 0): 2}, frozenset({(3, 0)}), set(), (0, 3))
+        self.assertIn((3, 0), kept)
+        self.assertEqual(misses.get((3, 0), 0), 0)
+
+    def test_player_adjacency_blinds_detection_no_miss(self):
+        remembered = {(3, 0): ("orange", 10)}
+        kept, misses = runner.decay_unseen_left_band(
+            remembered, {(3, 0): 2}, frozenset(), set(), (3, 1))
+        self.assertIn((3, 0), kept)
+
+    def test_right_band_memory_never_miss_decays(self):
         remembered = {(3, 4): ("orange", 10)}
-        pruned = runner.prune_remembered_items(
-            remembered, done=15, player=(0, 1))
-        self.assertIn((3, 4), pruned)
+        kept, misses = runner.decay_unseen_left_band(
+            remembered, {(3, 4): 9}, frozenset(), set(), (0, 1))
+        self.assertIn((3, 4), kept)
 
 
 class DashStockGateTests(unittest.TestCase):

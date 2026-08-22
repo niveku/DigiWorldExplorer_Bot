@@ -254,7 +254,7 @@ def combined_suspects(fresh, previous_fresh, current):
     return set(fresh) | (set(previous_fresh) & set(current))
 
 
-def prune_remembered_items(remembered, done, player, ttl=25, band_ttl=4):
+def prune_remembered_items(remembered, done, player, ttl=25):
     """Drop remembered pickups that expired or were just visited.
 
     Game invariant (user, 2026-08-21): no pickup - claws included - ever
@@ -264,22 +264,50 @@ def prune_remembered_items(remembered, done, player, ttl=25, band_ttl=4):
     coordinate errors; collection pops and the scroll shift handle the
     legitimate exits.
 
-    The LEFT BAND (columns 0-2) is fully visible: a remembered item
-    the detection has not re-seen there for band_ttl settled frames
-    does not exist - it is a shift-accounting ghost, and the tour kept
-    'rescuing' them (run 20260822T183056 n=25/54, the user's backsteps
-    for nothing). Cells beside the player keep the long TTL: the
-    sprite suppression blinds detection there."""
+    (The time-based left-band fast TTL lived here for one run and was
+    a regression - confetti covers a real item for a frame and the
+    clock kills it (run 20260822T184638, user: 'falló muchos drops').
+    Left-band ghosts are handled by decay_unseen_left_band, which
+    counts CLEAN misses instead of time.)"""
+    return {cell: value for cell, value in remembered.items()
+            if done - value[1] <= ttl and cell != player}
+
+
+def decay_unseen_left_band(remembered, misses, detected_cells, suspects,
+                           player, band=2, max_misses=3):
+    """Left-band memory dies only after its cell was seen truly EMPTY.
+
+    The band is fully visible, so a remembered item whose cell shows
+    NOTHING - no item detected, no suspect (confetti) covering it, no
+    player sprite nearby to blind the detector - three separate times
+    is a shift-accounting ghost (run 20260822T183056 n=25/54 chased
+    those). A plain time TTL was a regression: confetti covers a REAL
+    tracked item for a frame, the clock kills it, and its reappearance
+    reads as an unexplained arrival - sticky, ignored, scrolled off
+    (run 20260822T184638, user: 'falló muchos drops'). Clean-miss
+    counting kills ghosts just as fast (their cells look clean every
+    frame) and never touches a covered real item.
+    Returns (kept_memory, updated_misses)."""
     kept = {}
+    new_misses = {}
     for cell, value in remembered.items():
-        if cell == player:
+        if cell[1] > band:
+            kept[cell] = value
             continue
         near_player = (abs(cell[0] - player[0]) <= 1
                        and abs(cell[1] - player[1]) <= 1)
-        limit = ttl if (cell[1] > 2 or near_player) else band_ttl
-        if done - value[1] <= limit:
+        if cell in detected_cells:
             kept[cell] = value
-    return kept
+            continue
+        if cell in suspects or near_player:
+            kept[cell] = value
+            new_misses[cell] = misses.get(cell, 0)
+            continue
+        count = misses.get(cell, 0) + 1
+        if count < max_misses:
+            kept[cell] = value
+            new_misses[cell] = count
+    return kept, new_misses
 
 
 def close_reward_overlay(tap, capture, classify, max_taps=5, pause=None):
@@ -1580,6 +1608,7 @@ def main():
     prev_fresh_suspects = set()
     prev_suspect_items = set()
     sticky_ages = {}
+    mem_misses = {}
     prev_strip = None
     scroll_waits = 0
     lag_cooldown = 0
@@ -2026,9 +2055,11 @@ def main():
                                    if c + 1 <= 4}
                     recent_pickups = [((r, c + 1), w) for (r, c), w
                                       in recent_pickups if c + 1 <= 4]
+                    mem_misses = shift_items_right(mem_misses)
                 else:
                     ban_history = shift_cells_left(ban_history)
                     recent_pickups = shift_pickup_log_left(recent_pickups)
+                    mem_misses = shift_items_left(mem_misses)
             event["scroll_reconciled"] = {"claimed": scrolls_since_frame,
                                           "measured": measured}
             if measured < scrolls_since_frame:
@@ -2093,6 +2124,9 @@ def main():
         remembered_items = remember_confirmed_items(
             remembered_items, detected_info, player, suspect_items, done)
         remembered_items = drop_shift_ghosts(remembered_items, detected_info)
+        remembered_items, mem_misses = decay_unseen_left_band(
+            remembered_items, mem_misses, item_cells_of(detected_info),
+            suspect_items, player)
         # Detection-only: logging the merged board painted remembered
         # ghosts as real items and a forensic pass adjudicated the
         # debug_0124 ghost walk as a "real orange rescue" against the
@@ -2394,6 +2428,7 @@ def main():
                 ban_history = shift_cells_left(ban_history)
                 pending_reveals = shift_items_left(pending_reveals)
                 recent_pickups = shift_pickup_log_left(recent_pickups)
+                mem_misses = shift_items_left(mem_misses)
             scrolls_since_frame += dash_shift
             # No reveal window after a dash: it breaks and collects in
             # the same motion, so nothing it touches ever stays on the
@@ -2473,6 +2508,7 @@ def main():
                 ban_history = shift_cells_left(ban_history)
                 pending_reveals = shift_items_left(pending_reveals)
                 recent_pickups = shift_pickup_log_left(recent_pickups)
+                mem_misses = shift_items_left(mem_misses)
                 # The wall commitment survives the scroll: wall_is_stable
                 # carries the scroll count at sighting and adjusts the
                 # expected launch column. Clearing it here made a wall
@@ -2518,6 +2554,7 @@ def main():
                         ban_history = shift_cells_left(ban_history)
                         pending_reveals = shift_items_left(pending_reveals)
                         recent_pickups = shift_pickup_log_left(recent_pickups)
+                        mem_misses = shift_items_left(mem_misses)
                         scrolls_since_frame += 1
                     pickup = item_category(info[checked])
                     if pickup:

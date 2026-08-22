@@ -865,12 +865,14 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         obstacle = is_obstacle(v)
         if obstacle and not attacks_enabled:
             continue
-        if obstacle and direction == "left":
+        if obstacle and (direction == "left" or suspect_cells):
             # The world itself moves left: a left pyramid never needs
-            # breaking. With up and right suspect-blocked it became the
-            # only 'preferred' candidate and the explorer spent 200
-            # shards exploring backwards (run 20260822T160202 n=72).
-            # Waiting a frame for suspects to adjudicate is cheaper.
+            # breaking (run 20260822T160202 n=72 spent 200 shards
+            # exploring backwards). And while suspects block the
+            # alternatives, no explore garra in ANY direction: run
+            # 20260822T184638 n=41 attacked the pyramid ABOVE just
+            # because post-pickup confetti boxed it in - a frame of
+            # waiting clears the suspects for free.
             continue
         if direction == "left" and suspect_cells:
             # Same law for the plain left step: while suspects block
