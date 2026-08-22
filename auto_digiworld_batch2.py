@@ -527,15 +527,19 @@ def shift_items_right(remembered):
 
 
 def board_strip(image, board):
-    """Downsampled grayscale of the board's right 3 columns for the
-    pixel-scroll measurement. The left 2 columns hold the player
-    sprite and most pickup animation; the right side is the stable
-    texture (pyramids, cards, water tiles) that actually shifts."""
+    """Downsampled grayscale of the board's RIGHT 3 COLUMNS only.
+
+    The first version took the whole board and the docstring lied: the
+    player sprite - big, static, high-contrast at columns 0-1 -
+    anchored the alignment at zero, so real scrolls measured 0 (run
+    20260822T172446 n=73-76: detection showed pyramids marching left,
+    full-board measured 0.0, right-3-columns measured 1.04 each). The
+    left 2 columns are excluded for good."""
     import numpy as np
     x0, y0, x1, y1 = board
     a = np.asarray(image.convert("L"), dtype=float)
-    strip = a[y0:y1, x0:x1]
-    # coarse downsample keeps the correlation cheap and blurs sprite noise
+    strip = a[y0:y1, x0 + 2 * (x1 - x0) // 5:x1]
+    # coarse downsample keeps the correlation cheap and blurs noise
     return strip[::4, ::4]
 
 
@@ -554,7 +558,8 @@ def measure_scroll_columns(prev_strip, cur_strip, max_cols=3):
     return cols
 
 
-def measure_scroll_px(prev_strip, cur_strip, max_cols=3, slide_tolerance=0.2):
+def measure_scroll_px(prev_strip, cur_strip, max_cols=3, slide_tolerance=0.2,
+                      strip_cols=3):
     """Pixel-granular scroll measurement with mid-slide detection.
 
     The grid rectangle stays put while the CONTENTS slide, so
@@ -571,8 +576,10 @@ def measure_scroll_px(prev_strip, cur_strip, max_cols=3, slide_tolerance=0.2):
     if prev_strip.shape != cur_strip.shape or prev_strip.shape[1] < 10:
         return None, False
     width = prev_strip.shape[1]
-    col_px = max(1, width // 5)
-    max_off = min(max_cols * col_px, width - 5)
+    col_px = max(1, width // strip_cols)
+    # At least one full column of overlap: a sliver of empty-vs-empty
+    # scores ~0 and steals the argmin from the true alignment.
+    max_off = min(max_cols * col_px, width - col_px)
     best_off, best_score = 0, None
     for off in range(0, max_off + 1, 2):
         a = prev_strip[:, off:]
@@ -1923,7 +1930,12 @@ def main():
         # from memory running one column ahead of a latency-swallowed
         # tap).
         cur_strip = board_strip(image, det.board)
-        measured, board_sliding = measure_scroll_px(prev_strip, cur_strip)
+        measured, board_sliding = measure_scroll_px(prev_strip, cur_strip,
+                                                    max_cols=2)
+        # Three strip columns verify shifts up to 2; a dash's 3-column
+        # jump is out of range and the tap count is trusted (the dash
+        # has its own long animation and settle wait).
+        measurable = scrolls_since_frame <= 2
         if board_sliding:
             # The grid stands still while its CONTENTS slide: this
             # screenshot caught the scroll in flight. Acting on it
@@ -1935,7 +1947,8 @@ def main():
                          "Contenido del tablero en movimiento - espero", "33")
             time.sleep(0.6)
             continue
-        if scroll_shortfall_wait(measured, scrolls_since_frame, scroll_waits):
+        if measurable and scroll_shortfall_wait(measured, scrolls_since_frame,
+                                                scroll_waits):
             scroll_waits += 1
             event["action"] = (f"WAIT: scroll shortfall measured={measured} "
                                f"claimed={scrolls_since_frame} ({scroll_waits}/1)")
@@ -1947,7 +1960,8 @@ def main():
             continue
         scroll_waits = 0
         prev_strip = cur_strip
-        if measured is not None and measured != scrolls_since_frame:
+        if (measurable and measured is not None
+                and measured != scrolls_since_frame):
             delta = scrolls_since_frame - measured
             step_right = delta > 0
             for _ in range(abs(delta)):

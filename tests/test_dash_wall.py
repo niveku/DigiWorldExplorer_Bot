@@ -1970,8 +1970,15 @@ class PixelScrollTests(unittest.TestCase):
     consecutive settled frames is cross-correlated at shifts 0..3
     columns; the argmin IS the scroll, whatever the taps claimed."""
 
+    # The strip covers the board's RIGHT 3 COLUMNS only: the player
+    # sprite (columns 0-1, big, static) anchored a full-board
+    # alignment at zero and real scrolls measured 0 (run
+    # 20260822T172446 n=73-76: full-board 0.0, right-3-cols 1.04).
+    # Three columns of strip can verify shifts up to 2; a dash's 3 is
+    # out of range and trusts the tap count.
+
     @staticmethod
-    def strip_with_block(col, width=100, height=30, cols=5):
+    def strip_with_block(col, width=90, height=30, cols=3):
         import numpy as np
         z = np.zeros((height, width), dtype=float)
         cw = width // cols
@@ -1979,24 +1986,25 @@ class PixelScrollTests(unittest.TestCase):
         return z
 
     def test_static_board_measures_zero(self):
-        a = self.strip_with_block(3)
+        a = self.strip_with_block(2)
         self.assertEqual(runner.measure_scroll_columns(a, a), 0)
 
     def test_one_column_shift_is_measured(self):
-        prev = self.strip_with_block(3)
-        cur = self.strip_with_block(2)
+        prev = self.strip_with_block(2)
+        cur = self.strip_with_block(1)
         self.assertEqual(runner.measure_scroll_columns(prev, cur), 1)
 
-    def test_three_column_dash_shift_is_measured(self):
-        prev = self.strip_with_block(4)
-        cur = self.strip_with_block(1)
-        self.assertEqual(runner.measure_scroll_columns(prev, cur), 3)
+    def test_two_column_shift_is_measured(self):
+        prev = self.strip_with_block(2)
+        cur = self.strip_with_block(0)
+        self.assertEqual(runner.measure_scroll_columns(prev, cur,
+                                                       max_cols=2), 2)
 
     def test_confetti_noise_does_not_fool_the_measurement(self):
         import numpy as np
-        prev = self.strip_with_block(3)
-        cur = self.strip_with_block(2)
-        cur[8:16, 10:22] = 180.0   # confetti patch far from the block
+        prev = self.strip_with_block(2)
+        cur = self.strip_with_block(1)
+        cur[8:16, 4:14] = 180.0   # confetti patch away from the block
         self.assertEqual(runner.measure_scroll_columns(prev, cur), 1)
 
 
@@ -2020,14 +2028,14 @@ class SlidingBoardTests(unittest.TestCase):
 
     def test_whole_column_shift_is_settled(self):
         prev = self.strip_with_block(0)
-        cur = self.strip_with_block(27)   # exactly one column (135/5)
+        cur = self.strip_with_block(45)   # exactly one column (135/3)
         cols, sliding = runner.measure_scroll_px(prev, cur)
         self.assertEqual(cols, 1)
         self.assertFalse(sliding)
 
     def test_half_column_shift_is_sliding(self):
         prev = self.strip_with_block(0)
-        cur = self.strip_with_block(13)   # mid-animation
+        cur = self.strip_with_block(22)   # mid-animation
         cols, sliding = runner.measure_scroll_px(prev, cur)
         self.assertTrue(sliding)
 
