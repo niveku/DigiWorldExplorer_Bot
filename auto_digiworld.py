@@ -579,13 +579,19 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         right_targets = any(cell[1] >= 3
                             for cell in (orange_items | mid_items))
         pair_worth = path_items or right_targets or path_pyramids >= 3
-        # Only an IMMINENT wall (launch within one row) may hold the pair
-        # back - it stabilizes and fires within a frame or two (run
-        # 20260820T033221). A far wall blocked the pair without producing
-        # any action of its own and the explorer spent two garras instead
-        # (run 20260821T213642 n=128-132).
+        # Only an IMMINENT wall (launch one row above or below) may hold
+        # the pair back - it stabilizes and fires within a frame or two
+        # (run 20260820T033221). A far wall blocked the pair without
+        # producing any action of its own and the explorer spent two
+        # garras instead (run 20260821T213642 n=128-132). A wall in the
+        # player's OWN row never defers the pair: it is made of the very
+        # pyramids the pair dash breaks, so waiting for it produced a
+        # five-move tour/hunt ping-pong (run 20260822T142042 n=452-458,
+        # preview pyramid grading the pair into a "wall" one column
+        # right).
         if (path_pyramids >= 2 and pair_worth and not at_risk
                 and (full_wall is None
+                     or full_wall[0] == player[0]
                      or abs(full_wall[0] - player[0]) > 1
                      or path_pyramids >= 3)):
             return ("dash", player, "right"), \
@@ -647,10 +653,17 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                                    prefer_direction=previous_direction)
             if step:
                 target, obstacle, direction = step
-                label = ("orange perishable" if first[1] <= 1
-                         and first in orange_items else
-                         "urgent pickup" if first[1] <= 1 else
-                         "orange" if orange_items else "claw")
+                # The label names the FIRST target's real category: every
+                # mid-tier pickup used to print as "claw", and the user
+                # read a steps-card chase as a garra spent on nothing
+                # (run 20260822T142042 n=499).
+                if first[1] <= 1:
+                    label = ("orange perishable" if first in orange_items
+                             else "urgent pickup")
+                elif first in orange_items:
+                    label = "orange"
+                else:
+                    label = pickup_type(info[first]) or "pickup"
                 return ("attack" if obstacle else "move", target, direction), \
                     f"{label} targets={order}"
 

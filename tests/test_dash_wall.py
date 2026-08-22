@@ -238,6 +238,24 @@ class PairDashDefersToWallTests(unittest.TestCase):
         action, reason = strategy.choose(info, hunt_walls=False)
         self.assertEqual(action, ("dash", (2, 1), "right"))
 
+    def test_own_row_preview_wall_does_not_block_the_pair(self):
+        # Run 20260822T142042 n=452-458: pair launch sent the bot to
+        # (2,1); there the pair dash was vetoed because the sixth-column
+        # preview graded its own two pyramids into an "imminent wall"
+        # whose launch sat one column right. The wall IS the pair -
+        # vetoing it let the tour walk off toward (4,4) and the
+        # stabilized hunt dragged the bot back: five wasted moves.
+        # A wall in the player's own row never blocks the pair; only a
+        # wall one row above or below defers it.
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 2, (3, 4))
+        info[(4, 4)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(
+            info, hunt_walls=False,
+            preview=[False, False, True, False, False])
+        self.assertEqual(action, ("dash", (2, 1), "right"))
+
     def test_stable_wall_still_outranks_the_pair(self):
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
@@ -364,13 +382,19 @@ class ClawPickupTests(unittest.TestCase):
         self.assertEqual(action, ("move", (2, 2), "right"))
         self.assertIn("claw", reason)
 
-    def test_orange_still_outranks_the_claw(self):
+    def test_orange_stays_in_the_plan_alongside_the_claw(self):
+        # The tour orders by route, not by rank: the claw at (2,3) is
+        # en route to the orange at (4,3), so it goes first and the
+        # orange stays in the plan. (The old assertion pinned the label
+        # "orange", which printed whenever ANY orange existed - that
+        # label lie is what the mid-tier labeling fix removed.)
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
         info[(2, 3)]["claw"] = 0.15
         info[(4, 3)].update(item=0.10, orange=0.10)
         action, reason = strategy.choose(info)
-        self.assertTrue(reason.startswith("orange"))
+        self.assertIn("targets", reason)
+        self.assertIn("(4, 3)", reason)
 
     def test_claw_outranks_a_ticket_pickup(self):
         info = empty_grid()
@@ -772,6 +796,17 @@ class CheapDetourTests(unittest.TestCase):
         info[(0, 0)]["player"] = 0.2
         action, reason = strategy.choose(info)
         self.assertIn("claw targets", reason)
+
+    def test_mid_tier_label_names_the_actual_pickup(self):
+        # Run 20260822T142042 n=499: the tour chased a steps card at
+        # (3,4) and the log said "claw targets" - the user read it as a
+        # garra spent on nothing. Every mid-tier pickup was labeled
+        # "claw"; the label now names the real category.
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(3, 4)].update(item=0.10, pink=0.10)
+        action, reason = strategy.choose(info)
+        self.assertIn("steps targets", reason)
 
 
 class DashSuspectDeferenceTests(unittest.TestCase):
