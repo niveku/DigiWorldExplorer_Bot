@@ -393,27 +393,68 @@ def plan_tour(player, items, max_items=6):
         return []
     best_key, best_order = None, []
     for order in itertools.permutations(items):
-        row, col = player
-        scrolls = 0
-        cost = 0
-        collected = []
-        for r, c in order:
-            c_eff = c - scrolls
-            if c_eff < 0:
-                break
-            travel = c_eff - col
-            cost += abs(r - row) + abs(travel)
-            if travel > 0:
-                scrolls += max(0, col + travel - 1)
-                col = min(col + travel, 1)
-            else:
-                col = c_eff
-            row = r
-            collected.append((r, c))
+        collected, cost, scrolls = simulate_tour(player, order)
         key = (-len(collected), cost, -scrolls)
         if best_key is None or key < best_key:
             best_key, best_order = key, collected
     return best_order
+
+
+MID_DETOUR_ALLOWANCE = {"steps": 3, "claw": 5, "dash_orb": 10}
+
+
+def prune_low_value_mids(player, oranges, mids, types):
+    """Drop mid-tier cards whose detour costs more than they refund.
+
+    Paticas ROI measured over 275 counter intervals (runs 2026-08-2x):
+    one move consumes ~1 patica and a steps card returns ~3-5, so a
+    card only pays for about three extra steps of detour. A claw
+    refunds a 200-shard garra (~5 steps), a dash orb a 400-shard dash
+    (~10). Oranges are never pruned - one orange is worth a dash's
+    whole yield. A mid stays when the best tour with it costs at most
+    its allowance more than the best tour without it, and pruning
+    never trades away another item.
+
+    Rightward travel that scrolls the world is progress the explorer
+    would make anyway, so the detour price is steps minus scrolls:
+    only vertical and leftward walking counts against the card."""
+    keep = set(mids)
+    for mid in sorted(mids):
+        pool = set(oranges) | keep
+        with_mid = plan_tour(player, pool)
+        if mid not in with_mid:
+            continue
+        without = plan_tour(player, pool - {mid})
+        if len(without) < len(with_mid) - 1:
+            continue
+        _, cost_with, scrolls_with = simulate_tour(player, with_mid)
+        _, cost_without, scrolls_without = simulate_tour(player, without)
+        detour = (cost_with - scrolls_with) - (cost_without - scrolls_without)
+        if detour > MID_DETOUR_ALLOWANCE.get(types.get(mid), 3):
+            keep.discard(mid)
+    return keep
+
+
+def simulate_tour(player, order):
+    """Walk one visiting order; return (collected, steps, scrolls)."""
+    row, col = player
+    scrolls = 0
+    cost = 0
+    collected = []
+    for r, c in order:
+        c_eff = c - scrolls
+        if c_eff < 0:
+            break
+        travel = c_eff - col
+        cost += abs(r - row) + abs(travel)
+        if travel > 0:
+            scrolls += max(0, col + travel - 1)
+            col = min(col + travel, 1)
+        else:
+            col = c_eff
+        row = r
+        collected.append((r, c))
+    return collected, cost, scrolls
 
 
 def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
@@ -462,6 +503,14 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     mid_items = {cell for cell in mid_items if cheap_detour(cell)}
     other_items = {cell for cell in other_items if cheap_detour(cell)}
 
+    # A steps card refunds ~3-5 paticas (130-200 shards, measured over
+    # 275 counter intervals): losing one to a 400-shard dash whose
+    # measured yield is ~+20E costs less than the veto it used to
+    # trigger. Claws and dash orbs are real charge refunds and still
+    # veto; oranges always do.
+    steps_cards = {cell for cell in mid_items
+                   if pickup_type(info[cell]) == "steps"}
+
     # One-frame suspects are excluded as goals, but a dash's forward scroll
     # would delete them from the left band before the next frame can
     # adjudicate them (run 20260821T154754 n=578 dashed three suspects to
@@ -509,7 +558,8 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             wall_path = {(launch[0], col)
                          for col in range(launch[1] + 1, min(5, launch[1] + 4))}
             wall_risk = {cell for cell in (orange_items | mid_items | suspect_risk)
-                         if cell not in wall_path and cell[1] <= 2}
+                         if cell not in wall_path and cell[1] <= 2
+                         and cell not in steps_cards}
             # The dash is ROUTING, not abandonment (user directive
             # 2026-08-21b, run 220436 n=136: launch one step up, orange
             # at (3,4) - the skipped dash would have broken three
@@ -567,7 +617,8 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         # Tickets are worth ~nothing: only energy and mid-tier pickups may
         # veto a dash over scroll loss.
         at_risk = {cell for cell in (orange_items | mid_items | suspect_risk)
-                   if cell not in path and cell[1] <= 2}
+                   if cell not in path and cell[1] <= 2
+                   and cell not in steps_cards}
         # A bare two-pyramid pair no longer justifies 400 shards: the true
         # alternative is the free two-step detour (80), not two garras
         # (run 20260821T225908 burned nine dashes with empty paths). The
@@ -624,7 +675,8 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                 launch_risk = {cell
                                for cell in (orange_items | mid_items
                                             | suspect_risk)
-                               if cell not in launch_path and cell[1] <= 2}
+                               if cell not in launch_path and cell[1] <= 2
+                               and cell not in steps_cards}
                 if launch_risk:
                     continue
                 return ("move", launch, "up" if dr == -1 else "down"), \
@@ -643,13 +695,24 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     # scroll. The panic rescue that dived for anything at column<=1 (and
     # caused the up-down indecision the user kept seeing) is gone. Dash
     # rules above keep their own erosion vetoes and worth gates.
-    tour_items = orange_items | mid_items
+    tour_mids = mid_items
+    if mid_items:
+        mid_types = {cell: pickup_type(info[cell]) for cell in mid_items}
+        tour_mids = prune_low_value_mids(player, orange_items, mid_items,
+                                         mid_types)
+    tour_items = orange_items | tour_mids
     if tour_items:
         order = plan_tour(player, tour_items)
         if order:
             first = order[0]
+            # Attack routing only pays toward oranges: a 200-shard
+            # garra to reach a 130-200 shard card is a losing trade
+            # (run 20260822T142042 n=82 broke a pyramid to reach a
+            # steps card). A blocked card takes the free way around
+            # or drops out of the plan.
             step = shortest_action(info, player, {first},
-                                   allow_obstacles=attacks_enabled,
+                                   allow_obstacles=(attacks_enabled
+                                                    and first in orange_items),
                                    prefer_direction=previous_direction)
             if step:
                 target, obstacle, direction = step
@@ -667,10 +730,10 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                 return ("attack" if obstacle else "move", target, direction), \
                     f"{label} targets={order}"
 
-    # Tickets remain as a last-resort target.
+    # Tickets remain as a last-resort target - never worth a garra.
     if other_items:
         step = shortest_action(info, player, other_items,
-                               allow_obstacles=attacks_enabled,
+                               allow_obstacles=False,
                                prefer_direction=previous_direction)
         if step:
             target, obstacle, direction = step

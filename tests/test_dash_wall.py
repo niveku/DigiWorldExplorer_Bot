@@ -1199,6 +1199,89 @@ class PerishableRoutingTests(unittest.TestCase):
 # orange. Adding an ordering layer would be overengineering.
 
 
+class MidTierDetourCapTests(unittest.TestCase):
+    """Paticas ROI (user question 2026-08-22, measured over 275
+    counter intervals): one move consumes ~1 patica and a steps card
+    returns ~3-5, so a card only pays for about three extra steps of
+    detour. A claw refunds a 200-shard garra (~5 steps) and a dash orb
+    a 400-shard dash (~10). Oranges are never capped - one orange is
+    worth a dash's whole yield. Run 20260822T142042 planned steps
+    cards exactly like oranges, detour price unchecked."""
+
+    def test_far_vertical_steps_card_is_dropped_from_the_tour(self):
+        # Rightward cards ride the cheap_detour filter for free no
+        # matter the vertical cost: the card at (4,2) adds 8 extra
+        # steps to the orange route for a ~4-patica refund. Dropped.
+        info = empty_grid()
+        info[(0, 1)]["player"] = 0.2
+        info[(0, 4)].update(item=0.10, orange=0.10)
+        info[(4, 2)].update(item=0.10, pink=0.10)
+        action, reason = strategy.choose(info)
+        self.assertIn("(0, 4)", reason)
+        self.assertNotIn("(4, 2)", reason)
+
+    def test_near_steps_card_rides_along(self):
+        # Card at (1,2) is 2 extra steps on the way to the orange.
+        info = empty_grid()
+        info[(0, 1)]["player"] = 0.2
+        info[(0, 4)].update(item=0.10, orange=0.10)
+        info[(1, 2)].update(item=0.10, pink=0.10)
+        action, reason = strategy.choose(info)
+        self.assertIn("(1, 2)", reason)
+
+    def test_no_garra_is_spent_to_reach_a_mid_card(self):
+        # Run 20260822T142042 n=82: a 200-shard garra broke the
+        # pyramid at (3,1) to reach the steps card at (4,1), a
+        # 130-200 shard refund. Only oranges justify attack routing;
+        # a blocked card wants the free way around or nothing.
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(4, 1)].update(item=0.10, pink=0.10)
+        info[(3, 1)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info)
+        self.assertNotEqual(action[0], "attack")
+
+    def test_no_garra_is_spent_to_reach_a_ticket(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(4, 1)].update(item=0.10, pink=0.10, white=0.10)
+        info[(3, 1)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info)
+        self.assertNotEqual(action[0], "attack")
+
+    def test_steps_card_does_not_veto_a_worthy_pair_dash(self):
+        # A left-band steps card (~130 shards) protected from a
+        # 400-shard dash whose measured yield is ~+20E: the veto cost
+        # more than the card. Claws and orbs (real charge refunds)
+        # still veto; oranges always do.
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 2, (2, 3))
+        info[(4, 4)].update(item=0.10, orange=0.10)
+        info[(4, 1)].update(item=0.10, pink=0.10)
+        action, reason = strategy.choose(info, hunt_walls=False)
+        self.assertEqual(action, ("dash", (2, 1), "right"))
+
+    def test_dash_orb_earns_a_longer_detour(self):
+        kept = strategy.prune_low_value_mids(
+            (2, 1), set(), {(4, 0)}, {(4, 0): "dash_orb"})
+        self.assertEqual(kept, {(4, 0)})
+
+    def test_lone_far_steps_card_is_not_worth_the_walk(self):
+        kept = strategy.prune_low_value_mids(
+            (0, 1), set(), {(4, 0)}, {(4, 0): "steps"})
+        self.assertEqual(kept, set())
+
+    def test_orange_is_never_pruned(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 4)].update(item=0.10, orange=0.10)
+        info[(4, 0)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(info)
+        self.assertIn("(4, 0)", reason)
+        self.assertIn("(2, 4)", reason)
+
+
 class TourPlanningTests(unittest.TestCase):
     """User directive 2026-08-22: plan the whole collection IN ADVANCE -
     shortest route over all pickups, losing none, erosion counted only
