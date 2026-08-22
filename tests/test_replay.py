@@ -27,6 +27,8 @@ CORPUS = [
                                  # guard silenced the suspect detector)
     "20260822T205803_231886Z",   # energy lost to fixed ingestion band +
                                  # suspect-detour horseshoe walks
+    "20260822T212332_788505Z",   # uncapped sliding wait deadlocked at
+                                 # n=82 (47 straight waits)
 ]
 
 

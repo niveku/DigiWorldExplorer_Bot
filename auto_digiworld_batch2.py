@@ -659,6 +659,19 @@ def measure_scroll_px(prev_strip, cur_strip, max_cols=3, slide_tolerance=0.2,
     return min(nearest, max_cols), sliding
 
 
+def should_wait_for_slide(sliding, slide_waits, max_waits=3):
+    """Mid-slide WAIT with a retry cap.
+
+    Run 20260822T212332 n=82: the uncapped wait compared every new
+    frame against a FROZEN prev_strip, so content that settled at a
+    fractional alignment (an item animating in the right band, a
+    preview glint) read as 'sliding' forever - 47 straight waits until
+    the user killed the run. After max_waits the caller rebases
+    prev_strip on the current frame and moves on: one lost measurement
+    beats a deadlock."""
+    return bool(sliding) and slide_waits < max_waits
+
+
 def scroll_shortfall_wait(measured, claimed, waits, max_waits=1):
     """Give a late scroll one extra frame before reconciling.
 
@@ -1639,6 +1652,7 @@ def main():
     mem_misses = {}
     prev_strip = None
     scroll_waits = 0
+    slide_waits = 0
     lag_cooldown = 0
     recent_pickups = []
     committed_wall = None
@@ -2044,17 +2058,27 @@ def main():
         # jump is out of range and the tap count is trusted (the dash
         # has its own long animation and settle wait).
         measurable = scrolls_since_frame <= 2
-        if board_sliding:
+        if should_wait_for_slide(board_sliding, slide_waits):
             # The grid stands still while its CONTENTS slide: this
             # screenshot caught the scroll in flight. Acting on it
             # desynced memory 17 times in run 20260822T171206.
-            event["action"] = "WAIT: board content sliding"
+            slide_waits += 1
+            event["action"] = (f"WAIT: board content sliding "
+                               f"({slide_waits}/3)")
             bot.log_event(log, event)
             if args.verbose:
                 progress(done, args.steps,
                          "Contenido del tablero en movimiento - espero", "33")
             time.sleep(0.6)
             continue
+        if board_sliding:
+            # Cap exhausted (run 20260822T212332 n=82: 47 straight
+            # sliding waits against a frozen reference). The content
+            # settled somewhere our old strip cannot recognize: rebase
+            # the reference on the CURRENT frame, skip this one
+            # measurement, and let the loop continue.
+            measured = None
+        slide_waits = 0
         if measurable and scroll_shortfall_wait(measured, scrolls_since_frame,
                                                 scroll_waits):
             scroll_waits += 1

@@ -187,13 +187,13 @@ def shortest_action(info, player, targets, allow_obstacles=True,
             step_cost = 5 if obstacle else free_cost
             if scrolling_right and pos[0] not in target_rows:
                 step_cost += 0.05
-            # Tie-break: scroll LATE. Between equal-cost routes the one
-            # that erodes the world later keeps more frames of vision
-            # and less latency risk - run 20260822T205803 n=16 took the
-            # right-first twin of an exact tie and zigzagged. Epsilons
-            # (<=0.006) never outweigh a real cost gap.
+            # Tie-break: advance EARLY. User doctrine 2026-08-22
+            # (overruling the one-run scroll-late rule): between routes
+            # of equal taps and resources, the one that advances the
+            # world rightward sooner is progress. Epsilons (<=0.006)
+            # never outweigh a real cost gap.
             if scrolling_right:
-                step_cost += 0.002 * max(0, 3 - len(path))
+                step_cost -= 0.002 * max(0, 3 - len(path))
             # Hysteresis on ties: detection noise flips equal-cost routes
             # frame to frame (run 20260821T213642 n=32-34 alternated the
             # up-around and down-around of one pyramid). The FIRST step

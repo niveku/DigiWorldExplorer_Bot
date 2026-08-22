@@ -80,6 +80,7 @@ class Replay:
         self.prev_suspects = set()
         self.sticky_ages = {}
         self.prev_strip = None
+        self.slide_waits = 0
         self.expected_player = None
         self.prev_action = None
         self.prev_attack_target = None
@@ -128,8 +129,12 @@ class Replay:
         strip = runner.board_strip(img, det.board)
         measured, sliding = runner.measure_scroll_px(self.prev_strip, strip,
                                                      max_cols=2)
-        if sliding:
+        if runner.should_wait_for_slide(sliding, self.slide_waits):
+            self.slide_waits += 1
             return
+        if sliding:
+            measured = None
+        self.slide_waits = 0
         self.prev_strip = strip
         if measured is not None and self.claimed <= 2 and measured != self.claimed:
             delta = self.claimed - measured

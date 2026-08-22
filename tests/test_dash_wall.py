@@ -1552,14 +1552,12 @@ class BoxedExplorerWaitsTests(unittest.TestCase):
         self.assertIsNone(action)
 
 
-class LateScrollTieBreakTests(unittest.TestCase):
-    """Run 20260822T205803 n=16-18 (user: 'pasos hacia atrás'): from
-    (3,1) to the orange at (1,3) the right-first and up-first routes
-    cost exactly the same (4 taps, one off-row scroll surcharge each),
-    and the prefer-direction hysteresis picked right-first - a scroll
-    from row 3 before any information, then a visual zigzag back up.
-    Ties must break toward scrolling LATE: same taps, more frames of
-    vision before the world erodes, and no zigzag."""
+class EarlyAdvanceTieBreakTests(unittest.TestCase):
+    """User doctrine 2026-08-22 (correcting the short-lived scroll-late
+    rule): between routes of equal taps and resources, the one that
+    advances the world rightward EARLIER is the better one - advance is
+    progress. The epsilon only breaks exact ties; a real cost gap
+    (surcharges, items, budget) always dominates it."""
 
     def _grid(self):
         info = empty_grid()
@@ -1570,12 +1568,12 @@ class LateScrollTieBreakTests(unittest.TestCase):
         info[(4, 2)]["pyramid"] = 0.9
         return info
 
-    def test_equal_cost_routes_scroll_late(self):
+    def test_equal_cost_routes_advance_early(self):
         step = strategy.shortest_action(self._grid(), (3, 1), {(1, 3)},
                                         prefer_direction="right")
         self.assertIsNotNone(step)
         target, obstacle, direction = step
-        self.assertEqual(direction, "up")
+        self.assertEqual(direction, "right")
 
     def test_genuinely_cheaper_scroll_first_still_wins(self):
         # The tie-break epsilon must never override a real cost gap:
@@ -1587,6 +1585,27 @@ class LateScrollTieBreakTests(unittest.TestCase):
                                         prefer_direction="right")
         target, obstacle, direction = step
         self.assertEqual(direction, "right")
+
+
+class SlidingWaitCapTests(unittest.TestCase):
+    """Run 20260822T212332 n=82: the mid-slide WAIT had no retry cap
+    and never refreshed its reference strip, so a board whose content
+    settled at a fractional alignment against the FROZEN prev_strip
+    read as 'sliding' forever - 47 consecutive waits until the user
+    killed the run. Every other WAIT in the loop is capped; this one
+    waits at most 3 frames, then the runner rebases prev_strip on the
+    current frame and moves on (one lost measurement, not a deadlock)."""
+
+    def test_waits_below_the_cap(self):
+        self.assertTrue(runner.should_wait_for_slide(True, 0))
+        self.assertTrue(runner.should_wait_for_slide(True, 2))
+
+    def test_cap_exhausted_stops_waiting(self):
+        self.assertFalse(runner.should_wait_for_slide(True, 3))
+        self.assertFalse(runner.should_wait_for_slide(True, 7))
+
+    def test_not_sliding_never_waits(self):
+        self.assertFalse(runner.should_wait_for_slide(False, 0))
 
 
 class CostlyDetourWaitsTests(unittest.TestCase):
