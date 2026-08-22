@@ -563,16 +563,13 @@ class SuspectAppearanceTests(unittest.TestCase):
                                        shift=0),
             set())
 
-    def test_dash_reveals_are_legit(self):
-        # Game invariant (user, 2026-08-21): a dash-broken pyramid can
-        # also reveal a collectible; those path cells (shifted 3 by the
-        # dash's own scroll) are as legitimate as a garra's target cell.
+    def test_post_dash_appearance_is_suspect(self):
+        # Game rule (user, 2026-08-22): a dash breaks AND collects in
+        # the same motion - it never leaves a drop on the board. Only a
+        # garra does. So any fresh appearance after a dash that the
+        # 3-column shift does not explain is confetti, full stop.
         previous = frozenset({(2, 4)})
         current = frozenset({(2, 1), (3, 0)})
-        self.assertEqual(
-            runner.suspect_appearances(current, previous, shift=3,
-                                       revealed_cells={(3, 0)}),
-            set())
         self.assertEqual(
             runner.suspect_appearances(current, previous, shift=3),
             {(3, 0)})
@@ -1395,13 +1392,20 @@ class ShiftGhostTests(unittest.TestCase):
 
 
 class PendingRevealTests(unittest.TestCase):
-    """Run 20260821T222310 n=4-11, user-confirmed loss: the dash broke
-    the pyramid at (1,4); its drop landed at (1,1) after the dash's own
-    scroll, but the fall animation delayed detection by 3 frames. The
-    reveal whitelist only covered the first post-dash frame, so the real
-    energy was flagged suspect, never reached memory, and three explore
-    rides scrolled it off the board. Broken-pyramid cells now stay
-    whitelisted for several frames and shift with the scroll."""
+    """The reveal window is GARRA-ONLY. A garra-broken pyramid drops
+    its loot at the target cell, and the fall animation can delay the
+    drop's detection a few frames past the break (run 20260821T222310),
+    so that cell stays whitelisted for a TTL and shifts with the scroll.
+    Dashes get NO window: a dash breaks and collects in the same motion
+    and never leaves a drop behind (game rule, user 2026-08-22). The
+    dash-path window we carried for two days only ever admitted pickup
+    confetti (runs 20260821T235432 n=5, 20260822T003047 n=13-16)."""
+
+    def test_dash_leaves_no_drops_behind(self):
+        # The dash reveal machinery must not exist at all: both times
+        # it fired it turned confetti into a remembered orange and sent
+        # the bot backward to collect nothing.
+        self.assertFalse(hasattr(runner, "dash_reveal_cells"))
 
     def test_reveal_cells_stay_live_for_their_ttl(self):
         pending = runner.remember_pending_reveals({}, [(1, 1), (1, 0)], done=4)
@@ -1422,16 +1426,6 @@ class PendingRevealTests(unittest.TestCase):
         shifted = runner.shift_items_left(pending)
         self.assertEqual(runner.live_reveal_cells(shifted, done=5), {(1, 0)})
 
-    def test_only_broken_pyramid_cells_are_reveal_spots(self):
-        # Run 20260822T003047 n=13-16 (user force-stop): the whole dash
-        # path was whitelisted, pickup confetti landed on the FREE path
-        # cell (2,0), entered memory as a confirmed orange, and the tour
-        # dutifully stepped back to collect nothing. A dash drop can
-        # only appear where the dash broke a pyramid.
-        info = {(2, c): {"pyramid": 0.9 if c == 3 else 0.0, "item": 0.0}
-                for c in range(5)}
-        cells = runner.dash_reveal_cells(info, [[2, 2], [2, 3], [2, 4]])
-        self.assertEqual(cells, [(2, 0)])
 
 
 class WarmupTests(unittest.TestCase):

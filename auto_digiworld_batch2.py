@@ -614,18 +614,6 @@ def drop_remembered_suspects(suspects, remembered):
     return {cell for cell in suspects if cell not in remembered}
 
 
-def dash_reveal_cells(info, cells_seen):
-    """Post-shift cells where a dash drop can genuinely appear.
-
-    Only a broken pyramid reveals anything, so only the path cells that
-    WERE pyramids at dash time qualify. Whitelisting the whole path let
-    pickup confetti land on a free path cell, enter memory as a
-    confirmed orange, and send the bot one step back to collect nothing
-    (run 20260822T003047 n=13-16, user force-stop)."""
-    return [(r, c - 3) for r, c in map(tuple, cells_seen)
-            if c - 3 >= 0 and strategy.is_obstacle(info[(r, c)])]
-
-
 def forget_dash_path(remembered, cells):
     """Everything in a dash's path is collected or destroyed.
 
@@ -1609,11 +1597,12 @@ def main():
         info = merge_phantom_obstacles(info, phantom_obstacles, done)
         visible_items = [cell for cell, values in info.items() if values["item"] > .06]
         current_item_cells = frozenset(visible_items)
-        # Mid-board arrivals that neither the scroll nor a broken pyramid
-        # explains are confetti: ignored as targets for one frame instead
-        # of waiting. Broken-pyramid cells (garra AND dash) stay
-        # whitelisted for a few frames via pending_reveals - the fall
-        # animation can delay the drop's detection past the break frame.
+        # Mid-board arrivals that neither the scroll nor a garra-broken
+        # pyramid explains are confetti: ignored as targets for one frame
+        # instead of waiting. Only garra target cells stay whitelisted
+        # for a few frames via pending_reveals - the fall animation can
+        # delay the drop's detection past the break frame. Dashes leave
+        # no drops (they collect what they break), so they get no window.
         pending_reveals = {cell: expiry
                            for cell, expiry in pending_reveals.items()
                            if expiry > done}
@@ -1898,15 +1887,11 @@ def main():
                 ban_history = shift_cells_left(ban_history)
                 pending_reveals = shift_items_left(pending_reveals)
             scrolls_since_frame += 3
-            # The dash's broken pyramids may reveal drops whose fall
-            # animation outlives the next frame; their (post-shift)
-            # cells stay legitimate arrival spots for a few frames.
-            # Only cells that WERE pyramids qualify - free path cells
-            # collected confetti ghosts (run 20260822T003047 n=13-16).
-            pending_reveals = remember_pending_reveals(
-                pending_reveals,
-                dash_reveal_cells(info, dash_path["cells_seen"]),
-                done)
+            # No reveal window after a dash: it breaks and collects in
+            # the same motion, so nothing it touches ever stays on the
+            # board. Only a garra leaves a drop (game rule, user
+            # 2026-08-22); the dash-path window only ever admitted
+            # pickup confetti as phantom items.
             first_move_dest = None
         else:
             if kind == "move" and not lawful_tap(target):
