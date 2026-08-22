@@ -1781,6 +1781,69 @@ class UnstableWallHoldTests(unittest.TestCase):
             "dash pair: 2 pyramids in path", holds=0))
 
 
+class CommittedWallDashRiskTests(unittest.TestCase):
+    """Run 20260822T162851 n=52: the committed wall dash fired while a
+    remembered orange sat at (0,1) - its 3-column scroll pushed the
+    orange off the board (user: 'dash no recogiendo una energía
+    arriba'). The strategy-side wall rule defers to left-band pickups;
+    the runner override now does too."""
+
+    def test_left_band_pickup_defers_the_committed_dash(self):
+        self.assertFalse(runner.committed_wall_dash(
+            ((4, 1), 50, 10), (4, 1), 51, last_dash=None,
+            suspect_cells=(), scrolls_now=10, left_band_risk=True))
+
+    def test_clear_left_band_keeps_the_committed_dash(self):
+        self.assertTrue(runner.committed_wall_dash(
+            ((4, 1), 50, 10), (4, 1), 51, last_dash=None,
+            suspect_cells=(), scrolls_now=10, left_band_risk=False))
+
+
+class AdjacentSuspectHoldTests(unittest.TestCase):
+    """Run 20260822T162851 n=49-50: the steps card at (4,2) was
+    suspect, so the tour left it out and stepped UP toward a far
+    orange; the card confirmed on the very next frame and the tour
+    walked right back down. A suspect ONE step away decides the plan
+    either way - one 0.4s hold replaces the two-step vaiven. Adjacent
+    grabs of something real are exempt (they lose nothing), and any
+    move between orthogonal neighbors is 'away' in Manhattan terms, so
+    no alongside exemption exists."""
+
+    def test_moving_away_from_an_adjacent_suspect_holds(self):
+        self.assertTrue(runner.should_hold_for_adjacent_suspect(
+            (4, 1), {(4, 2)}, "orange targets=[(0, 2)]",
+            ("move", (3, 1), "up"), holds=0))
+
+    def test_adjacent_grab_never_holds(self):
+        self.assertFalse(runner.should_hold_for_adjacent_suspect(
+            (4, 1), {(4, 2)}, "adjacent item=(3, 1)",
+            ("move", (3, 1), "up"), holds=0))
+
+    def test_far_suspects_never_hold(self):
+        self.assertFalse(runner.should_hold_for_adjacent_suspect(
+            (4, 1), {(0, 2)}, "orange targets=[(0, 2)]",
+            ("move", (3, 1), "up"), holds=0))
+
+    def test_two_holds_break_the_stall(self):
+        self.assertFalse(runner.should_hold_for_adjacent_suspect(
+            (4, 1), {(4, 2)}, "orange targets=[(0, 2)]",
+            ("move", (3, 1), "up"), holds=2))
+
+
+class ClawCellVisibilityTests(unittest.TestCase):
+    """Run 20260822T162851 n=176-181: a claw ghost (batch tap swallowed,
+    memory over-shifted) walked the bot to an empty cell, and neither
+    the suspect system nor the scroll reconciler could see it - both
+    built their cell sets from item>.06, which claws fail by design
+    (claw mask >.10 with item low). Claw cells join the set."""
+
+    def test_claw_cells_count_as_item_cells(self):
+        info = empty_grid()
+        info[(3, 2)]["claw"] = 0.15
+        info[(1, 1)].update(item=0.10, orange=0.10)
+        self.assertEqual(runner.item_cells_of(info), frozenset({(3, 2), (1, 1)}))
+
+
 class ColumnZeroDoctrineTests(unittest.TestCase):
     """User doctrine 2026-08-22 (PNG debug_0148): rescues and panic
     belong to column 0 ONLY. A column-1 pickup survives one scroll -

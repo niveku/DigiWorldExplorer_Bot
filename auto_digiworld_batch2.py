@@ -390,8 +390,39 @@ def should_hold_for_wall(wall_now, wall_stable, action, reason, holds,
                                   "urgent pickup", "approach dash wall"))
 
 
+def should_hold_for_adjacent_suspect(player, suspect_items, reason, action,
+                                     holds, max_holds=2):
+    """A suspect ONE step away decides the plan either way: wait for it.
+
+    Run 20260822T162851 n=49-50: the steps card at (4,2) was suspect,
+    so the tour left it out and stepped UP toward a far orange; the
+    card confirmed on the very next frame and the tour walked right
+    back down. Any plain move with an orthogonally adjacent suspect
+    waits (an adjacent grab of something REAL is exempt - it loses
+    nothing either way); two holds cover the adjudication window."""
+    if holds >= max_holds or action is None or action[0] != "move":
+        return False
+    if str(reason).startswith("adjacent item"):
+        return False
+    return any(abs(cell[0] - player[0]) + abs(cell[1] - player[1]) == 1
+               for cell in suspect_items)
+
+
+def item_cells_of(info):
+    """Cells the suspect system and scroll reconciler treat as items.
+
+    Claw cells score claw>.10 with item low BY DESIGN, so the old
+    item>.06 set was blind to them: a claw ghost from an over-shifted
+    memory walked the bot to an empty cell and neither system could
+    see the mismatch (run 20260822T162851 n=176-181)."""
+    return frozenset(cell for cell, values in info.items()
+                     if values["item"] > .06
+                     or values.get("claw", 0.0) > .10)
+
+
 def committed_wall_dash(committed_wall, player, done, ttl=3, last_dash=None,
-                        suspect_cells=(), scrolls_now=None):
+                        suspect_cells=(), scrolls_now=None,
+                        left_band_risk=False):
     """True when standing on a recently confirmed wall launch cell.
 
     Wall detection can flicker for one frame right when the bot arrives at
@@ -417,6 +448,12 @@ def committed_wall_dash(committed_wall, player, done, ttl=3, last_dash=None,
     if last_dash is not None and last_dash >= committed_wall[1]:
         return False
     if _left_band_suspects(suspect_cells):
+        return False
+    if left_band_risk:
+        # Same deference as the strategy-side wall rule: the dash's
+        # scroll deletes left-band pickups. Run 20260822T162851 n=52
+        # fired this override with a remembered orange at (0,1) and
+        # scrolled it off the board.
         return False
     return done - committed_wall[1] <= ttl
 
@@ -1736,9 +1773,7 @@ def main():
         # frame's fresh appearances all vanish under shift-1, the world
         # scrolled one less than the taps claimed: step every shifted
         # structure back right and correct the counter.
-        detected_cells = frozenset(
-            cell for cell, values in detected_info.items()
-            if values["item"] > .06)
+        detected_cells = item_cells_of(detected_info)
         if scroll_overcount(detected_cells, prev_detected_cells,
                             scrolls_since_frame):
             remembered_items = shift_items_right(remembered_items)
@@ -1758,8 +1793,7 @@ def main():
                              for cell, expiry in phantom_obstacles.items()
                              if expiry > done}
         info = merge_phantom_obstacles(info, phantom_obstacles, done)
-        visible_items = [cell for cell, values in info.items() if values["item"] > .06]
-        current_item_cells = frozenset(visible_items)
+        current_item_cells = item_cells_of(info)
         # Mid-board arrivals that neither the scroll nor a garra-broken
         # pyramid explains are confetti: ignored as targets for one frame
         # instead of waiting. Only garra target cells stay whitelisted
@@ -1924,11 +1958,16 @@ def main():
                                          player=player, preview=preview,
                                          hunt_walls=wall_stable,
                                          suspect_cells=suspect_items)
+        left_band_risk = any(
+            cell[1] <= 2 and strategy.pickup_type(info[cell])
+            not in (None, "purple_ticket", "green_ticket", "steps")
+            for cell in item_goals)
         if (action is not None and action[0] != "dash" and dashes_enabled and
                 wall_now is None and committed_wall_dash(committed_wall, player,
                                                          done, last_dash=last_dash,
                                                          suspect_cells=suspect_items,
-                                                         scrolls_now=total_scrolls)):
+                                                         scrolls_now=total_scrolls,
+                                                         left_band_risk=left_band_risk)):
             action, reason = ("dash", player, "right"), "committed wall dash"
             committed_wall = None
         if corridor_dash_due(action, last_attack, done, preview, dashes_enabled,
@@ -1948,8 +1987,11 @@ def main():
             time.sleep(.4)
             continue
         wall_holds = 0
-        if should_hold_for_suspects(reason, item_goals, suspect_items,
-                                    suspect_holds):
+        if (should_hold_for_suspects(reason, item_goals, suspect_items,
+                                     suspect_holds)
+                or should_hold_for_adjacent_suspect(player, suspect_items,
+                                                    reason, action,
+                                                    suspect_holds)):
             suspect_holds += 1
             event["reason"] = reason
             event["action"] = ("WAIT: suspects pending confirmation "
