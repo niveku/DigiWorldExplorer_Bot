@@ -907,6 +907,16 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
 
     # Fast exploration: keep moving right. If blocked, destroy the obstacle;
     # if at an edge, choose a highlighted orthogonal neighbor without reversing.
+    # Incoming-wall rows (user directive 2026-08-22): a pyramid visible
+    # at (r,4) with the sixth-column preview lit on the same row is a
+    # wall ENTERING row r - two independent confirmations. Align to
+    # that row before scrolling: vertical steps do not move the world,
+    # so the wall stands still while the bot positions for the launch
+    # (run 20260822T215547 paid 2 walk-back taps by scrolling from the
+    # wrong row while the wall came in).
+    incoming_rows = ([r for r in range(5)
+                      if preview[r] and is_obstacle(info[(r, 4)])]
+                     if preview is not None else [])
     candidates = []
     for dr, dc, direction in DIRS:
         nxt = (player[0]+dr, player[1]+dc)
@@ -949,6 +959,14 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         if direction in ("up", "down"):
             score += 6 * sum(1 for c in range(2, 5)
                              if is_obstacle(info[(nxt[0], c)]))
+            # Alignment toward an incoming wall beats scrolling from
+            # the wrong row: the step that closes distance to the
+            # nearest incoming row outbids the plain right (100).
+            if incoming_rows and not obstacle:
+                closes = min(abs(nxt[0] - r) for r in incoming_rows) < \
+                    min(abs(player[0] - r) for r in incoming_rows)
+                if closes:
+                    score += 120
         if previous_direction and {previous_direction, direction} in ({"left","right"},{"up","down"}):
             score -= 30
         candidates.append((score, nxt, obstacle, direction))

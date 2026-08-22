@@ -1587,6 +1587,49 @@ class EarlyAdvanceTieBreakTests(unittest.TestCase):
         self.assertEqual(direction, "right")
 
 
+class IncomingWallAlignmentTests(unittest.TestCase):
+    """User directive 2026-08-22: the sixth-column preview exists
+    precisely to anticipate walls - when a wall is coming, position for
+    the dash instead of exploring elsewhere (run 20260822T215547
+    n=49-53: the wall entered row 3 while the bot scrolled from row 4,
+    then paid 2 taps to walk to the launch). Signal = pyramid visible
+    at (r,4) AND preview[r] lit: two independent confirmations of a
+    run entering row r. The explorer aligns to that row FIRST -
+    vertical steps do not scroll, so the wall stands still - and then
+    scrolls from there, forming the launch under its own feet."""
+
+    def test_explorer_aligns_to_the_incoming_wall_row(self):
+        info = empty_grid()
+        info[(4, 1)]["player"] = 0.2
+        info[(3, 4)]["pyramid"] = 0.9
+        preview = [False, False, False, True, False]
+        action, reason = strategy.choose(info, player=(4, 1),
+                                         preview=preview)
+        self.assertEqual(action[0], "move")
+        self.assertEqual(tuple(action[1]), (3, 1))
+
+    def test_no_preview_confirmation_keeps_normal_explore(self):
+        # A lone edge pyramid without the preview lit is not a wall
+        # signal: plain explore-right stands.
+        info = empty_grid()
+        info[(4, 1)]["player"] = 0.2
+        info[(3, 4)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, player=(4, 1),
+                                         preview=None)
+        self.assertEqual(action, ("move", (4, 2), "right"))
+
+    def test_already_aligned_scrolls_the_wall_in(self):
+        # Standing on the incoming row already: keep scrolling right -
+        # every scroll pulls the wall (and the launch) toward the bot.
+        info = empty_grid()
+        info[(3, 1)]["player"] = 0.2
+        info[(3, 4)]["pyramid"] = 0.9
+        preview = [False, False, False, True, False]
+        action, reason = strategy.choose(info, player=(3, 1),
+                                         preview=preview)
+        self.assertEqual(action, ("move", (3, 2), "right"))
+
+
 class ExplorerNeverBuysGarraOverFreeStepTests(unittest.TestCase):
     """Run 20260822T215547 n=47: boxed left and right by pyramids at
     (4,0)/(4,2) with a FREE step up at (3,1), the explorer spent a
