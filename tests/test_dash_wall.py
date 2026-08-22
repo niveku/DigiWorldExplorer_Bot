@@ -1776,6 +1776,23 @@ class UnstableWallHoldTests(unittest.TestCase):
             "dash pair: 2 pyramids in path", holds=0))
 
 
+class DashScrollCountTests(unittest.TestCase):
+    """Run 20260822T153206 n=123-126, user PNG debug_0124: the world
+    scrolls only what it takes to clamp the digi back to column 1 -
+    three columns when the dash launches from column 1, but only TWO
+    from column 0. The hardcoded 3 shifted memory one column too far
+    on col-0 launches: the remembered orange (3,3) became a ghost at
+    the empty cell (3,0) while the real one surfaced at (3,1) as a
+    fresh suspect. The bot grabbed the real one, then walked left to
+    collect the ghost. Same signature at n=101-103 with the dash orb."""
+
+    def test_dash_from_column_one_scrolls_three(self):
+        self.assertEqual(runner.dash_scroll_count(1), 3)
+
+    def test_dash_from_column_zero_scrolls_two(self):
+        self.assertEqual(runner.dash_scroll_count(0), 2)
+
+
 class HiddenGarraTests(unittest.TestCase):
     """HUD counter audit, run 20260822T142042: the attack counter
     dropped ~7 more times than the log sent attacks. A 'move' tap onto

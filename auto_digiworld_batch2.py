@@ -661,6 +661,20 @@ def drop_remembered_suspects(suspects, remembered):
     return {cell for cell in suspects if cell not in remembered}
 
 
+def dash_scroll_count(player_col):
+    """Columns the world scrolls on a dash: clamp-to-column-1 physics.
+
+    A dash advances the digi three cells; the world scrolls only what
+    it takes to put him back at column 1 - three columns from a col-1
+    launch, but only TWO from column 0. The hardcoded 3 shifted memory
+    one column too far on col-0 launches: the remembered orange (3,3)
+    became a ghost at the empty cell (3,0) while the real one surfaced
+    at (3,1) as a fresh suspect, and the bot grabbed the real one then
+    walked left to collect the ghost (run 20260822T153206 n=123-126,
+    user PNG debug_0124; same signature n=101-103 with the dash orb)."""
+    return player_col + 2
+
+
 def forget_dash_path(remembered, cells):
     """Everything in a dash's path is collected or destroyed.
 
@@ -1688,7 +1702,12 @@ def main():
         remembered_items = remember_confirmed_items(
             remembered_items, detected_info, player, suspect_items, done)
         remembered_items = drop_shift_ghosts(remembered_items, detected_info)
-        event["board"] = compact_state(info, player, remembered_items)
+        # Detection-only: logging the merged board painted remembered
+        # ghosts as real items and a forensic pass adjudicated the
+        # debug_0124 ghost walk as a "real orange rescue" against the
+        # user's own eyes (2026-08-22). Memory travels separately in
+        # "remembered"; "items" is what the screen actually showed.
+        event["board"] = compact_state(detected_info, player, remembered_items)
         if suspect_items:
             event["suspect_items"] = sorted(list(cell) for cell in suspect_items)
         preview = strategy.sixth_column_preview(image, det.board)
@@ -1954,19 +1973,21 @@ def main():
                     str(control[0]), str(control[1]))
             sent.append({"type": "dash", "adb_xy": list(control)})
             expected_player = None
-            # The dash consumes any wall commitment and advances the scroll
-            # three columns, so remembered items shift with it.
+            # The dash consumes any wall commitment; the world scrolls
+            # only what clamps the digi back to column 1 (3 from a
+            # col-1 launch, 2 from col 0) and memory shifts with it.
             last_dash = done
             committed_wall = None
             remembered_items = forget_dash_path(remembered_items,
                                                 dash_path["cells_seen"])
-            for _ in range(3):
+            dash_shift = dash_scroll_count(player[1])
+            for _ in range(dash_shift):
                 remembered_items = shift_items_left(remembered_items)
                 phantom_obstacles = shift_items_left(phantom_obstacles)
                 banned_targets = shift_items_left(banned_targets)
                 ban_history = shift_cells_left(ban_history)
                 pending_reveals = shift_items_left(pending_reveals)
-            scrolls_since_frame += 3
+            scrolls_since_frame += dash_shift
             # No reveal window after a dash: it breaks and collects in
             # the same motion, so nothing it touches ever stays on the
             # board. Only a garra leaves a drop (game rule, user
