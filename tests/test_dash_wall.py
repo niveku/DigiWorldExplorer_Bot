@@ -2361,6 +2361,20 @@ class HiddenGarraTests(unittest.TestCase):
         self.assertTrue(runner.unsafe_move_tap(info, (1, 0)))
         self.assertFalse(runner.unsafe_move_tap(info, (1, 1)))
 
+    def test_remembered_cell_overrides_the_suspect_veto(self):
+        # Run 20260822T194747 n=20 (user: 'no recogió 2 energías'):
+        # the orange at (4,1) was REMEMBERED - real and tracked - but
+        # its cell also flickered suspect, and the tap gate refused the
+        # route to it FOUR times in a row while four known oranges
+        # paraded off the left edge. Memory outranks suspicion at the
+        # tap gate exactly as it does in drop_remembered_suspects.
+        info = empty_grid()
+        self.assertFalse(runner.unsafe_move_tap(
+            info, (4, 1), suspects={(4, 1)},
+            remembered={(4, 1): ("orange", 3)}))
+        self.assertTrue(runner.unsafe_move_tap(
+            info, (4, 1), suspects={(4, 1)}, remembered={}))
+
     def test_move_tap_onto_a_suspect_is_unsafe(self):
         # Run 20260822T160202 n=89: the route stepped UP onto the
         # suspect cell (1,1) - confetti covering a pyramid the vision

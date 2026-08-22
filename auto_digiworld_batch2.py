@@ -1358,8 +1358,8 @@ def expected_after_move(screen_target, direction):
     return (row, col)
 
 
-def unsafe_move_tap(info, target, suspects=()):
-    """A 'move' tap onto a pyramid or a suspect cell must not go out.
+def unsafe_move_tap(info, target, suspects=(), remembered=()):
+    """A 'move' tap onto a pyramid or an UNKNOWN suspect must not go out.
 
     A tap onto a cell the game shows as a pyramid EXECUTES a garra.
     HUD counter audit (run 20260822T142042): the attack counter
@@ -1368,9 +1368,17 @@ def unsafe_move_tap(info, target, suspects=()):
     that to one hidden garra the very next run (20260822T160202): the
     survivor at n=89 stepped onto the SUSPECT cell (1,1) - confetti
     covering a pyramid the vision could not see. A suspect cell is
-    unknown ground: never tap it, wait for adjudication."""
-    return (strategy.is_obstacle(info[tuple(target)])
-            or tuple(target) in suspects)
+    unknown ground: never tap it, wait for adjudication.
+
+    Memory outranks suspicion here exactly as it does in
+    drop_remembered_suspects: run 20260822T194747 n=20 refused the
+    route to a REMEMBERED orange four times in a row because its cell
+    also flickered suspect, and four known oranges paraded off the
+    left edge (user: 'no recogió 2 energías')."""
+    if strategy.is_obstacle(info[tuple(target)]):
+        return True
+    return (tuple(target) in suspects
+            and tuple(target) not in remembered)
 
 
 def burst_holds(prev_fresh, current_cells, recent_pickups, done,
@@ -2462,7 +2470,8 @@ def main():
                              "replanificando", "33")
                 time.sleep(RESCAN_DELAY)
                 continue
-            if kind == "move" and unsafe_move_tap(info, target, suspect_items):
+            if kind == "move" and unsafe_move_tap(info, target, suspect_items,
+                                                  remembered_items):
                 # The tap would land on a pyramid (executes a garra -
                 # ~7 hidden attacks in run 20260822T142042) or on an
                 # unadjudicated suspect (confetti can hide a pyramid:
@@ -2534,7 +2543,8 @@ def main():
                     info, player, target, direction, remaining, item_goals)
                 for screen_target, checked in followups:
                     if (not lawful_tap(screen_target)
-                            or unsafe_move_tap(info, checked, suspect_items)):
+                            or unsafe_move_tap(info, checked, suspect_items,
+                                               remembered_items)):
                         break
                     time.sleep(action_delay(
                         "move",
