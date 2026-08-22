@@ -117,7 +117,7 @@ def cells(image, board):
 
 
 def shortest_action(info, player, targets, allow_obstacles=True,
-                    prefer_direction=None):
+                    prefer_direction=None, protect=()):
     """Weighted path: empty field costs 1, destructible pyramid costs 5.
 
     A garra costs 200 shards plus the 40-shard follow-up step, minus
@@ -134,20 +134,29 @@ def shortest_action(info, player, targets, allow_obstacles=True,
     events 188-192 rode row 0 past row-1 oranges until they turned
     perishable."""
     target_rows = {cell[0] for cell in targets}
-    # A rightward step scrolls the world one column left, so a target
-    # already in the perishable band (columns 0-1) is ERODED by every
-    # right step of its own route. Run 20260821T215254 n=197 priced a
-    # 5-step right-around of two walled-off perishables cheaper than
-    # breaking through, and the first step scrolled both off the board.
-    # No route to a column<=1 target may ever include a right step.
-    fragile_target = any(cell[1] <= 1 for cell in targets)
-    queue = [(0, player, [])]
-    best = {player: 0}
+    # A scrolling right erodes left-band targets, so every route gets a
+    # SCROLL BUDGET from its most fragile target: a column-0 target
+    # tolerates none (run 20260821T215254 n=197: a right-around
+    # scrolled two perishables off the board), a column-1 target
+    # survives exactly one (user doctrine 2026-08-22, PNG debug_0148:
+    # 'solo debería hacer cosas raras si el drop está en la columna 0'
+    # - the blanket col<=1 ban outlawed natural routes and made garras
+    # win by default), and anything further right does not care. Only
+    # rights INTO column 2+ scroll; col0->col1 is free (run
+    # 20260822T142042 n=194).
+    # protect: later stops of the same plan - the leg to the FIRST
+    # target must not scroll a later perishable off the board (boxed
+    # pair (4,0)+(4,1): the lone-target budget allowed a right-around
+    # whose single scroll killed the col-0 twin).
+    scroll_budget = min((cell[1] if cell[1] <= 1 else 99)
+                        for cell in set(targets) | set(protect))
+    queue = [(0, player, [], 0)]
+    best = {(player, 0): 0}
     while queue:
-        cost, pos, path = heapq.heappop(queue)
+        cost, pos, path, scrolls = heapq.heappop(queue)
         if pos in targets and path:
             return path[0]
-        if cost != best[pos]:
+        if cost != best.get((pos, scrolls)):
             continue
         for dr, dc, name in DIRS:
             nxt = (pos[0]+dr, pos[1]+dc)
@@ -163,13 +172,9 @@ def shortest_action(info, player, targets, allow_obstacles=True,
             # rode an empty row past reachable paws).
             free_cost = (0.9 if (values["item"] > .06 or
                                  values.get("claw", 0.0) > .10) else 1)
-            # Only rights INTO column 2+ scroll the world; a right from
-            # column 0 into column 1 erodes nothing and must stay legal,
-            # or the free detour around a pyramid becomes illegal and a
-            # 200-shard garra wins by default (run 20260822T142042
-            # n=194, user-confirmed).
             scrolling_right = name == "right" and nxt[1] >= 2
-            if scrolling_right and fragile_target:
+            nscrolls = scrolls + (1 if scrolling_right else 0)
+            if nscrolls > scroll_budget:
                 continue
             step_cost = 5 if obstacle else free_cost
             if scrolling_right and pos[0] not in target_rows:
@@ -181,9 +186,12 @@ def shortest_action(info, player, targets, allow_obstacles=True,
             if not path and name == prefer_direction:
                 step_cost -= 0.001
             nc = cost + step_cost
-            if nc < best.get(nxt, 999):
-                best[nxt] = nc
-                heapq.heappush(queue, (nc, nxt, path + [(nxt, obstacle, name)]))
+            key = (nxt, nscrolls)
+            if nc < best.get(key, 999):
+                best[key] = nc
+                heapq.heappush(queue, (nc, nxt,
+                                       path + [(nxt, obstacle, name)],
+                                       nscrolls))
     return None
 
 
@@ -766,14 +774,15 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             step = shortest_action(info, player, {first},
                                    allow_obstacles=(attacks_enabled
                                                     and first in orange_items),
-                                   prefer_direction=previous_direction)
+                                   prefer_direction=previous_direction,
+                                   protect=order[1:])
             if step:
                 target, obstacle, direction = step
                 # The label names the FIRST target's real category: every
                 # mid-tier pickup used to print as "claw", and the user
                 # read a steps-card chase as a garra spent on nothing
                 # (run 20260822T142042 n=499).
-                if first[1] <= 1:
+                if first[1] == 0:
                     label = ("orange perishable" if first in orange_items
                              else "urgent pickup")
                 elif first in orange_items:

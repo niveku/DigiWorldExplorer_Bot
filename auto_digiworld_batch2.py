@@ -480,6 +480,34 @@ def shift_pickup_log_left(recent_pickups):
             for (row, col), when in recent_pickups if col - 1 >= 0]
 
 
+def shift_items_right(remembered):
+    """Undo one over-counted scroll: the world moved LESS than the taps
+    claimed, so every shifted structure steps one column back right.
+    Cells pushed past the right edge are dropped (nothing legitimate
+    lives there that memory needs to resurrect)."""
+    return {(row, col + 1): value
+            for (row, col), value in remembered.items() if col + 1 <= 4}
+
+
+def scroll_overcount(current_cells, prev_cells, shift):
+    """A swallowed scrolling tap leaves a one-column fingerprint.
+
+    Run 20260822T160202 n=148-150 (user PNG debug_0148): the second
+    right of a batch was swallowed - the world scrolled 1, memory
+    shifted 2, the bot grabbed a paws ghost on an empty cell and every
+    real item surfaced as a fresh suspect exactly one column right of
+    prediction. Detection: the frame has fresh unexplained appearances
+    under the claimed shift, but ZERO under shift-1. Then the world
+    moved one less than the taps claimed and memory must step back."""
+    if shift < 1 or prev_cells is None:
+        return False
+    claimed = suspect_appearances(current_cells, prev_cells, shift=shift)
+    if not claimed:
+        return False
+    return not suspect_appearances(current_cells, prev_cells,
+                                   shift=shift - 1)
+
+
 def shift_cells_left(cells):
     """Scroll compensation for cell SETS (loop-breaker ban history).
 
@@ -1332,6 +1360,7 @@ def main():
     scrolls_since_frame = 0
     total_scrolls = 0
     prev_fresh_suspects = set()
+    prev_detected_cells = None
     recent_pickups = []
     committed_wall = None
     wall_holds = 0
@@ -1700,6 +1729,29 @@ def main():
         # a remembered cell can never refresh its own timestamp through
         # the just-over-threshold patch the merge injects.
         detected_info = info
+        # Scroll reconciliation BEFORE the memory merge, on detection
+        # only: a swallowed scrolling tap makes memory shift more than
+        # the world moved, and every ghost lands one column left of
+        # reality (run 20260822T160202 n=148-150, user PNG). If the
+        # frame's fresh appearances all vanish under shift-1, the world
+        # scrolled one less than the taps claimed: step every shifted
+        # structure back right and correct the counter.
+        detected_cells = frozenset(
+            cell for cell, values in detected_info.items()
+            if values["item"] > .06)
+        if scroll_overcount(detected_cells, prev_detected_cells,
+                            scrolls_since_frame):
+            remembered_items = shift_items_right(remembered_items)
+            phantom_obstacles = shift_items_right(phantom_obstacles)
+            banned_targets = shift_items_right(banned_targets)
+            ban_history = {(r, c + 1) for r, c in ban_history if c + 1 <= 4}
+            pending_reveals = shift_items_right(pending_reveals)
+            recent_pickups = [((r, c + 1), w)
+                              for (r, c), w in recent_pickups if c + 1 <= 4]
+            scrolls_since_frame -= 1
+            event["scroll_reconciled"] = {"claimed": scrolls_since_frame + 1,
+                                          "actual": scrolls_since_frame}
+        prev_detected_cells = detected_cells
         if remembered_items:
             info = merge_remembered_items(info, remembered_items, player)
         phantom_obstacles = {cell: expiry

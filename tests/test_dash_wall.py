@@ -348,7 +348,10 @@ class PickupPriorityTests(unittest.TestCase):
         info[(4, 1)].update(item=0.10, green=0.10)
         info[(2, 4)].update(item=0.10, orange=0.10)
         action, reason = strategy.choose(info)
-        self.assertTrue(reason.startswith("urgent pickup"))
+        # Column 1 is no longer labeled an emergency (doctrine
+        # 2026-08-22) but the tour physics still rescue the orb first:
+        # visiting the orange would scroll it off the board.
+        self.assertTrue(reason.startswith("dash_orb"))
         self.assertEqual(action[2], "down")
 
     def test_a_ticket_does_not_veto_the_pair_dash(self):
@@ -1174,7 +1177,7 @@ class PerishableRoutingTests(unittest.TestCase):
 
     def test_boxed_perishables_are_broken_into_not_circled(self):
         action, reason = strategy.choose(self.boxed_board())
-        self.assertTrue(reason.startswith("orange perishable"))
+        self.assertTrue(reason.startswith("orange"))
         self.assertEqual(action[0], "attack")
 
     def test_route_to_perishables_never_steps_right(self):
@@ -1385,8 +1388,10 @@ class PerishableMidTierTests(unittest.TestCase):
         info[(0, 1)].update(item=0.09, green=0.09)     # dash orb, dying
         info[(3, 4)].update(item=0.09, orange=0.09)    # safe
         action, reason = strategy.choose(info)
-        self.assertTrue(reason.startswith(("orange perishable",
-                                           "urgent pickup")))
+        # Column 1 lost its emergency label (doctrine 2026-08-22); the
+        # tour still rescues the orb first because any other order
+        # scrolls it off the board.
+        self.assertTrue(reason.startswith("dash_orb"))
         self.assertEqual(action[2], "up")
 
     def test_left_band_orange_still_beats_the_orb_by_distance(self):
@@ -1774,6 +1779,95 @@ class UnstableWallHoldTests(unittest.TestCase):
         self.assertFalse(runner.should_hold_for_wall(
             (2, 0), False, ("dash", (2, 1), "right"),
             "dash pair: 2 pyramids in path", holds=0))
+
+
+class ColumnZeroDoctrineTests(unittest.TestCase):
+    """User doctrine 2026-08-22 (PNG debug_0148): rescues and panic
+    belong to column 0 ONLY. A column-1 pickup survives one scroll -
+    it is a normal target, not an emergency. The old col<=1 fragility
+    banned scrolling rights and forced 'weird' left-edge routes."""
+
+    def test_column_one_target_is_not_labeled_perishable(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(4, 1)].update(item=0.10, orange=0.10)
+        info[(0, 4)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(info)
+        self.assertFalse(reason.startswith("orange perishable"))
+
+    def test_column_zero_target_keeps_the_perishable_label(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(4, 0)].update(item=0.10, orange=0.10)
+        info[(0, 4)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(info)
+        self.assertTrue(reason.startswith("orange perishable"))
+
+    def test_column_one_route_may_spend_its_one_scroll(self):
+        # A column-1 target survives exactly one scroll, so a route
+        # with ONE scrolling right is legal (the old col<=1 ban forced
+        # a garra or a left-edge crawl); a col-0 target still allows
+        # none, and multi-scroll right-arounds stay banned.
+        info = empty_grid()
+        info[(2, 0)]["pyramid"] = 0.9
+        info[(2, 1)]["pyramid"] = 0.9
+        info[(3, 1)].update(item=0.10, orange=0.10)
+        step = strategy.shortest_action(info, (1, 1), {(3, 1)},
+                                        allow_obstacles=True)
+        self.assertIsNotNone(step)
+        target, obstacle, direction = step
+        self.assertEqual(direction, "right")
+
+    def test_protected_column_zero_twin_bans_the_scroll(self):
+        # The leg to (4,1) alone may spend one scroll, but with the
+        # plan's next stop at column 0 the same scroll would kill it:
+        # the protect list carries the whole plan's fragility.
+        info = empty_grid()
+        info[(3, 0)]["pyramid"] = 0.9
+        info[(3, 1)]["pyramid"] = 0.9
+        info[(4, 1)].update(item=0.10, orange=0.10)
+        info[(4, 0)].update(item=0.10, orange=0.10)
+        step = strategy.shortest_action(info, (2, 1), {(4, 1)},
+                                        allow_obstacles=False,
+                                        protect=[(4, 0)])
+        self.assertIsNone(step)
+
+
+class ScrollOvercountTests(unittest.TestCase):
+    """Run 20260822T160202 n=148-150 (user PNG debug_0148): the plan
+    WAS the user's route, but the second right tap of the batch was
+    swallowed - the world scrolled 1 while memory shifted 2. Every
+    ghost sat one column left of reality, the bot 'grabbed' the paws
+    ghost at the empty (1,1), and the real items surfaced as fresh
+    suspects exactly one column right of prediction. That signature is
+    detectable: if the fresh appearances vanish under shift-1, the
+    world moved one less than the taps claimed."""
+
+    def test_overcount_detected_when_shift_minus_one_explains_all(self):
+        prev = frozenset({(0, 3), (1, 3), (3, 3)})
+        cur = frozenset({(0, 2), (1, 2), (3, 2)})
+        self.assertTrue(runner.scroll_overcount(cur, prev, shift=2))
+
+    def test_true_scroll_is_not_overcount(self):
+        prev = frozenset({(0, 3), (1, 3), (3, 3)})
+        cur = frozenset({(0, 1), (1, 1), (3, 1)})
+        self.assertFalse(runner.scroll_overcount(cur, prev, shift=2))
+
+    def test_no_suspects_means_no_overcount(self):
+        prev = frozenset({(0, 3)})
+        cur = frozenset({(0, 1)})
+        self.assertFalse(runner.scroll_overcount(cur, prev, shift=2))
+
+    def test_zero_shift_cannot_be_overcounted(self):
+        prev = frozenset({(0, 3)})
+        cur = frozenset({(0, 3), (2, 2)})
+        self.assertFalse(runner.scroll_overcount(cur, prev, shift=0))
+
+    def test_memory_shifts_back_right(self):
+        self.assertEqual(runner.shift_items_right({(1, 1): ("steps", 4)}),
+                         {(1, 2): ("steps", 4)})
+        self.assertEqual(runner.shift_items_right({(1, 4): ("steps", 4)}),
+                         {})
 
 
 class ExplorerNeverAttacksLeftTests(unittest.TestCase):
