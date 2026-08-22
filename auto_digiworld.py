@@ -117,7 +117,8 @@ def cells(image, board):
 
 
 def shortest_action(info, player, targets, allow_obstacles=True,
-                    prefer_direction=None, protect=(), avoid=()):
+                    prefer_direction=None, protect=(), avoid=(),
+                    with_cost=False):
     """Weighted path: empty field costs 1, destructible pyramid costs 5.
 
     A garra costs 200 shards plus the 40-shard follow-up step, minus
@@ -155,7 +156,7 @@ def shortest_action(info, player, targets, allow_obstacles=True,
     while queue:
         cost, pos, path, scrolls = heapq.heappop(queue)
         if pos in targets and path:
-            return path[0]
+            return (path[0], cost) if with_cost else path[0]
         if cost != best.get((pos, scrolls)):
             continue
         for dr, dc, name in DIRS:
@@ -186,6 +187,13 @@ def shortest_action(info, player, targets, allow_obstacles=True,
             step_cost = 5 if obstacle else free_cost
             if scrolling_right and pos[0] not in target_rows:
                 step_cost += 0.05
+            # Tie-break: scroll LATE. Between equal-cost routes the one
+            # that erodes the world later keeps more frames of vision
+            # and less latency risk - run 20260822T205803 n=16 took the
+            # right-first twin of an exact tie and zigzagged. Epsilons
+            # (<=0.006) never outweigh a real cost gap.
+            if scrolling_right:
+                step_cost += 0.002 * max(0, 3 - len(path))
             # Hysteresis on ties: detection noise flips equal-cost routes
             # frame to frame (run 20260821T213642 n=32-34 alternated the
             # up-around and down-around of one pyramid). The FIRST step
@@ -808,14 +816,29 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             # (run 20260822T142042 n=82 broke a pyramid to reach a
             # steps card). A blocked card takes the free way around
             # or drops out of the plan.
-            step = shortest_action(info, player, {first},
-                                   allow_obstacles=(attacks_enabled
-                                                    and first in orange_items),
-                                   prefer_direction=previous_direction,
-                                   protect=order[1:],
-                                   avoid=set(suspect_cells))
-            if step:
-                target, obstacle, direction = step
+            routed = shortest_action(info, player, {first},
+                                     allow_obstacles=(attacks_enabled
+                                                      and first in orange_items),
+                                     prefer_direction=previous_direction,
+                                     protect=order[1:],
+                                     avoid=set(suspect_cells),
+                                     with_cost=True)
+            # Suspects adjudicate in 1-2 free rescans: when dodging
+            # them costs 2+ extra taps over the suspect-free route,
+            # waiting beats walking (run 20260822T205803 n=25-28
+            # walked the 4-tap column-0 horseshoe around one confetti
+            # cell instead of the 2-tap diagonal).
+            if suspect_cells and routed:
+                free = shortest_action(
+                    info, player, {first},
+                    allow_obstacles=(attacks_enabled
+                                     and first in orange_items),
+                    prefer_direction=previous_direction,
+                    protect=order[1:], with_cost=True)
+                if free and routed[1] > free[1] + 1.5:
+                    return None, "tour boxed by suspects"
+            if routed:
+                target, obstacle, direction = routed[0]
                 # The label names the FIRST target's real category: every
                 # mid-tier pickup used to print as "claw", and the user
                 # read a steps-card chase as a garra spent on nothing

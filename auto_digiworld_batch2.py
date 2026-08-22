@@ -218,7 +218,7 @@ def milestone_chest_ready(image):
 
 
 def suspect_appearances(current, previous, shift=0, attack_cell=None,
-                        revealed_cells=()):
+                        revealed_cells=(), confetti_risk=True):
     """Item cells that appeared where nothing can appear.
 
     Game invariants (user-confirmed 2026-08-21): items only enter the
@@ -245,7 +245,17 @@ def suspect_appearances(current, previous, shift=0, attack_cell=None,
     legit = {tuple(cell) for cell in revealed_cells}
     if attack_cell:
         legit.add(tuple(attack_cell))
-    return {cell for cell in fresh if cell[1] < 4 and cell not in legit}
+    # Ingestion band: an item entering at column 4 during a k-scroll
+    # interval can legitimately land anywhere down to column 4-(k-1).
+    # The band only scales when the interval had NO confetti source
+    # (no dash, no pickup): run 20260822T205803 n=6, a real energy
+    # landed at (4,2) after a 3-move batch, got flagged by the fixed
+    # band, stuck to the left-band hold, and scrolled off unclaimed.
+    # With confetti risk the strict band stands (run 20260822T201927:
+    # post-dash confetti painted 8 phantoms across columns 0-2).
+    entry_floor = 4 if confetti_risk else max(0, 4 - shift)
+    return {cell for cell in fresh
+            if cell[1] < entry_floor and cell not in legit}
 
 
 def combined_suspects(fresh, previous_fresh, current):
@@ -2139,7 +2149,16 @@ def main():
             shift=scrolls_since_frame,
             attack_cell=(previous_attack_target
                          if previous_action == "attack" else None),
-            revealed_cells=live_reveal_cells(pending_reveals, done))
+            revealed_cells=live_reveal_cells(pending_reveals, done),
+            # Confetti needs a source: a dash or a pickup in the last
+            # couple of frames. Without one, the ingestion band scales
+            # with the interval's scroll count so a real right-edge
+            # arrival that crossed columns during a move batch is not
+            # flagged (run 20260822T205803 n=6: energy at (4,2) after
+            # 3 scrolls, held suspect until it scrolled off unclaimed).
+            confetti_risk=(previous_action == "dash"
+                           or any(done - when < 2
+                                  for _, when in recent_pickups)))
         suspect_items = combined_suspects(fresh_suspects, prev_fresh_suspects,
                                           current_item_cells)
         suspect_items = drop_remembered_suspects(suspect_items, remembered_items)

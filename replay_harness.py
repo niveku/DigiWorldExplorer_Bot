@@ -171,7 +171,10 @@ class Replay:
             attack_cell=(self.prev_attack_target
                          if self.prev_action == "attack" else None),
             revealed_cells=runner.live_reveal_cells(self.pending_reveals,
-                                                    self.done))
+                                                    self.done),
+            confetti_risk=(self.prev_action == "dash"
+                           or any(self.done - when < 2
+                                  for _, when in self.recent_pickups)))
         suspects = runner.combined_suspects(fresh, self.prev_fresh, current)
         suspects = runner.drop_remembered_suspects(suspects, self.remembered)
         suspects |= runner.burst_holds(self.prev_fresh, current,
@@ -295,6 +298,12 @@ class Replay:
             if kind == "move":
                 self.remembered.pop(target, None)
                 self.prev_action = "move"
+                # A recorded move onto a visible item is a pickup: it
+                # feeds burst_holds and the confetti_risk window just
+                # like the live runner's pickup log.
+                if (self.prev_item_cells
+                        and target in self.prev_item_cells):
+                    self.recent_pickups.append((target, self.done))
                 if len(target) == 2 and target[1] >= 2:
                     self.shift_left(1)
                     self.claimed += 1

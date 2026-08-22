@@ -608,6 +608,29 @@ class SuspectAppearanceTests(unittest.TestCase):
                                        shift=0),
             set())
 
+    def test_multi_scroll_ingestion_band_scales_without_confetti_risk(self):
+        # Run 20260822T205803 n=6: a real energy entered from the right
+        # during a 3-move scroll batch and landed at (4,2). With 3
+        # scrolls in the interval an item entering at column 4 can
+        # legitimately sit anywhere down to column 2 - but the fixed
+        # `col < 4` band flagged it, the sticky left band then held it,
+        # and the bot's own scrolls pushed it off the board unclaimed.
+        # No dash, no pickup in the interval = no confetti source, so
+        # the scaled band is safe.
+        self.assertEqual(
+            runner.suspect_appearances(frozenset({(4, 2)}), frozenset(),
+                                       shift=3, confetti_risk=False),
+            set())
+
+    def test_confetti_risk_keeps_the_strict_band(self):
+        # Same shift, but the interval had a dash (or a pickup): the
+        # confetti can paint anywhere, so the strict band stands - this
+        # is the 20260822T201927 circling bug's guard.
+        self.assertEqual(
+            runner.suspect_appearances(frozenset({(4, 2)}), frozenset(),
+                                       shift=3, confetti_risk=True),
+            {(4, 2)})
+
     def test_empty_observed_board_does_not_disable_suspicion(self):
         # Run 20260822T201927 n=37: the board was OBSERVED empty before
         # the dash (previous = empty set, not None), the dash broke 3
@@ -1527,6 +1550,73 @@ class BoxedExplorerWaitsTests(unittest.TestCase):
         action, reason = strategy.choose(
             info, ignored_targets=neighbors, suspect_cells=neighbors)
         self.assertIsNone(action)
+
+
+class LateScrollTieBreakTests(unittest.TestCase):
+    """Run 20260822T205803 n=16-18 (user: 'pasos hacia atrás'): from
+    (3,1) to the orange at (1,3) the right-first and up-first routes
+    cost exactly the same (4 taps, one off-row scroll surcharge each),
+    and the prefer-direction hysteresis picked right-first - a scroll
+    from row 3 before any information, then a visual zigzag back up.
+    Ties must break toward scrolling LATE: same taps, more frames of
+    vision before the world erodes, and no zigzag."""
+
+    def _grid(self):
+        info = empty_grid()
+        info[(3, 1)]["player"] = 0.2
+        info[(1, 3)].update(item=0.16, orange=0.16)
+        info[(1, 1)]["pyramid"] = 0.9
+        info[(0, 4)]["pyramid"] = 0.9
+        info[(4, 2)]["pyramid"] = 0.9
+        return info
+
+    def test_equal_cost_routes_scroll_late(self):
+        step = strategy.shortest_action(self._grid(), (3, 1), {(1, 3)},
+                                        prefer_direction="right")
+        self.assertIsNotNone(step)
+        target, obstacle, direction = step
+        self.assertEqual(direction, "up")
+
+    def test_genuinely_cheaper_scroll_first_still_wins(self):
+        # The tie-break epsilon must never override a real cost gap:
+        # same-row target straight ahead stays a plain right.
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 3)].update(item=0.16, orange=0.16)
+        step = strategy.shortest_action(info, (2, 1), {(2, 3)},
+                                        prefer_direction="right")
+        target, obstacle, direction = step
+        self.assertEqual(direction, "right")
+
+
+class CostlyDetourWaitsTests(unittest.TestCase):
+    """Run 20260822T205803 n=25-28: post-dash confetti made (1,1)
+    suspect, the direct 2-tap route to the real orange at (0,1) died to
+    avoid=, and the router walked the 4-tap column-0 horseshoe instead
+    - including the backward tap the user flagged. Suspects adjudicate
+    in 1-2 free rescans: when the detour costs 2+ extra taps, waiting
+    beats walking."""
+
+    def test_detour_two_taps_longer_waits_for_adjudication(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(0, 1)].update(item=0.17, orange=0.17)
+        suspects = {(1, 1), (1, 2), (2, 2)}
+        action, reason = strategy.choose(info, player=(2, 1),
+                                         suspect_cells=suspects)
+        self.assertIsNone(action)
+        self.assertIn("boxed", reason)
+
+    def test_equal_cost_alternative_route_walks(self):
+        # When a same-cost route exists around the suspect there is
+        # nothing to wait for: walk it.
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(1, 2)].update(item=0.17, orange=0.17)
+        suspects = {(1, 1)}
+        action, reason = strategy.choose(info, player=(2, 1),
+                                         suspect_cells=suspects)
+        self.assertIsNotNone(action)
 
 
 class TourBoxedBySuspectsTests(unittest.TestCase):

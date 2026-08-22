@@ -25,6 +25,8 @@ CORPUS = [
     "20260822T194747_257468Z",   # four-skip starvation, 2 lost energies
     "20260822T201927_294341Z",   # confetti-ghost circling (empty-previous
                                  # guard silenced the suspect detector)
+    "20260822T205803_231886Z",   # energy lost to fixed ingestion band +
+                                 # suspect-detour horseshoe walks
 ]
 
 
