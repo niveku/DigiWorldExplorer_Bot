@@ -163,10 +163,16 @@ def shortest_action(info, player, targets, allow_obstacles=True,
             # rode an empty row past reachable paws).
             free_cost = (0.9 if (values["item"] > .06 or
                                  values.get("claw", 0.0) > .10) else 1)
-            if name == "right" and fragile_target:
+            # Only rights INTO column 2+ scroll the world; a right from
+            # column 0 into column 1 erodes nothing and must stay legal,
+            # or the free detour around a pyramid becomes illegal and a
+            # 200-shard garra wins by default (run 20260822T142042
+            # n=194, user-confirmed).
+            scrolling_right = name == "right" and nxt[1] >= 2
+            if scrolling_right and fragile_target:
                 continue
             step_cost = 5 if obstacle else free_cost
-            if name == "right" and pos[0] not in target_rows:
+            if scrolling_right and pos[0] not in target_rows:
                 step_cost += 0.05
             # Hysteresis on ties: detection noise flips equal-cost routes
             # frame to frame (run 20260821T213642 n=32-34 alternated the
@@ -406,9 +412,11 @@ MID_DETOUR_ALLOWANCE = {"steps": 3, "claw": 5, "dash_orb": 10}
 def prune_low_value_mids(player, oranges, mids, types):
     """Drop mid-tier cards whose detour costs more than they refund.
 
-    Paticas ROI measured over 275 counter intervals (runs 2026-08-2x):
-    one move consumes ~1 patica and a steps card returns ~3-5, so a
-    card only pays for about three extra steps of detour. A claw
+    Paticas ROI: one move consumes 1 patica and a steps card returns
+    EXACTLY +4 (user-verified on the HUD 2026-08-22; the 275-interval
+    least-squares estimate of ~3.3 carried detection noise). A detour
+    of 4+ steps is therefore never worth a bare card - allowance 3
+    keeps it strictly profitable. A claw
     refunds a 200-shard garra (~5 steps), a dash orb a 400-shard dash
     (~10). Oranges are never pruned - one orange is worth a dash's
     whole yield. A mid stays when the best tour with it costs at most
@@ -629,7 +637,17 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                          for cell in path)
         right_targets = any(cell[1] >= 3
                             for cell in (orange_items | mid_items))
-        pair_worth = path_items or right_targets or path_pyramids >= 3
+        # Doctrine 2026-08-22 (user): two REAL pyramids pay for the
+        # dash on their own - each break drops at ~46% and the dash
+        # collects its drops in the same motion, plus three columns of
+        # advance (run 20260822T142042 n=97-98 spent a garra on an X-X
+        # the user wanted dashed). A pair whose second pyramid is only
+        # the sixth-column PREVIEW keeps needing a payload: previews
+        # flicker, and run 20260821T225908's nine dashes bought nothing.
+        real_path_pyramids = sum(1 for cell in path
+                                 if is_obstacle(info[cell]))
+        pair_worth = (path_items or right_targets
+                      or real_path_pyramids >= 2 or path_pyramids >= 3)
         # Only an IMMINENT wall (launch one row above or below) may hold
         # the pair back - it stabilizes and fires within a frame or two
         # (run 20260820T033221). A far wall blocked the pair without
@@ -669,7 +687,9 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                 launch_items = any(info[cell]["item"] > .06
                                    or info[cell].get("claw", 0.0) > .10
                                    for cell in launch_path)
-                if not (launch_items or right_targets
+                launch_real = sum(1 for cell in launch_path
+                                  if is_obstacle(info[cell]))
+                if not (launch_items or right_targets or launch_real >= 2
                         or dash_path_pyramids(*launch) >= 3):
                     continue
                 launch_risk = {cell

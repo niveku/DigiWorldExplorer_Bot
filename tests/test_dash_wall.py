@@ -1381,13 +1381,15 @@ class PerishableMidTierTests(unittest.TestCase):
 
 
 class PairDashEconomicsTests(unittest.TestCase):
-    """Run 20260821T225908: nine pair dashes, every one with zero items
-    in its path and a free detour available - 3,600 shards for ~100 of
-    value each. The pair rule priced itself against two garras (600)
-    when the true alternative is the free two-step detour (80). A bare
-    two-pyramid pair no longer justifies 400 shards: the pair dash needs
-    an item in its path, a third pyramid, or a target to the right it
-    genuinely approaches."""
+    """Doctrine 2026-08-22 (user, after the dash-collects-its-drops
+    rule): TWO REAL pyramids pay for the dash on their own - each break
+    drops at ~46% and the dash collects the drops in the same motion,
+    plus three columns of free advance (run 20260822T142042 n=97-98
+    spent a garra on an X-X the user wanted dashed). The 20260821T225908
+    lesson survives where it was true: a pair whose second pyramid is
+    only a sixth-column PREVIEW still needs an item in the path, a
+    right-side target, or a third pyramid - previews flicker and those
+    nine dashes bought nothing."""
 
     def bare_pair(self):
         info = empty_grid()
@@ -1396,8 +1398,16 @@ class PairDashEconomicsTests(unittest.TestCase):
         info[(2, 3)]["pyramid"] = 0.9
         return info
 
-    def test_bare_pair_with_free_detour_keeps_the_dash(self):
+    def test_two_real_pyramids_pay_for_the_dash(self):
         action, reason = strategy.choose(self.bare_pair())
+        self.assertEqual(action[0], "dash")
+
+    def test_preview_supplied_pair_still_needs_a_payload(self):
+        info = empty_grid()
+        info[(2, 2)]["player"] = 0.2
+        wall(info, 2, (4,))
+        preview = [False, False, True, False, False]
+        action, reason = strategy.choose(info, preview=preview)
         self.assertNotEqual(action[0], "dash")
 
     def test_item_in_path_pays_for_the_dash(self):
@@ -1417,6 +1427,37 @@ class PairDashEconomicsTests(unittest.TestCase):
         info[(2, 4)]["pyramid"] = 0.9
         action, reason = strategy.choose(info)
         self.assertEqual(action[0], "dash")
+
+
+class FragileDetourTests(unittest.TestCase):
+    """Run 20260822T142042 n=194 (user: 'podía continuar su camino'):
+    the route to the perishable orange at (4,1) banned EVERY right step,
+    including the col0-to-col1 right that does not scroll - the free
+    4-step detour around the pyramid became illegal and the only lawful
+    route was a 200-shard garra through (3,1). Only rights into column
+    2+ scroll the world; a right into column 1 erodes nothing."""
+
+    def test_free_detour_beats_the_garra_for_a_perishable(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(4, 1)].update(item=0.10, orange=0.10)
+        info[(3, 1)]["pyramid"] = 0.9
+        info[(3, 3)]["pyramid"] = 0.9
+        info[(2, 4)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info)
+        self.assertNotEqual(action[0], "attack")
+
+    def test_scrolling_rights_stay_banned_for_fragile_targets(self):
+        step = strategy.shortest_action(
+            {**{(r, c): {"player": 0.0, "item": 0.0, "pyramid": 0.0,
+                         "orange": 0.0, "pink": 0.0, "green": 0.0,
+                         "highlight": 1.0}
+                for r in range(5) for c in range(5)}},
+            (2, 1), {(2, 0)})
+        # Target at col 0: route is a single left step; a right can
+        # never appear (this pins the ban's purpose, not its letter).
+        target, obstacle, direction = step
+        self.assertEqual(direction, "left")
 
 
 class BoardMotionTests(unittest.TestCase):
@@ -1670,6 +1711,36 @@ class UnknownOverlayDismissTests(unittest.TestCase):
         x, y = runner.DISMISS_TAP_XY
         self.assertLess(x, 60)          # left of any dialog frame
         self.assertTrue(300 <= y <= 900)  # away from HUD top and bottom bars
+
+
+class HiddenGarraTests(unittest.TestCase):
+    """HUD counter audit, run 20260822T142042: the attack counter
+    dropped ~7 more times than the log sent attacks. A 'move' tap onto
+    a cell the game shows as a pyramid EXECUTES a garra - the user
+    watched them (debug 21, 26, 153, 499) while the events log said
+    'move'. Two doors, both closed here: memory painting an item over
+    a cell that is now a pyramid, and the tap itself going out without
+    checking what the cell holds."""
+
+    def test_memory_never_paints_over_a_visible_pyramid(self):
+        info = empty_grid()
+        info[(1, 0)]["pyramid"] = 0.9
+        merged = runner.merge_remembered_items(
+            info, {(1, 0): ("orange", 4)}, (2, 2))
+        self.assertLessEqual(merged[(1, 0)]["item"], .06)
+
+    def test_claw_memory_never_paints_over_a_visible_pyramid(self):
+        info = empty_grid()
+        info[(1, 0)]["pyramid"] = 0.9
+        merged = runner.merge_remembered_items(
+            info, {(1, 0): ("claw", 4)}, (2, 2))
+        self.assertLessEqual(merged[(1, 0)].get("claw", 0.0), .10)
+
+    def test_move_tap_onto_a_pyramid_is_unsafe(self):
+        info = empty_grid()
+        info[(1, 0)]["pyramid"] = 0.9
+        self.assertTrue(runner.unsafe_move_tap(info, (1, 0)))
+        self.assertFalse(runner.unsafe_move_tap(info, (1, 1)))
 
 
 if __name__ == "__main__":

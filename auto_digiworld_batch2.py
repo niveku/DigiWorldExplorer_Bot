@@ -416,6 +416,13 @@ def merge_remembered_items(info, remembered, player):
         if cell == player:
             continue
         values = merged[cell]
+        if strategy.is_obstacle(values):
+            # The world outranks memory: painting a remembered item
+            # over a cell the game now shows as a pyramid made the
+            # adjacent grab tap it, and a move tap onto a pyramid
+            # EXECUTES a garra (HUD counter audit run 20260822T142042:
+            # ~7 attacks spent that the log never sent).
+            continue
         if category == "claw":
             # A claw is targeted via its own mask (claw > .10 with item
             # <= .06); patching "item" would disqualify it instead.
@@ -1046,6 +1053,16 @@ def expected_after_move(screen_target, direction):
     if direction == "right" and col >= 2:
         return (row, col - 1)
     return (row, col)
+
+
+def unsafe_move_tap(info, target):
+    """A 'move' tap onto a cell the game shows as a pyramid EXECUTES a
+    garra. HUD counter audit (run 20260822T142042): the attack counter
+    dropped ~7 more times than the log sent attacks - every one a move
+    tap landing on a pyramid the planner did not see (memory ghosts,
+    confetti-covered cells, mid-scroll boards). The user watched them
+    on screen (debug 21, 26, 153, 499) while the log said 'move'."""
+    return strategy.is_obstacle(info[tuple(target)])
 
 
 def lawful_tap(cell):
@@ -1933,6 +1950,21 @@ def main():
                              "replanificando", "33")
                 time.sleep(args.interval)
                 continue
+            if kind == "move" and unsafe_move_tap(info, target):
+                # The tap would land on a pyramid and execute a garra
+                # (~7 hidden attacks in run 20260822T142042). Whatever
+                # painted an item there was a ghost: kill its memory,
+                # remember the obstacle, replan.
+                remembered_items.pop(tuple(target), None)
+                phantom_obstacles[tuple(target)] = done + 6
+                event["action"] = f"SKIP: move onto pyramid at {list(target)}"
+                bot.log_event(log, event)
+                if args.verbose:
+                    progress(done, args.steps,
+                             f"Tap sobre pirámide en {list(target)} suprimido - "
+                             "replanificando", "33")
+                time.sleep(args.interval)
+                continue
             x, y = bot.cell_center(det.board, *target)
             if kind == "attack":
                 pending_attack_inv = read_drop_counters(image)
@@ -1980,7 +2012,8 @@ def main():
                 followups = safe_followup_moves(
                     info, player, target, direction, remaining, item_goals)
                 for screen_target, checked in followups:
-                    if not lawful_tap(screen_target):
+                    if (not lawful_tap(screen_target)
+                            or unsafe_move_tap(info, checked)):
                         break
                     time.sleep(jittered_delay(args.interval, args.jitter))
                     x2, y2 = bot.cell_center(det.board, *screen_target)
