@@ -596,6 +596,22 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     # caller enables hunting only when the same launch was seen on
     # consecutive frames; opportunistic same-row dashes are unaffected.
     if dashes_enabled and hunt_walls:
+        # If the standing start already reaches three REAL pyramids,
+        # dash NOW - never walk to a "better" launch. Run
+        # 20260822T175424 n=11-13: the sprite misread as a pyramid made
+        # the wall run start one column early, the computed launch sat
+        # one step BACK, and the dash from there broke 2 instead of the
+        # 3 available in place (user: 'estaba totalmente de frente').
+        standing_path = {(player[0], col)
+                         for col in range(player[1] + 1, min(5, player[1] + 4))}
+        standing_reach = sum(1 for cell in standing_path
+                             if is_obstacle(info[cell]))
+        standing_risk = {cell
+                         for cell in (orange_items | mid_items | suspect_risk)
+                         if cell not in standing_path and cell[1] <= 2
+                         and cell not in steps_cards}
+        if standing_reach >= 3 and not standing_risk:
+            return ("dash", player, "right"), "3+ pyramid wall: dash"
         launch = nearest_dash_wall(info, player, preview=preview)
         if launch is not None:
             # The wall dash's 3-column scroll deletes every off-path

@@ -238,6 +238,21 @@ class PairDashDefersToWallTests(unittest.TestCase):
         action, reason = strategy.choose(info, hunt_walls=False)
         self.assertEqual(action, ("dash", (2, 1), "right"))
 
+    def test_standing_start_with_three_real_pyramids_never_walks_away(self):
+        # Run 20260822T175424 n=11-13 (user: 'estaba TOTALMENTE de
+        # frente a tres pirámides y decidió devolverse un paso'): the
+        # detector misread the player's own cell as a pyramid, the
+        # wall run seemed to start one column early, and the computed
+        # launch was one step BACK - the dash from there broke 2
+        # instead of the 3 available in place. If the current position
+        # already reaches three real pyramids, dash NOW.
+        info = empty_grid()
+        info[(0, 1)]["player"] = 0.2
+        info[(0, 1)]["pyramid"] = 0.9   # sprite misread as pyramid
+        wall(info, 0, (2, 3, 4))
+        action, reason = strategy.choose(info, hunt_walls=True)
+        self.assertEqual(action, ("dash", (0, 1), "right"))
+
     def test_own_row_preview_wall_does_not_block_the_pair(self):
         # Run 20260822T142042 n=452-458: pair launch sent the bot to
         # (2,1); there the pair dash was vetoed because the sixth-column
