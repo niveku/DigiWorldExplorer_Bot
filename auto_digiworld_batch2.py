@@ -2019,6 +2019,12 @@ def main():
             scrolls_since_frame = measured
         if remembered_items:
             info = merge_remembered_items(info, remembered_items, player)
+        # Standing on a cell PROVES it is walkable: a phantom under the
+        # player's feet is a lie left over from a false rejection (run
+        # 20260822T175424 - the late tap landed after the refusal
+        # minted the phantom, and the wall math then saw a "pyramid"
+        # in the player's own cell and launched one step back).
+        phantom_obstacles.pop(tuple(player), None)
         phantom_obstacles = {cell: expiry
                              for cell, expiry in phantom_obstacles.items()
                              if expiry > done}

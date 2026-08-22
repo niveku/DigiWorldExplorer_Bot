@@ -240,12 +240,13 @@ class PairDashDefersToWallTests(unittest.TestCase):
 
     def test_standing_start_with_three_real_pyramids_never_walks_away(self):
         # Run 20260822T175424 n=11-13 (user: 'estaba TOTALMENTE de
-        # frente a tres pirámides y decidió devolverse un paso'): the
-        # detector misread the player's own cell as a pyramid, the
-        # wall run seemed to start one column early, and the computed
-        # launch was one step BACK - the dash from there broke 2
-        # instead of the 3 available in place. If the current position
-        # already reaches three real pyramids, dash NOW.
+        # frente a tres pirámides y decidió devolverse un paso').
+        # Pixel forensics cleared the vision: Gatomon scores pyramid
+        # 0.14-0.20 vs 0.88-0.99 for real pyramids - the "pyramid" in
+        # the player's cell was a PHANTOM obstacle minted by a false
+        # (late-tap) rejection. Whatever poisons that cell, the rule
+        # holds: if the standing path already reaches three real
+        # pyramids, dash NOW - never walk to a computed launch.
         info = empty_grid()
         info[(0, 1)]["player"] = 0.2
         info[(0, 1)]["pyramid"] = 0.9   # sprite misread as pyramid
