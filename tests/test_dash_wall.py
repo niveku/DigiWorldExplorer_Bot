@@ -2005,23 +2005,75 @@ class KnownWorldTests(unittest.TestCase):
     confirmados de qué hay y qué no hay' - nothing NEW can exist in
     columns 0-2 except a garra drop (whitelisted) or something memory
     already tracks. An unexplained left-band appearance is confetti by
-    definition and is never believed: it stays suspect for as long as
-    it remains visible, instead of being promoted after two sightings."""
+    definition and is not believed while it stays visible - but only
+    for a TTL: run 20260822T165752 n=12-17 (user force-stop) flagged a
+    REAL orange once during phantom-tap chaos and the un-expiring
+    version blind-sided the bot against an energy sitting in front of
+    it. Confetti never survives 4 settled frames (measured); a real
+    item outlives the TTL and gets released."""
 
     def test_left_band_suspect_stays_suspect_while_visible(self):
-        self.assertEqual(
-            runner.sticky_left_band_suspects({(2, 1)}, {(2, 1), (0, 4)}),
-            {(2, 1)})
+        held, ages = runner.sticky_left_band_suspects(
+            {(2, 1)}, {(2, 1), (0, 4)}, {})
+        self.assertEqual(held, {(2, 1)})
+        self.assertEqual(ages, {(2, 1): 1})
 
     def test_right_band_suspects_are_not_sticky(self):
-        self.assertEqual(
-            runner.sticky_left_band_suspects({(2, 4)}, {(2, 4)}),
-            set())
+        held, ages = runner.sticky_left_band_suspects(
+            {(2, 4)}, {(2, 4)}, {})
+        self.assertEqual(held, set())
 
     def test_vanished_confetti_clears(self):
-        self.assertEqual(
-            runner.sticky_left_band_suspects({(2, 1)}, {(0, 4)}),
-            set())
+        held, ages = runner.sticky_left_band_suspects(
+            {(2, 1)}, {(0, 4)}, {(2, 1): 2})
+        self.assertEqual((held, ages), (set(), {}))
+
+    def test_survivor_outlives_the_ttl_and_is_released(self):
+        held, ages = runner.sticky_left_band_suspects(
+            {(2, 1)}, {(2, 1)}, {(2, 1): 3}, ttl=4)
+        self.assertEqual(held, set())
+
+
+class ActionDelayTests(unittest.TestCase):
+    """User directive 2026-08-22: timings live INSIDE the bot, not in a
+    CLI flag - fast where nothing animates, slower where the game runs
+    an animation that swallows taps (run 20260822T165752 n=6-12: six
+    rapid rights during lag, measured scroll 0 - a whole batch eaten).
+    Plain steps are the floor (~0.35s), scrolls and pickups wait for
+    their animation, garra and dash wait the longest, and the jitter
+    is a fraction of the base so pacing stays human."""
+
+    def test_plain_move_is_the_floor(self):
+        d = runner.action_delay("move", rand=lambda: 0.0)
+        self.assertAlmostEqual(d, runner.ACTION_DELAYS["move"])
+        self.assertGreaterEqual(d, 0.3)
+
+    def test_animations_wait_longer(self):
+        base = lambda k, **kw: runner.action_delay(k, rand=lambda: 0.0, **kw)
+        self.assertGreater(base("move", scrolled=True), base("move"))
+        self.assertGreater(base("move", picked_up=True),
+                           base("move", scrolled=True) - 0.2)
+        self.assertGreater(base("attack"), base("move", scrolled=True))
+        self.assertGreater(base("dash"), base("attack"))
+
+    def test_jitter_is_bounded_fraction_of_base(self):
+        lo = runner.action_delay("move", rand=lambda: 0.0)
+        hi = runner.action_delay("move", rand=lambda: 1.0)
+        self.assertGreater(hi, lo)
+        self.assertLessEqual(hi, lo * (1 + runner.JITTER_FRACTION) + 1e-9)
+
+
+class LagGuardTests(unittest.TestCase):
+    """After the pixel sensor reports lost taps (claimed > measured),
+    the game is lagging: batching more taps into the freeze only feeds
+    it. Batches drop to single steps for the next two decisions."""
+
+    def test_cooldown_forces_single_steps(self):
+        self.assertEqual(runner.lag_batch_limit(2, 3), 1)
+        self.assertEqual(runner.lag_batch_limit(1, 3), 1)
+
+    def test_no_cooldown_keeps_the_batch(self):
+        self.assertEqual(runner.lag_batch_limit(0, 3), 3)
 
 
 class DashScrollCountTests(unittest.TestCase):

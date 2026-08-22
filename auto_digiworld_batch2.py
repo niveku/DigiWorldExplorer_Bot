@@ -569,16 +569,73 @@ def measure_scroll_columns(prev_strip, cur_strip, max_cols=3):
     return int(min(range(len(scores)), key=scores.__getitem__))
 
 
-def sticky_left_band_suspects(prev_suspects, current_cells, band=2):
-    """An unexplained left-band appearance is never believed.
+def sticky_left_band_suspects(prev_suspects, current_cells, ages, band=2,
+                              ttl=4):
+    """An unexplained left-band appearance is not believed - for a TTL.
 
     Doctrine 2026-08-22 (user): columns 0-2 are KNOWN world - nothing
     new can exist there except a garra drop (whitelisted) or what
     memory already tracks, so an unexplained appearance is confetti by
-    definition. Instead of promoting it after two sightings, it stays
-    suspect for as long as it remains visible."""
-    return {cell for cell in prev_suspects
-            if cell in current_cells and cell[1] <= band}
+    definition and stays suspect while visible. But only for ttl
+    frames: run 20260822T165752 n=12-17 (user force-stop) flagged a
+    REAL orange once during phantom-tap chaos and the un-expiring
+    version blind-sided the bot against an energy sitting in front of
+    it. Confetti never survives 4 settled frames (measured over the
+    2026-08-22 runs); anything that does is real and gets released.
+    Returns (held_cells, updated_ages)."""
+    held = set()
+    new_ages = {}
+    for cell in prev_suspects:
+        if cell not in current_cells or cell[1] > band:
+            continue
+        age = ages.get(cell, 0) + 1
+        if age < ttl:
+            held.add(cell)
+            new_ages[cell] = age
+    return held, new_ages
+
+
+RESCAN_DELAY = 0.5
+
+ACTION_DELAYS = {
+    "move": 0.35,
+    "move_scroll": 0.60,
+    "move_pickup": 0.65,
+    "move_pickup_scroll": 0.80,
+    "attack": 0.90,
+    "dash": 1.40,
+}
+JITTER_FRACTION = 0.45
+
+
+def action_delay(kind, scrolled=False, picked_up=False, rand=random.random):
+    """Internal pacing per action type (user directive 2026-08-22).
+
+    The CLI interval is gone: timing follows what the game animates.
+    A plain step is the floor; a scroll or a pickup must let its
+    animation finish or the next tap gets swallowed (run
+    20260822T165752 n=6-12: six rapid rights into a lag freeze,
+    measured scroll 0); garra and dash animate longest. Jitter is a
+    uniform fraction of the base, so fast actions stay fast and the
+    rhythm reads human."""
+    if kind == "move":
+        key = ("move_pickup_scroll" if picked_up and scrolled
+               else "move_pickup" if picked_up
+               else "move_scroll" if scrolled
+               else "move")
+    else:
+        key = kind if kind in ACTION_DELAYS else "move"
+    base = ACTION_DELAYS[key]
+    return base * (1.0 + rand() * JITTER_FRACTION)
+
+
+def lag_batch_limit(lag_cooldown, size):
+    """Single steps while the lag detector cools down.
+
+    A claimed>measured reconciliation means the game swallowed taps:
+    batching more into the freeze only feeds it (run 20260822T165752
+    n=6-12 fed six)."""
+    return 1 if lag_cooldown > 0 else size
 
 
 # (scroll_overcount, the cell-fingerprint reconciler, retired
@@ -851,11 +908,6 @@ def remember_revealed_pickup(remembered, pyramid_result, cell, done):
 def should_reenable(disabled_at, done, span=REENABLE_ACTIONS):
     """True once enough actions have passed to justify retrying the consumable."""
     return disabled_at is not None and done - disabled_at >= span
-
-
-def jittered_delay(base, jitter, rand=random.random):
-    """Base delay plus a small random extra so taps do not tick uniformly."""
-    return base + rand() * jitter
 
 
 def confirmed_energy(previous, current):
@@ -1382,9 +1434,9 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     p.add_argument("--steps", type=int, default=10)
-    p.add_argument("--interval", type=float, default=.65)
-    p.add_argument("--jitter", type=float, default=.35,
-                   help="random extra seconds added to each action pause")
+    # --interval/--jitter retired 2026-08-22 (user directive): pacing is
+    # internal now - see ACTION_DELAYS/action_delay. Fast where nothing
+    # animates, slower where the game swallows taps.
     p.add_argument("--batch-size", type=int, default=2, choices=(1, 2, 3))
     p.add_argument("--debug-screenshots", action="store_true")
     p.add_argument("--verbose", action="store_true", help="human-readable status for every scan")
@@ -1439,7 +1491,9 @@ def main():
     total_scrolls = 0
     prev_fresh_suspects = set()
     prev_suspect_items = set()
+    sticky_ages = {}
     prev_strip = None
+    lag_cooldown = 0
     recent_pickups = []
     committed_wall = None
     wall_holds = 0
@@ -1626,7 +1680,7 @@ def main():
                     return 5
             bot.log_event(log, event)
             if args.verbose: progress(done, args.steps, str(event["action"]), "33")
-            time.sleep(args.interval); continue
+            time.sleep(RESCAN_DELAY); continue
 
         overlay_waits = 0
         # (Rejection accounting moved below the player resolution: toasts
@@ -1658,7 +1712,7 @@ def main():
             if unreliable >= 5:
                 show_run_summary(done, args.steps, started_at, collected, energy_start, read_energy_counter(image), "33")
                 return 2
-            time.sleep(args.interval); continue
+            time.sleep(RESCAN_DELAY); continue
         unreliable = 0
         # The out-of-steps STOP used to live only behind the modal-overlay
         # path; with the confetti gate that path fires rarely, so the
@@ -1789,7 +1843,7 @@ def main():
                 bot.log_event(log, event)
                 show_run_summary(done, args.steps, started_at, collected, energy_start, read_energy_counter(image), "33")
                 return 3
-            time.sleep(max(args.interval, 1.0)); continue
+            time.sleep(1.0); continue
         player_unreliable = 0
         if player_source == "large-sprite":
             # A big sprite's own colors read as pickups in the cells its body
@@ -1840,6 +1894,11 @@ def main():
                     recent_pickups = shift_pickup_log_left(recent_pickups)
             event["scroll_reconciled"] = {"claimed": scrolls_since_frame,
                                           "measured": measured}
+            if measured < scrolls_since_frame:
+                # The game swallowed taps: it is lagging. Single steps
+                # for the next two decisions instead of feeding batches
+                # into the freeze.
+                lag_cooldown = 2
             scrolls_since_frame = measured
         if remembered_items:
             info = merge_remembered_items(info, remembered_items, player)
@@ -1874,8 +1933,13 @@ def main():
         shifted_prev_susp = {(r, c - scrolls_since_frame)
                              for r, c in prev_suspect_items
                              if c - scrolls_since_frame >= 0}
-        suspect_items |= sticky_left_band_suspects(shifted_prev_susp,
-                                                   current_item_cells)
+        shifted_ages = {(r, c - scrolls_since_frame): v
+                        for (r, c), v in sticky_ages.items()
+                        if c - scrolls_since_frame >= 0}
+        held, sticky_ages = sticky_left_band_suspects(shifted_prev_susp,
+                                                      current_item_cells,
+                                                      shifted_ages)
+        suspect_items |= held
         suspect_items = drop_remembered_suspects(suspect_items,
                                                  remembered_items)
         prev_suspect_items = set(suspect_items)
@@ -1901,8 +1965,11 @@ def main():
         # Batch-2 is adaptive: on an item-free board it may safely advance up
         # to three cells. Any visible pickup immediately restores the more
         # careful two-click limit.
-        effective_batch_size = warmup_batch_limit(
-            done, adaptive_batch_limit(args.batch_size, item_goals))
+        effective_batch_size = lag_batch_limit(
+            lag_cooldown,
+            warmup_batch_limit(done,
+                               adaptive_batch_limit(args.batch_size,
+                                                    item_goals)))
         if previous_action == "attack" and previous_attack_target is not None:
             result = attack_result(info[previous_attack_target])
             inv_after = (read_drop_counters(image)
@@ -2111,6 +2178,7 @@ def main():
         if effective_batch_size == 3 and args.batch_size == 2:
             event["batch_mode"] = "adaptive-3: no visible items"
         sent = []
+        frame_picked = False
 
         # Approach moves toward a dash launch go one cell per screenshot so a
         # vertical approach can never batch past the launch row.
@@ -2196,7 +2264,7 @@ def main():
                     progress(done, args.steps,
                              f"Tap ilegal a {list(target)} suprimido - "
                              "replanificando", "33")
-                time.sleep(args.interval)
+                time.sleep(RESCAN_DELAY)
                 continue
             if kind == "move" and unsafe_move_tap(info, target, suspect_items):
                 # The tap would land on a pyramid (executes a garra -
@@ -2216,7 +2284,7 @@ def main():
                     progress(done, args.steps,
                              f"Tap sobre {note} en {list(target)} suprimido - "
                              "replanificando", "33")
-                time.sleep(args.interval)
+                time.sleep(RESCAN_DELAY)
                 continue
             x, y = bot.cell_center(det.board, *target)
             if kind == "attack":
@@ -2255,6 +2323,7 @@ def main():
             if pickup:
                 collected[pickup] += 1
                 recent_pickups.append((tuple(target), done))
+                frame_picked = True
 
             # Never batch through an attack or a pickup animation.
             first_has_item = is_pickup(info[target])
@@ -2270,7 +2339,10 @@ def main():
                     if (not lawful_tap(screen_target)
                             or unsafe_move_tap(info, checked, suspect_items)):
                         break
-                    time.sleep(jittered_delay(args.interval, args.jitter))
+                    time.sleep(action_delay(
+                        "move",
+                        scrolled=(direction == "right"
+                                  and screen_target[1] >= 2)))
                     x2, y2 = bot.cell_center(det.board, *screen_target)
                     bot.adb(args.adb, args.serial, "shell", "input", "tap", str(x2), str(y2))
                     sent.append({"type": "move", "target_cell": list(screen_target),
@@ -2290,6 +2362,7 @@ def main():
                     if pickup:
                         collected[pickup] += 1
                         recent_pickups.append((tuple(checked), done))
+                        frame_picked = True
 
         event["action"] = sent
         event["collected_detected"] = dict(collected)
@@ -2310,9 +2383,9 @@ def main():
             previous_dash_obstacles = consecutive_right_obstacles(info, player)
         previous_direction = direction
         previous_reason = reason
-        time.sleep(jittered_delay(
-            max(args.interval, 2.0 if kind in ("dash", "attack") else args.interval),
-            args.jitter))
+        lag_cooldown = max(0, lag_cooldown - 1)
+        time.sleep(action_delay(kind, scrolled=scrolls_since_frame > 0,
+                                picked_up=frame_picked))
 
     final = bot.screenshot(args.adb, args.serial)
     final_det = bot.classify(final)

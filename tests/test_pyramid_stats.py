@@ -57,14 +57,13 @@ class DashPathReportTests(unittest.TestCase):
 
 
 class JitterTests(unittest.TestCase):
-    def test_minimum_is_the_configured_interval(self):
-        self.assertEqual(runner.jittered_delay(0.5, 0.35, rand=lambda: 0.0), 0.5)
-
-    def test_maximum_adds_the_full_jitter(self):
-        self.assertAlmostEqual(runner.jittered_delay(0.5, 0.35, rand=lambda: 1.0), 0.85)
-
-    def test_zero_jitter_keeps_exact_interval(self):
-        self.assertEqual(runner.jittered_delay(0.65, 0.0, rand=lambda: 0.7), 0.65)
+    # jittered_delay retired with the CLI interval (2026-08-22, user
+    # directive): pacing is internal per action type - see
+    # ActionDelayTests in test_dash_wall.
+    def test_action_delay_floor_is_deterministic(self):
+        self.assertAlmostEqual(
+            runner.action_delay("move", rand=lambda: 0.0),
+            runner.ACTION_DELAYS["move"])
 
 
 class EnergyConsensusTests(unittest.TestCase):
