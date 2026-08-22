@@ -614,6 +614,18 @@ def drop_remembered_suspects(suspects, remembered):
     return {cell for cell in suspects if cell not in remembered}
 
 
+def dash_reveal_cells(info, cells_seen):
+    """Post-shift cells where a dash drop can genuinely appear.
+
+    Only a broken pyramid reveals anything, so only the path cells that
+    WERE pyramids at dash time qualify. Whitelisting the whole path let
+    pickup confetti land on a free path cell, enter memory as a
+    confirmed orange, and send the bot one step back to collect nothing
+    (run 20260822T003047 n=13-16, user force-stop)."""
+    return [(r, c - 3) for r, c in map(tuple, cells_seen)
+            if c - 3 >= 0 and strategy.is_obstacle(info[(r, c)])]
+
+
 def forget_dash_path(remembered, cells):
     """Everything in a dash's path is collected or destroyed.
 
@@ -1889,10 +1901,11 @@ def main():
             # The dash's broken pyramids may reveal drops whose fall
             # animation outlives the next frame; their (post-shift)
             # cells stay legitimate arrival spots for a few frames.
+            # Only cells that WERE pyramids qualify - free path cells
+            # collected confetti ghosts (run 20260822T003047 n=13-16).
             pending_reveals = remember_pending_reveals(
                 pending_reveals,
-                [(r, c - 3) for r, c in map(tuple, dash_path["cells_seen"])
-                 if c - 3 >= 0],
+                dash_reveal_cells(info, dash_path["cells_seen"]),
                 done)
             first_move_dest = None
         else:

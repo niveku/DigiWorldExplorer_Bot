@@ -1422,6 +1422,17 @@ class PendingRevealTests(unittest.TestCase):
         shifted = runner.shift_items_left(pending)
         self.assertEqual(runner.live_reveal_cells(shifted, done=5), {(1, 0)})
 
+    def test_only_broken_pyramid_cells_are_reveal_spots(self):
+        # Run 20260822T003047 n=13-16 (user force-stop): the whole dash
+        # path was whitelisted, pickup confetti landed on the FREE path
+        # cell (2,0), entered memory as a confirmed orange, and the tour
+        # dutifully stepped back to collect nothing. A dash drop can
+        # only appear where the dash broke a pyramid.
+        info = {(2, c): {"pyramid": 0.9 if c == 3 else 0.0, "item": 0.0}
+                for c in range(5)}
+        cells = runner.dash_reveal_cells(info, [[2, 2], [2, 3], [2, 4]])
+        self.assertEqual(cells, [(2, 0)])
+
 
 class WarmupTests(unittest.TestCase):
     """User rule 2026-08-21: the first screens carry no verifiable
