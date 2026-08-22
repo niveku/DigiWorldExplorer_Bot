@@ -1896,35 +1896,12 @@ class ColumnZeroDoctrineTests(unittest.TestCase):
         self.assertIsNone(step)
 
 
-class ScrollOvercountTests(unittest.TestCase):
-    """Run 20260822T160202 n=148-150 (user PNG debug_0148): the plan
-    WAS the user's route, but the second right tap of the batch was
-    swallowed - the world scrolled 1 while memory shifted 2. Every
-    ghost sat one column left of reality, the bot 'grabbed' the paws
-    ghost at the empty (1,1), and the real items surfaced as fresh
-    suspects exactly one column right of prediction. That signature is
-    detectable: if the fresh appearances vanish under shift-1, the
-    world moved one less than the taps claimed."""
-
-    def test_overcount_detected_when_shift_minus_one_explains_all(self):
-        prev = frozenset({(0, 3), (1, 3), (3, 3)})
-        cur = frozenset({(0, 2), (1, 2), (3, 2)})
-        self.assertTrue(runner.scroll_overcount(cur, prev, shift=2))
-
-    def test_true_scroll_is_not_overcount(self):
-        prev = frozenset({(0, 3), (1, 3), (3, 3)})
-        cur = frozenset({(0, 1), (1, 1), (3, 1)})
-        self.assertFalse(runner.scroll_overcount(cur, prev, shift=2))
-
-    def test_no_suspects_means_no_overcount(self):
-        prev = frozenset({(0, 3)})
-        cur = frozenset({(0, 1)})
-        self.assertFalse(runner.scroll_overcount(cur, prev, shift=2))
-
-    def test_zero_shift_cannot_be_overcounted(self):
-        prev = frozenset({(0, 3)})
-        cur = frozenset({(0, 3), (2, 2)})
-        self.assertFalse(runner.scroll_overcount(cur, prev, shift=0))
+class ScrollUndoTests(unittest.TestCase):
+    """shift_items_right undoes an over-counted scroll when the pixel
+    measurement (measure_scroll_columns) says the world moved less
+    than the taps claimed. (The cell-fingerprint scroll_overcount
+    heuristic it once served was retired 2026-08-22 in favor of the
+    pixel sensor.)"""
 
     def test_memory_shifts_back_right(self):
         self.assertEqual(runner.shift_items_right({(1, 1): ("steps", 4)}),
@@ -1982,6 +1959,69 @@ class BurstZoneTests(unittest.TestCase):
             prev_fresh={(1, 0)}, current_cells={(1, 0)},
             recent_pickups=[((0, 1), 30)], done=37)
         self.assertEqual(holds, set())
+
+
+class PixelScrollTests(unittest.TestCase):
+    """Doctrine 2026-08-22 (user): reconcile the world by MEASURING it,
+    not by counting taps. Run 20260822T164337 n=30-32: a tap swallowed
+    by latency left memory one column ahead, the re-tap landed on the
+    pyramid scrolling in, and the HUD counter shows two hidden garras
+    (41->39) before a dash crossed the same row. The board strip of
+    consecutive settled frames is cross-correlated at shifts 0..3
+    columns; the argmin IS the scroll, whatever the taps claimed."""
+
+    @staticmethod
+    def strip_with_block(col, width=100, height=30, cols=5):
+        import numpy as np
+        z = np.zeros((height, width), dtype=float)
+        cw = width // cols
+        z[5:25, col * cw + 3:col * cw + cw - 3] = 200.0
+        return z
+
+    def test_static_board_measures_zero(self):
+        a = self.strip_with_block(3)
+        self.assertEqual(runner.measure_scroll_columns(a, a), 0)
+
+    def test_one_column_shift_is_measured(self):
+        prev = self.strip_with_block(3)
+        cur = self.strip_with_block(2)
+        self.assertEqual(runner.measure_scroll_columns(prev, cur), 1)
+
+    def test_three_column_dash_shift_is_measured(self):
+        prev = self.strip_with_block(4)
+        cur = self.strip_with_block(1)
+        self.assertEqual(runner.measure_scroll_columns(prev, cur), 3)
+
+    def test_confetti_noise_does_not_fool_the_measurement(self):
+        import numpy as np
+        prev = self.strip_with_block(3)
+        cur = self.strip_with_block(2)
+        cur[8:16, 10:22] = 180.0   # confetti patch far from the block
+        self.assertEqual(runner.measure_scroll_columns(prev, cur), 1)
+
+
+class KnownWorldTests(unittest.TestCase):
+    """Doctrine 2026-08-22 (user): 'ya deberíamos estar súper
+    confirmados de qué hay y qué no hay' - nothing NEW can exist in
+    columns 0-2 except a garra drop (whitelisted) or something memory
+    already tracks. An unexplained left-band appearance is confetti by
+    definition and is never believed: it stays suspect for as long as
+    it remains visible, instead of being promoted after two sightings."""
+
+    def test_left_band_suspect_stays_suspect_while_visible(self):
+        self.assertEqual(
+            runner.sticky_left_band_suspects({(2, 1)}, {(2, 1), (0, 4)}),
+            {(2, 1)})
+
+    def test_right_band_suspects_are_not_sticky(self):
+        self.assertEqual(
+            runner.sticky_left_band_suspects({(2, 4)}, {(2, 4)}),
+            set())
+
+    def test_vanished_confetti_clears(self):
+        self.assertEqual(
+            runner.sticky_left_band_suspects({(2, 1)}, {(0, 4)}),
+            set())
 
 
 class DashScrollCountTests(unittest.TestCase):

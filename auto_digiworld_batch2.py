@@ -526,23 +526,64 @@ def shift_items_right(remembered):
             for (row, col), value in remembered.items() if col + 1 <= 4}
 
 
-def scroll_overcount(current_cells, prev_cells, shift):
-    """A swallowed scrolling tap leaves a one-column fingerprint.
+def board_strip(image, board):
+    """Downsampled grayscale of the board's right 3 columns for the
+    pixel-scroll measurement. The left 2 columns hold the player
+    sprite and most pickup animation; the right side is the stable
+    texture (pyramids, cards, water tiles) that actually shifts."""
+    import numpy as np
+    x0, y0, x1, y1 = board
+    a = np.asarray(image.convert("L"), dtype=float)
+    strip = a[y0:y1, x0:x1]
+    # coarse downsample keeps the correlation cheap and blurs sprite noise
+    return strip[::4, ::4]
 
-    Run 20260822T160202 n=148-150 (user PNG debug_0148): the second
-    right of a batch was swallowed - the world scrolled 1, memory
-    shifted 2, the bot grabbed a paws ghost on an empty cell and every
-    real item surfaced as a fresh suspect exactly one column right of
-    prediction. Detection: the frame has fresh unexplained appearances
-    under the claimed shift, but ZERO under shift-1. Then the world
-    moved one less than the taps claimed and memory must step back."""
-    if shift < 1 or prev_cells is None:
-        return False
-    claimed = suspect_appearances(current_cells, prev_cells, shift=shift)
-    if not claimed:
-        return False
-    return not suspect_appearances(current_cells, prev_cells,
-                                   shift=shift - 1)
+
+def measure_scroll_columns(prev_strip, cur_strip, max_cols=3):
+    """Columns the world actually scrolled between two settled frames.
+
+    Doctrine 2026-08-22 (user): reconcile by MEASURING, not by counting
+    taps. Run 20260822T164337 n=30-32: a latency-swallowed tap left
+    memory one column ahead, the re-tap hit the pyramid scrolling in
+    (two hidden garras, HUD 41->39), and a dash followed. The board
+    strip is compared at shifts 0..max_cols; the best alignment IS the
+    scroll. Confetti and sprites are local noise against a whole-board
+    alignment. Returns None when the strips are unusable."""
+    import numpy as np
+    if prev_strip is None or cur_strip is None:
+        return None
+    if prev_strip.shape != cur_strip.shape or prev_strip.shape[1] < 10:
+        return None
+    width = prev_strip.shape[1]
+    col_px = max(1, width // 5)
+    scores = []
+    for k in range(max_cols + 1):
+        off = k * col_px
+        if off >= width:
+            break
+        a = prev_strip[:, off:]
+        b = cur_strip[:, :width - off]
+        scores.append(float(np.mean(np.abs(a - b))))
+    if not scores:
+        return None
+    return int(min(range(len(scores)), key=scores.__getitem__))
+
+
+def sticky_left_band_suspects(prev_suspects, current_cells, band=2):
+    """An unexplained left-band appearance is never believed.
+
+    Doctrine 2026-08-22 (user): columns 0-2 are KNOWN world - nothing
+    new can exist there except a garra drop (whitelisted) or what
+    memory already tracks, so an unexplained appearance is confetti by
+    definition. Instead of promoting it after two sightings, it stays
+    suspect for as long as it remains visible."""
+    return {cell for cell in prev_suspects
+            if cell in current_cells and cell[1] <= band}
+
+
+# (scroll_overcount, the cell-fingerprint reconciler, retired
+# 2026-08-22: superseded by the pixel measurement in
+# measure_scroll_columns - one sensor instead of a heuristic.)
 
 
 def shift_cells_left(cells):
@@ -1397,7 +1438,8 @@ def main():
     scrolls_since_frame = 0
     total_scrolls = 0
     prev_fresh_suspects = set()
-    prev_detected_cells = None
+    prev_suspect_items = set()
+    prev_strip = None
     recent_pickups = []
     committed_wall = None
     wall_holds = 0
@@ -1766,27 +1808,39 @@ def main():
         # a remembered cell can never refresh its own timestamp through
         # the just-over-threshold patch the merge injects.
         detected_info = info
-        # Scroll reconciliation BEFORE the memory merge, on detection
-        # only: a swallowed scrolling tap makes memory shift more than
-        # the world moved, and every ghost lands one column left of
-        # reality (run 20260822T160202 n=148-150, user PNG). If the
-        # frame's fresh appearances all vanish under shift-1, the world
-        # scrolled one less than the taps claimed: step every shifted
-        # structure back right and correct the counter.
-        detected_cells = item_cells_of(detected_info)
-        if scroll_overcount(detected_cells, prev_detected_cells,
-                            scrolls_since_frame):
-            remembered_items = shift_items_right(remembered_items)
-            phantom_obstacles = shift_items_right(phantom_obstacles)
-            banned_targets = shift_items_right(banned_targets)
-            ban_history = {(r, c + 1) for r, c in ban_history if c + 1 <= 4}
-            pending_reveals = shift_items_right(pending_reveals)
-            recent_pickups = [((r, c + 1), w)
-                              for (r, c), w in recent_pickups if c + 1 <= 4]
-            scrolls_since_frame -= 1
-            event["scroll_reconciled"] = {"claimed": scrolls_since_frame + 1,
-                                          "actual": scrolls_since_frame}
-        prev_detected_cells = detected_cells
+        # Scroll reconciliation BEFORE the memory merge, by MEASURING
+        # the world instead of trusting the tap count (user doctrine
+        # 2026-08-22: 'confirmar que se movió y ya reconciliar'). The
+        # board strip of consecutive settled frames is aligned at
+        # shifts 0..3 columns; whatever the taps claimed, the argmin IS
+        # the scroll. This replaced the cell-fingerprint heuristic and
+        # closes every swallowed/duplicated-tap ghost in one place
+        # (run 20260822T164337 n=30-32: two hidden garras, HUD 41->39,
+        # from memory running one column ahead of a latency-swallowed
+        # tap).
+        cur_strip = board_strip(image, det.board)
+        measured = measure_scroll_columns(prev_strip, cur_strip)
+        prev_strip = cur_strip
+        if measured is not None and measured != scrolls_since_frame:
+            delta = scrolls_since_frame - measured
+            step_right = delta > 0
+            for _ in range(abs(delta)):
+                shifter = shift_items_right if step_right else shift_items_left
+                remembered_items = shifter(remembered_items)
+                phantom_obstacles = shifter(phantom_obstacles)
+                banned_targets = shifter(banned_targets)
+                pending_reveals = shifter(pending_reveals)
+                if step_right:
+                    ban_history = {(r, c + 1) for r, c in ban_history
+                                   if c + 1 <= 4}
+                    recent_pickups = [((r, c + 1), w) for (r, c), w
+                                      in recent_pickups if c + 1 <= 4]
+                else:
+                    ban_history = shift_cells_left(ban_history)
+                    recent_pickups = shift_pickup_log_left(recent_pickups)
+            event["scroll_reconciled"] = {"claimed": scrolls_since_frame,
+                                          "measured": measured}
+            scrolls_since_frame = measured
         if remembered_items:
             info = merge_remembered_items(info, remembered_items, player)
         phantom_obstacles = {cell: expiry
@@ -1814,6 +1868,17 @@ def main():
         suspect_items = drop_remembered_suspects(suspect_items, remembered_items)
         suspect_items |= burst_holds(prev_fresh_suspects, current_item_cells,
                                      recent_pickups, done)
+        # Known-world doctrine (user 2026-08-22): an unexplained
+        # left-band appearance can only be confetti, so it is never
+        # promoted - it stays suspect for as long as it stays visible.
+        shifted_prev_susp = {(r, c - scrolls_since_frame)
+                             for r, c in prev_suspect_items
+                             if c - scrolls_since_frame >= 0}
+        suspect_items |= sticky_left_band_suspects(shifted_prev_susp,
+                                                   current_item_cells)
+        suspect_items = drop_remembered_suspects(suspect_items,
+                                                 remembered_items)
+        prev_suspect_items = set(suspect_items)
         prev_fresh_suspects = fresh_suspects
         prev_item_cells = current_item_cells
         total_scrolls += scrolls_since_frame
