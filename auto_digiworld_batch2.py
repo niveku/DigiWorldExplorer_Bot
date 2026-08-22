@@ -232,7 +232,13 @@ def suspect_appearances(current, previous, shift=0, attack_cell=None,
     scroll exactly (the old guess-the-shift fallback hid ghost 105 of
     run 20260820T184744 behind a coincidental mapping).
     """
-    if not previous:
+    if previous is None:
+        # First frame only: no observation to compare against. An
+        # OBSERVED empty board is a real observation - run
+        # 20260822T201927 n=37 hit `if not previous` with the empty
+        # pre-dash board, the detector went silent, 8 confetti phantoms
+        # entered memory and the bot circled its own ghosts while the
+        # one real energy scrolled away.
         return set()
     shifted = {(row, col - shift) for row, col in previous}
     fresh = set(current) - shifted

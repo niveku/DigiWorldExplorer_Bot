@@ -23,6 +23,8 @@ CORPUS = [
     "20260822T183056_829687Z",   # backsteps-for-nothing day
     "20260822T184638_555083Z",   # 'falló muchos drops' (TTL regression)
     "20260822T194747_257468Z",   # four-skip starvation, 2 lost energies
+    "20260822T201927_294341Z",   # confetti-ghost circling (empty-previous
+                                 # guard silenced the suspect detector)
 ]
 
 

@@ -601,10 +601,25 @@ class SuspectAppearanceTests(unittest.TestCase):
             set())
 
     def test_first_frame_accepts_everything(self):
+        # No observation yet (previous is None) - nothing to compare
+        # against, so nothing can be flagged.
         self.assertEqual(
-            runner.suspect_appearances(frozenset({(1, 1), (2, 2)}), frozenset(),
+            runner.suspect_appearances(frozenset({(1, 1), (2, 2)}), None,
                                        shift=0),
             set())
+
+    def test_empty_observed_board_does_not_disable_suspicion(self):
+        # Run 20260822T201927 n=37: the board was OBSERVED empty before
+        # the dash (previous = empty set, not None), the dash broke 3
+        # pyramids, and the confetti painted 8 phantom oranges. The old
+        # `if not previous` guard treated the empty set like the first
+        # frame and let every phantom into memory - the bot then circled
+        # its own ghosts while the one real energy scrolled away.
+        previous = frozenset()
+        current = frozenset({(2, 0), (3, 1), (1, 1), (0, 2)})
+        self.assertEqual(
+            runner.suspect_appearances(current, previous, shift=3),
+            {(2, 0), (3, 1), (1, 1), (0, 2)})
 
     def test_post_dash_appearance_is_suspect(self):
         # Game rule (user, 2026-08-22): a dash breaks AND collects in
@@ -1512,6 +1527,41 @@ class BoxedExplorerWaitsTests(unittest.TestCase):
         action, reason = strategy.choose(
             info, ignored_targets=neighbors, suspect_cells=neighbors)
         self.assertIsNone(action)
+
+
+class TourBoxedBySuspectsTests(unittest.TestCase):
+    """Run 20260822T201927 n=9 (surfaced by the harness after the
+    empty-previous fix): post-pickup confetti made every column-2 cell
+    suspect, the real orange at (1,4) became unroutable, and choose()
+    fell through the tour into 'explore right' - spending paticas
+    walking while the real target waited. Suspects adjudicate within
+    1-2 frames: when the ONLY thing severing the route is suspicion,
+    a free rescan beats a blind walk."""
+
+    def _boxed_info(self):
+        info = empty_grid()
+        info[(3, 1)]["player"] = 0.2
+        info[(1, 4)].update(item=0.13, orange=0.13)
+        return info, {(1, 0), (1, 1), (1, 2), (2, 2), (3, 2), (4, 2)}
+
+    def test_unroutable_orange_waits_out_the_suspects(self):
+        info, suspects = self._boxed_info()
+        action, reason = strategy.choose(info, player=(3, 1),
+                                         suspect_cells=suspects)
+        self.assertIsNone(action)
+        self.assertIn("boxed", reason)
+
+    def test_pyramid_blockade_still_falls_through(self):
+        # Same shape but the blockade is REAL pyramids and no suspects:
+        # nothing will adjudicate away, so waiting starves - the normal
+        # attack/explore fallback must survive.
+        info = empty_grid()
+        info[(3, 1)]["player"] = 0.2
+        info[(1, 4)].update(item=0.13, orange=0.13)
+        for cell in ((1, 0), (1, 1), (1, 2), (2, 2), (3, 2), (4, 2)):
+            info[cell]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, player=(3, 1))
+        self.assertIsNotNone(action)
 
 
 class SuspectImpassableTests(unittest.TestCase):

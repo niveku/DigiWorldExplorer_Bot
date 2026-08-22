@@ -829,6 +829,18 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                     label = pickup_type(info[first]) or "pickup"
                 return ("attack" if obstacle else "move", target, direction), \
                     f"{label} targets={order}"
+            if suspect_cells and shortest_action(
+                    info, player, {first},
+                    allow_obstacles=(attacks_enabled
+                                     and first in orange_items),
+                    prefer_direction=previous_direction,
+                    protect=order[1:]):
+                # The route exists - only suspicion severs it. Suspects
+                # adjudicate in 1-2 frames, so a free rescan beats
+                # falling through to a paid explore walk (run
+                # 20260822T201927 n=9: confetti walled off column 2 and
+                # the bot wandered while the real orange waited).
+                return None, "tour boxed by suspects"
 
     # Tickets remain as a last-resort target - never worth a garra.
     # Mid-tier cards are excluded here: a card the pruner judged not

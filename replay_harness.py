@@ -86,6 +86,8 @@ class Replay:
         self.claimed = 0
         self.done = 0
         self.ghost_streaks = {}
+        self.unseen_streaks = {}
+        self.unseen_last_n = {}
         self.violations = []
         self.debug_n = None
 
@@ -100,6 +102,8 @@ class Replay:
             self.pending_reveals = runner.shift_items_left(self.pending_reveals)
             self.recent_pickups = runner.shift_pickup_log_left(self.recent_pickups)
             self.ghost_streaks = runner.shift_items_left(self.ghost_streaks)
+            self.unseen_streaks = runner.shift_items_left(self.unseen_streaks)
+            self.unseen_last_n = runner.shift_items_left(self.unseen_last_n)
 
     def process_frame(self, n, path):
         img = Image.open(path).convert("RGB")
@@ -138,6 +142,10 @@ class Replay:
                         self.pending_reveals)
                     self.ghost_streaks = runner.shift_items_right(
                         self.ghost_streaks)
+                    self.unseen_streaks = runner.shift_items_right(
+                        self.unseen_streaks)
+                    self.unseen_last_n = runner.shift_items_right(
+                        self.unseen_last_n)
             else:
                 self.shift_left(-delta)
             self.claimed = measured
@@ -193,6 +201,45 @@ class Replay:
 
         # ---- invariants ----
         detected_cells = runner.item_cells_of(detected)
+        # Hard cap, any column, near-player included: a remembered item
+        # vision has not confirmed for 6 straight frames is a ghost.
+        # The player-adjacency exemption below is legitimate for
+        # pickups in progress, but run 20260822T201927 showed a bot
+        # CIRCLING its own confetti ghost - always adjacent, so the
+        # clean-miss decay never counted and the soft invariant never
+        # fired. Real items stay detected; confetti cover is suspect
+        # (excluded); nothing legitimate hides for 6 frames.
+        for cell in set(self.unseen_streaks) - set(self.remembered):
+            self.unseen_streaks.pop(cell, None)
+            self.unseen_last_n.pop(cell, None)
+        for cell in list(self.remembered):
+            # Same-row +-2-column detection is a scroll-desync SHADOW,
+            # not a ghost: an item only ever moves by column (scroll),
+            # so open-loop replay over skipped frames (run
+            # 20260822T194747 n=16-17 were never saved - board in
+            # motion) can leave memory up to two columns off a REAL
+            # item. A confetti ghost has no physical counterpart on
+            # its row.
+            shadow = any((cell[0], cell[1] + dc) in detected_cells
+                         for dc in (-2, -1, 1, 2))
+            unseen = (cell not in detected_cells and cell not in suspects
+                      and not shadow)
+            if not unseen:
+                self.unseen_streaks[cell] = 0
+                continue
+            # One count per GAME index: the runner saves several PNGs
+            # under one index while it waits/rescans (n=20 of run
+            # 20260822T194747 has five), and a frozen board must not
+            # age the streak five times.
+            if self.unseen_last_n.get(cell) == n:
+                continue
+            self.unseen_last_n[cell] = n
+            streak = self.unseen_streaks.get(cell, 0) + 1
+            self.unseen_streaks[cell] = streak
+            if streak >= 6:
+                self.flag(n, "GHOST",
+                          f"remembered {self.remembered[cell][0]} at {cell} "
+                          f"undetected {streak} straight frames")
         for cell in list(self.remembered):
             if cell[1] > 2:
                 self.ghost_streaks.pop(cell, None)
