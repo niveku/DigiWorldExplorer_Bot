@@ -1167,6 +1167,50 @@ class PerishableRoutingTests(unittest.TestCase):
 # orange. Adding an ordering layer would be overengineering.
 
 
+class TourPlanningTests(unittest.TestCase):
+    """User directive 2026-08-22: plan the whole collection IN ADVANCE -
+    shortest route over all pickups, losing none, erosion counted only
+    where it is real (visiting a column-c item kills everything left of
+    c-1; that is the entire physics). Urgency emerges from the plan
+    instead of interrupting it, and the order is stable frame to frame
+    because relative positions survive the scroll."""
+
+    def test_no_risk_means_pure_shortest_route(self):
+        # The en-route pickup at (0,2) goes first: total 6 steps vs 9.
+        # The old code would have called (4,1) urgent and dived.
+        order = strategy.plan_tour((0, 1), [(4, 1), (0, 2)])
+        self.assertEqual(order, [(0, 2), (4, 1)])
+
+    def test_real_risk_forces_the_left_item_first(self):
+        # Visiting (2,4) first scrolls 3 columns and kills (2,0).
+        order = strategy.plan_tour((2, 1), [(2, 4), (2, 0)])
+        self.assertEqual(order[0], (2, 0))
+
+    def test_three_item_cluster_avoids_the_climb_back(self):
+        # (0,1) then (0,2) then (4,1): 7 steps, all collected. Any
+        # order that dives to (4,1) between the top two wastes steps.
+        order = strategy.plan_tour((1, 1), [(4, 1), (0, 2), (0, 1)])
+        self.assertEqual(order, [(0, 1), (0, 2), (4, 1)])
+
+    def test_impossible_saves_deliver_the_most_items(self):
+        # (0,4) and (0,0) cannot both survive any order that starts
+        # right; the plan keeps both by going left first - and when a
+        # loss is truly unavoidable it maximizes the count.
+        order = strategy.plan_tour((0, 1), [(0, 0), (0, 4)])
+        self.assertEqual(order[0], (0, 0))
+
+    def test_choose_routes_by_tour_not_by_panic(self):
+        # Distant safe orange plus a mid-route one: no urgency label,
+        # plain shortest-tour routing.
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 3)].update(item=0.09, orange=0.09)
+        info[(4, 3)].update(item=0.09, orange=0.09)
+        action, reason = strategy.choose(info)
+        self.assertEqual(action[0], "move")
+        self.assertTrue(reason.startswith("orange"))
+
+
 class FreeAdjacentGrabTests(unittest.TestCase):
     """Run 20260821T234344 n=9: one step from a paws card, an urgent
     perishable appeared three cells away and hijacked the route. But

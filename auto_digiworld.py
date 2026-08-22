@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import heapq
+import itertools
 import json
 import subprocess
 import sys
@@ -374,6 +375,47 @@ def nearest_dash_wall(info, player, preview=None):
     return best[1] if best else None
 
 
+def plan_tour(player, items, max_items=6):
+    """Order pickups by total steps, losing none, planned in advance.
+
+    User directive 2026-08-22. The physics make this exact and cheap:
+    the board only scrolls on OUR rightward steps, so collecting an item
+    whose effective column is c costs a known scroll count and kills
+    every remaining item left of it. All orders of up to six items are
+    simulated; the winner keeps the most items, then costs the fewest
+    steps, then leaves the bot furthest right (best final position).
+    Urgency is emergent - a dying item forces itself to the front only
+    when some other order would actually lose it - and the order is
+    stable frame to frame because relative positions survive the scroll.
+    """
+    items = sorted(items, key=lambda cell: cell[1])[:max_items]
+    if not items:
+        return []
+    best_key, best_order = None, []
+    for order in itertools.permutations(items):
+        row, col = player
+        scrolls = 0
+        cost = 0
+        collected = []
+        for r, c in order:
+            c_eff = c - scrolls
+            if c_eff < 0:
+                break
+            travel = c_eff - col
+            cost += abs(r - row) + abs(travel)
+            if travel > 0:
+                scrolls += max(0, col + travel - 1)
+                col = min(col + travel, 1)
+            else:
+                col = c_eff
+            row = r
+            collected.append((r, c))
+        key = (-len(collected), cost, -scrolls)
+        if best_key is None or key < best_key:
+            best_key, best_order = key, collected
+    return best_order
+
+
 def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
            ignored_targets=(), player=None, preview=None, hunt_walls=True,
            suspect_cells=()):
@@ -446,24 +488,6 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                 and cell in (orange_items | mid_items | other_items)):
             return ("move", cell, direction), f"adjacent item={cell}"
 
-    urgent_orange = {cell for cell in orange_items if cell[1] <= 1}
-    # Mid-tier pickups die at the left edge exactly like oranges do, and
-    # a dash orb (400 shards) outvalues any single orange. Run
-    # 20260821T225908 n=182-185 rode right for two SAFE column-4 oranges
-    # while the orb at (0,1) scrolled off - the rescue covers both now.
-    urgent_mid = {cell for cell in mid_items if cell[1] <= 1}
-    urgent = urgent_orange | urgent_mid
-    if urgent:
-        step = shortest_action(info, player, urgent,
-                               allow_obstacles=attacks_enabled,
-                               prefer_direction=previous_direction)
-        if step:
-            target, obstacle, direction = step
-            label = ("orange perishable" if urgent_orange
-                     else "urgent pickup")
-            return (("attack" if obstacle else "move"), target, direction), \
-                f"{label} targets={sorted(urgent)}"
-
     # A visible wall of three pyramids is irresistible while dashes remain:
     # align with its launch cell and dash through it. Two in a row stay an
     # opportunistic dash (handled below) and never justify a detour.
@@ -503,9 +527,14 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                 target, _, direction = step
                 return ("move", target, direction), f"approach dash wall via {launch}"
 
-    # An adjacent pickup costs a single step; grab it before anything else so
-    # the bot never has to walk back for it afterwards.
+    # An adjacent pickup costs a single step; grab it before anything else
+    # so the bot never has to walk back for it afterwards. The RIGHTWARD
+    # grab yields when its scroll would kill a column-0 pickup - that is
+    # the only real erosion a one-step grab can cause.
+    edge_risk = any(cell[1] == 0 for cell in (orange_items | mid_items))
     for dr, dc, direction in DIRS:
+        if direction == "right" and edge_risk:
+            continue
         cell = (player[0] + dr, player[1] + dc)
         if not (0 <= cell[0] < 5 and 0 <= cell[1] < 5):
             continue
@@ -595,49 +624,45 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                 return ("move", launch, "up" if dr == -1 else "down"), \
                     f"pair launch at {launch}"
 
-    # Never walk around a green/purple pickup that already lies on the clear
-    # horizontal route to the right. This costs no detour and still preserves
-    # orange priority for targets elsewhere on the board.
-    # ... unless an orange in the left board half is about to be eroded by
-    # the very scroll this rightward move advances: the long run lost a
-    # left orange exactly this way while grabbing a same-row pickup.
-    left_band_orange = any(cell[1] <= 2 for cell in orange_items)
-    direct_item = None
-    for col in range(player[1] + 1, 5):
-        cell = (player[0], col)
-        if cell in other_items:
-            direct_item = cell
-            break
-        if is_obstacle(info[cell]):
-            break
-    if direct_item is not None and left_band_orange and direct_item[1] > 2:
-        direct_item = None
-    if direct_item is not None:
-        # Pickup graphics can themselves have a high pyramid color score. All
-        # preceding cells were checked as clear, so advance one cell right.
-        target = (player[0], player[1] + 1)
-        return ("move", target, "right"), f"direct horizontal item={direct_item}"
+    # (The direct-horizontal rule retired 2026-08-22: the tour planner
+    # below chooses the same ride when it is the shortest plan, and it
+    # also knows when that ride would erode something real.)
 
-    targets = orange_items or mid_items or other_items
-    if orange_items:
-        # The scroll erodes the left side first: with several oranges on
-        # board the leftmost band dies first, so it is collected first (the
-        # long run leaked left-edge oranges while collecting to the right).
-        min_col = min(cell[1] for cell in orange_items)
-        if min_col <= 2:
-            targets = {cell for cell in orange_items if cell[1] <= min_col + 1}
-    # (A sweep-order layer was prototyped and dropped 2026-08-21: the
-    # route-through-pickups discount already collects mid-column items en
-    # route and the candidate tours cost the same - see test_dash_wall.)
-    if targets:
-        step = shortest_action(info, player, targets,
+    # The whole collection is planned IN ADVANCE (user directive
+    # 2026-08-22): shortest route over all pickups losing none. Erosion
+    # only enters where it is real - visiting a column-c item kills
+    # everything left of c-1, that is the entire physics - so urgency
+    # emerges from the plan instead of interrupting it, and the order is
+    # stable frame to frame because relative positions survive the
+    # scroll. The panic rescue that dived for anything at column<=1 (and
+    # caused the up-down indecision the user kept seeing) is gone. Dash
+    # rules above keep their own erosion vetoes and worth gates.
+    tour_items = orange_items | mid_items
+    if tour_items:
+        order = plan_tour(player, tour_items)
+        if order:
+            first = order[0]
+            step = shortest_action(info, player, {first},
+                                   allow_obstacles=attacks_enabled,
+                                   prefer_direction=previous_direction)
+            if step:
+                target, obstacle, direction = step
+                label = ("orange perishable" if first[1] <= 1
+                         and first in orange_items else
+                         "urgent pickup" if first[1] <= 1 else
+                         "orange" if orange_items else "claw")
+                return ("attack" if obstacle else "move", target, direction), \
+                    f"{label} targets={order}"
+
+    # Tickets remain as a last-resort target.
+    if other_items:
+        step = shortest_action(info, player, other_items,
                                allow_obstacles=attacks_enabled,
                                prefer_direction=previous_direction)
         if step:
             target, obstacle, direction = step
-            kind = ("orange" if orange_items else
-                    "claw" if mid_items else "item")
-            return ("attack" if obstacle else "move", target, direction), f"{kind} targets={sorted(targets)}"
+            return ("attack" if obstacle else "move", target, direction), \
+                f"item targets={sorted(other_items)}"
 
     # Per game behavior confirmed by the user, Dash always goes right. A dash
     # costs 400 shards and measured drops average +14 energy, so spend it
