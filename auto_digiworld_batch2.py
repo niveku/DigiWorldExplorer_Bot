@@ -492,6 +492,37 @@ def shift_items_right(remembered):
             for (row, col), value in remembered.items() if col + 1 <= 4}
 
 
+class StableBoard:
+    """Holds the board rectangle still while the detector jitters.
+
+    The grid is FIXED on screen - the doctrine the whole scroll sensor
+    is built on says only its CONTENTS move - but the detector returned
+    a different rectangle every frame (14 frames, 14 rectangles, 4-8 px
+    of jitter). Every derived crop moved with it: the scroll strips had
+    different SHAPES, so measure_scroll_px hit its shape guard and
+    returned None in 74-85% of frames. The sensor written to replace
+    tap-counting was inert most of the time, and the runner fell back
+    to the tap count it was built to distrust. Locking cuts that to
+    10-16% (measured on runs 20260822T234822, 20260823T033159).
+
+    A detection far from the lock is a real move (a screen change, a
+    different layout) and is adopted at once."""
+
+    def __init__(self, tolerance=16):
+        self.board = None
+        self.tolerance = tolerance
+
+    def settle(self, detected):
+        if detected is None:
+            return self.board
+        detected = tuple(int(v) for v in detected)
+        if self.board is None:
+            self.board = detected
+        elif max(abs(a - b) for a, b in zip(detected, self.board)) > self.tolerance:
+            self.board = detected
+        return self.board
+
+
 def board_strip(image, board):
     """Downsampled grayscale of the board's RIGHT 3 COLUMNS only.
 
@@ -1523,6 +1554,7 @@ def main():
     previous_reason = None
     suspect_holds = 0
     stable_board = None
+    board_lock = StableBoard()
     unreliable = 0
     player_unreliable = 0
     overlay_waits = 0
@@ -1794,6 +1826,14 @@ def main():
                                 det.reason + "; stable board retained")
         if not board_in_motion(det.board, stable_board):
             settle_waits = 0
+        # The motion check above needs the RAW detection; every crop
+        # below needs a rectangle that holds still. The detector jitters
+        # 4-8 px per frame on a grid that never moves, which changed the
+        # scroll strip's SHAPE and made measure_scroll_px bail out in
+        # 74-85% of frames - the pixel sensor was inert and the runner
+        # was quietly back to counting taps.
+        det = bot.Detection(det.state, det.confidence,
+                            board_lock.settle(det.board), det.reason)
 
         info = strategy.cells(image, det.board)
         # After a rejected move with a weak player fix, the resolution runs

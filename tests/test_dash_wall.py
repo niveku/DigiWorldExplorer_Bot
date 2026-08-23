@@ -1290,6 +1290,38 @@ class DetectedPickupOnlyTests(unittest.TestCase):
             runner.confirmed_pickup(detected, detected, (2, 1)), "orange")
 
 
+class StableBoardTests(unittest.TestCase):
+    """The board rectangle is physically FIXED on screen - only its
+    contents scroll - yet the detector returned a different rectangle
+    every single frame (14 frames, 14 rectangles, 4 to 8 px of jitter).
+    The derived scroll strips then had different SHAPES, so
+    measure_scroll_px bailed out in 74-85% of frames: the pixel sensor
+    the whole 'reconcile by MEASURING, not by counting taps' doctrine
+    rests on was inert most of the time, and the runner was silently
+    trusting the very tap count it was built to distrust.
+
+    Locking the rectangle while detections stay close cuts that to
+    10-16% (measured on runs 20260822T234822 and 20260823T033159)."""
+
+    def test_jitter_keeps_the_locked_rectangle(self):
+        lock = runner.StableBoard()
+        first = lock.settle((73, 424, 623, 872))
+        self.assertEqual(first, (73, 424, 623, 872))
+        self.assertEqual(lock.settle((76, 426, 622, 868)), first)
+        self.assertEqual(lock.settle((77, 425, 626, 874)), first)
+
+    def test_a_real_move_adopts_the_new_rectangle(self):
+        lock = runner.StableBoard()
+        lock.settle((73, 424, 623, 872))
+        moved = (73, 500, 623, 948)          # board genuinely elsewhere
+        self.assertEqual(lock.settle(moved), moved)
+
+    def test_none_detection_keeps_the_lock(self):
+        lock = runner.StableBoard()
+        lock.settle((73, 424, 623, 872))
+        self.assertEqual(lock.settle(None), (73, 424, 623, 872))
+
+
 class SensorConfidenceTests(unittest.TestCase):
     """Review 2026-08-22 ('physics' lens): measure_scroll_px took the
     argmin of the strip alignment with no confidence margin, then
@@ -1727,14 +1759,6 @@ class SlidingWaitCapTests(unittest.TestCase):
         self.assertFalse(runner.should_wait_for_slide(False, 0))
 
 
-# Retired 2026-08-23 with suspicion-as-terrain: BoxedExplorerWaits,
-# CostlyDetourWaits and TourBoxedBySuspects all existed to escape walls
-# that confetti never actually built. What they protected - never
-# tapping a pyramid hidden under a card - is now
-# HiddenGarraTests.test_a_pyramid_under_confetti_still_refuses_the_tap,
-# which keeps the pyramid's track instead of suspecting its neighbours.
-
-
 class SuspectsAreTargetsNotTerrainTests(unittest.TestCase):
     """Run 20260823T033159 n=20-23 (user: 'dio un paso adelante y
     después se devolvió'): post-pickup confetti at (1,1) and (2,1) made
@@ -1751,10 +1775,9 @@ class SuspectsAreTargetsNotTerrainTests(unittest.TestCase):
     escape the walls it invented."""
 
     def test_the_planner_descends_through_confetti(self):
-        # The board of run 20260823T033159 n=20: the orb sits three
+        # The exact board of run 20260823T033159 n=20: the orb is three
         # rows down in column 1 and the lane holds confetti. The bot
-        # must walk down it, not scroll around it - the scroll is what
-        # brought a real pyramid into that lane.
+        # must walk down it, not scroll around it.
         info = empty_grid()
         info[(0, 1)]["player"] = 0.2
         info[(3, 1)].update(item=0.16, orange=0.16)
@@ -2497,9 +2520,8 @@ class HiddenGarraTests(unittest.TestCase):
         # 20260822T160202 n=89, one hidden 200-shard garra): the world
         # model keeps the pyramid's own track when a card is painted
         # over it, the runner merges it back as an obstacle, and the
-        # gate refuses it as the pyramid it is - instead of turning
-        # every confetti cell into a wall, which cost two taps per
-        # detour and three waiting rules (run 20260823T033159).
+        # gate refuses it as the pyramid it is - without turning every
+        # confetti cell into a wall.
         world = world_model.WorldModel()
         world.observe({"items": {}, "pyramids": {(1, 1)}}, shift=0)
         world.observe({"items": {(1, 1): "orange"}, "pyramids": set()},

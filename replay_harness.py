@@ -75,6 +75,10 @@ class Replay:
         self.pending_reveals = {}
         self.prev_strip = None
         self.slide_waits = 0
+        # Same board lock as the runner: without it the jittering
+        # rectangle changes the strip's shape and the scroll sensor
+        # measures nothing (74-85% of frames).
+        self.board_lock = runner.StableBoard()
         self.expected_player = None
         self.prev_action = None
         self.prev_attack_target = None
@@ -112,6 +116,8 @@ class Replay:
         det = bot.classify(img)
         if det.state != "digiworld" or det.board is None:
             return
+        det = bot.Detection(det.state, det.confidence,
+                            self.board_lock.settle(det.board), det.reason)
         info = strategy.cells(img, det.board)
         player, score, source = runner.resolve_player(info, self.expected_player)
         large = strategy.find_large_player(
