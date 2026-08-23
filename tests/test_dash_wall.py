@@ -1536,6 +1536,52 @@ class PairDashEconomicsTests(unittest.TestCase):
         self.assertEqual(action[0], "dash")
 
 
+class DashEffectEvidenceTests(unittest.TestCase):
+    """Review 2026-08-22 ('physics' lens): the dash-failure detector
+    fires when the player cell is unchanged - which is true of EVERY
+    successful dash, since the dash travels three cells right and the
+    world scrolls the same three back. With two pyramids on the right
+    before and after (routine: new ones scroll in), a working dash
+    could disable dashing for the rest of the run. The inventory
+    counter is direct evidence and is already read on that frame."""
+
+    def test_spent_dash_is_never_called_ineffective(self):
+        self.assertFalse(runner.dash_had_no_effect(
+            {"dashes": 14}, {"dashes": 13},
+            player_moved=False, obstacles_before=3, obstacles_after=3))
+
+    def test_unspent_dash_with_unchanged_board_is_ineffective(self):
+        self.assertTrue(runner.dash_had_no_effect(
+            {"dashes": 14}, {"dashes": 14},
+            player_moved=False, obstacles_before=3, obstacles_after=3))
+
+    def test_unreadable_inventory_falls_back_to_the_board(self):
+        self.assertTrue(runner.dash_had_no_effect(
+            None, None, player_moved=False,
+            obstacles_before=3, obstacles_after=3))
+        self.assertFalse(runner.dash_had_no_effect(
+            None, None, player_moved=False,
+            obstacles_before=3, obstacles_after=0))
+
+
+class DashConfettiSourceTests(unittest.TestCase):
+    """Review 2026-08-22 ('suspects' lens): a dash collects everything
+    in its path, but those pickups never entered recent_pickups - only
+    move-pickups did. So the burst zone around the richest pickup
+    event in the game lasted one frame against a two-frame
+    phenomenon."""
+
+    def test_dash_launch_row_is_a_confetti_source(self):
+        rows = runner.confetti_rows_of((4, 1), [], 5)
+        self.assertIn(4, rows)
+
+    def test_dash_path_cells_extend_the_burst_zone(self):
+        log = runner.dash_pickup_log([], (2, 1), frame=7)
+        self.assertTrue(log, "the dash path must log pickup sources")
+        held = runner.burst_holds({(2, 2)}, {(2, 2)}, log, 8)
+        self.assertIn((2, 2), held)
+
+
 class PyramidKillsClawTests(unittest.TestCase):
     """Replay harness n=107 (run 183056): a cell scored claw .15 AND
     pyramid .9 at once - the pyramid's glints trip the claw slash

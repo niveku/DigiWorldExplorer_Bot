@@ -708,6 +708,41 @@ def measure_scroll_px(prev_strip, cur_strip, max_cols=3, slide_tolerance=0.2,
     return min(nearest, max_cols), sliding
 
 
+def dash_had_no_effect(inventory_before, inventory_after, player_moved,
+                       obstacles_before, obstacles_after):
+    """Did the dash tap do nothing at all?
+
+    The old test was 'the player cell did not change', which is true of
+    every SUCCESSFUL dash: the dash travels three cells right and the
+    world scrolls the same three columns back, so the digi ends where
+    it started (review 2026-08-22, 'physics' lens). Paired with 'two
+    pyramids on the right before and after' - routine, since new ones
+    scroll in behind the broken ones - a working dash could disable
+    dashing for the rest of the run.
+
+    The inventory counter settles it: a dash that ran cost one dash.
+    Only when the count did NOT drop (or cannot be read at all) does
+    the board evidence get a say."""
+    before = (inventory_before or {}).get("dashes")
+    after = (inventory_after or {}).get("dashes")
+    if before is not None and after is not None:
+        return after >= before
+    return not player_moved and obstacles_after >= obstacles_before
+
+
+def dash_pickup_log(recent_pickups, launch, frame, reach=3):
+    """Log the dash path as pickup sources for the confetti window.
+
+    A dash collects everything in its path in one motion - the richest
+    pickup event in the game - but only move-pickups were ever logged,
+    so the burst zone around a dash lasted a single frame against a
+    two-frame phenomenon (review 2026-08-22)."""
+    row, col = launch
+    return list(recent_pickups) + [((row, c), frame)
+                                   for c in range(col + 1,
+                                                  min(5, col + 1 + reach))]
+
+
 class FrameClock:
     """Ticks once per screenshot.
 
@@ -2161,10 +2196,17 @@ def main():
         cur_strip = board_strip(image, det.board)
         measured, board_sliding = measure_scroll_px(prev_strip, cur_strip,
                                                     max_cols=2)
-        # Three strip columns verify shifts up to 2; a dash's 3-column
-        # jump is out of range and the tap count is trusted (the dash
-        # has its own long animation and settle wait).
-        measurable = scrolls_since_frame <= 2
+        # Three strip columns verify shifts up to 2; a dash's jump is
+        # out of range and the tap count is trusted (the dash has its
+        # own long animation and settle wait). Exemption by ACTION
+        # KIND, not by count: a col-0 dash claims only 2 columns and
+        # slipped into the measurable window the comment says dashes
+        # are exempt from, letting a mid-animation reading rewrite all
+        # board memory (review 2026-08-22, 'physics' lens). The dash's
+        # scroll count is deterministic (launch column + 2), so there
+        # is nothing to measure.
+        measurable = (scrolls_since_frame <= 2
+                      and previous_action != "dash")
         if should_wait_for_slide(board_sliding, slide_waits):
             # The grid stands still while its CONTENTS slide: this
             # screenshot caught the scroll in flight. Acting on it
@@ -2388,6 +2430,7 @@ def main():
                     pass
             previous_attack_target = None
         if previous_action == "dash" and previous_dash_player is not None:
+            dash_inv_before = (pending_dash or {}).get("inventory_before")
             if pending_dash is not None:
                 after_dump = (run_dir / f"energy_roi_dash_{done:04d}_after.png"
                               if args.debug_screenshots else None)
@@ -2409,8 +2452,18 @@ def main():
                     dash_stock = inv_after["dashes"]
                 pending_dash = None
             current_right_obstacles = consecutive_right_obstacles(info, player)
-            if (player == previous_dash_player and
-                    previous_dash_obstacles >= 2 and current_right_obstacles >= 2):
+            # The dash path collected whatever it broke: its cells are
+            # confetti sources for the same two frames a move pickup is.
+            recent_pickups = dash_pickup_log(recent_pickups,
+                                             previous_dash_player,
+                                             frame_clock.now)
+            if (previous_dash_obstacles >= 2 and current_right_obstacles >= 2
+                    and dash_had_no_effect(
+                        dash_inv_before,
+                        (event.get("dash_result") or {}).get("inventory_after"),
+                        player_moved=(player != previous_dash_player),
+                        obstacles_before=previous_dash_obstacles,
+                        obstacles_after=current_right_obstacles)):
                 dashes_enabled = False
                 dashes_disabled_at = done
                 event["dash_state"] = {

@@ -328,7 +328,13 @@ class Replay:
             elif kind == "dash":
                 self.prev_action = "dash"
                 self.prev_dash_player = self.last_player
-                shift = 3  # col unknown offline; col-1 launch dominates
+                # The launch column IS known offline (the frame before
+                # the dash resolved the player), and a dash scrolls
+                # launch_col + 2: hardcoding 3 manufactured exactly the
+                # desyncs the harness exists to audit for col-0
+                # launches (review 2026-08-22).
+                shift = (runner.dash_scroll_count(self.last_player[1])
+                         if self.last_player else 3)
                 self.shift_left(shift)
                 self.claimed += shift
 
