@@ -696,16 +696,44 @@ def measure_scroll_px(prev_strip, cur_strip, max_cols=3, slide_tolerance=0.2,
     # scores ~0 and steals the argmin from the true alignment.
     max_off = min(max_cols * col_px, width - col_px)
     best_off, best_score = 0, None
+    scores = []
     for off in range(0, max_off + 1, 2):
         a = prev_strip[:, off:]
         b = cur_strip[:, :width - off]
         score = float(np.mean(np.abs(a - b)))
+        scores.append((score, off))
         if best_score is None or score < best_score:
             best_off, best_score = off, score
+    # Confidence: the argmin rewrites every board-memory structure, so
+    # a picture that cannot decide must say so. On a low-contrast strip
+    # (an empty right band) the alignments at 0, 1 and 2 columns sit
+    # within noise of one another and the winner is arbitrary - None
+    # means 'trust the tap count', which is the safe answer there
+    # (review 2026-08-22, 'physics' lens).
+    if float(np.std(prev_strip.astype(float))) < 4.0:
+        return None, False
+    rivals = [s for s, off in scores if abs(off - best_off) >= col_px]
+    if rivals and best_score is not None and min(rivals) < best_score * 1.15:
+        return None, False
     cols_f = best_off / col_px
     nearest = int(round(cols_f))
     sliding = abs(cols_f - nearest) > slide_tolerance
     return min(nearest, max_cols), sliding
+
+
+def confirmed_pickup(detected_info, merged_info, cell):
+    """Category of what was collected at `cell`, or None.
+
+    Vision decides: reading the category from the MEMORY-MERGED board
+    minted phantom pickups whenever the digi stepped on a stale
+    remembered cell - inflating the run stats and, worse, opening a
+    confetti burst zone around a place where nothing was collected,
+    which then suspected the real items around it (review 2026-08-22).
+    Memory stays what it is good for: routing."""
+    if detected_info is None:
+        return None
+    category = item_category(detected_info[cell])
+    return category or None
 
 
 def dash_had_no_effect(inventory_before, inventory_after, player_moved,
@@ -2773,7 +2801,8 @@ def main():
                 # run 20260822T004437 n=48-49 exploring right past a
                 # 3-pyramid wall one step down, never hunted.
                 scrolls_since_frame += 1
-            pickup = item_category(info[target]) if kind == "move" else None
+            pickup = (confirmed_pickup(detected_info, info, target)
+                      if kind == "move" else None)
             if pickup:
                 collected[pickup] += 1
                 recent_pickups.append((tuple(target), frame_clock.now))

@@ -1551,6 +1551,52 @@ class PairDashEconomicsTests(unittest.TestCase):
         self.assertEqual(action[0], "dash")
 
 
+class DetectedPickupOnlyTests(unittest.TestCase):
+    """Review 2026-08-22 ('suspects' lens): the pickup tally and the
+    confetti-source log were read from the MEMORY-MERGED board, so
+    stepping onto a stale remembered cell minted a phantom pickup - it
+    inflated the run stats and, worse, opened a confetti burst zone
+    around a place where nothing was ever collected, suspecting the
+    real items around it. Vision decides what was picked up; memory is
+    for routing."""
+
+    def test_remembered_only_cell_is_not_a_pickup(self):
+        detected = empty_grid()
+        merged = empty_grid()
+        merged[(2, 1)].update(item=0.16, orange=0.16)
+        self.assertIsNone(runner.confirmed_pickup(detected, merged, (2, 1)))
+
+    def test_detected_cell_is_a_pickup(self):
+        detected = empty_grid()
+        detected[(2, 1)].update(item=0.16, orange=0.16)
+        self.assertEqual(
+            runner.confirmed_pickup(detected, detected, (2, 1)), "orange")
+
+
+class SensorConfidenceTests(unittest.TestCase):
+    """Review 2026-08-22 ('physics' lens): measure_scroll_px took the
+    argmin of the strip alignment with no confidence margin, then
+    destructively rewrote every board-memory structure with it. On a
+    low-contrast strip (an empty right band) the scores at 0, 1 and 2
+    columns sit within noise of each other and the winner is arbitrary.
+    None already means 'trust the tap count', which is the safe answer
+    when the picture cannot decide."""
+
+    def test_flat_strip_refuses_to_measure(self):
+        import numpy as np
+        flat = np.zeros((20, 90), dtype=np.uint8)
+        cols, sliding = runner.measure_scroll_px(flat, flat.copy())
+        self.assertIsNone(cols)
+
+    def test_clear_shift_still_measures(self):
+        import numpy as np
+        rng = np.random.default_rng(7)
+        prev = rng.integers(0, 255, (20, 90), dtype=np.uint8)
+        cur = np.roll(prev, -30, axis=1)
+        cols, sliding = runner.measure_scroll_px(prev, cur)
+        self.assertEqual(cols, 1)
+
+
 class RightTargetPayloadTests(unittest.TestCase):
     """Review 2026-08-22 ('economy' lens): right_targets made ANY
     pickup at column >= 3, on any row, count as payload - so every
