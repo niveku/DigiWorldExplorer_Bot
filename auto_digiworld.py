@@ -696,11 +696,15 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     # any such pickup vetoes it and the normal routing takes over.
     if dashes_enabled:
         def dash_path_pyramids(row, col):
-            count = sum(1 for c in range(col + 1, min(5, col + 4))
-                        if is_obstacle(info[(row, c)]))
-            if col + 3 >= 5 and preview is not None and preview[row]:
-                count += 1
-            return count
+            # No preview extension here (removed 2026-08-22, dead code
+            # confirmed): it only applied when col + 3 >= 5, i.e. with
+            # the digi standing in column 2+, which the game forbids -
+            # the player is pinned to columns 0-1, and a launch cell
+            # shares the player's column. Wall detection keeps its own
+            # preview extension, which IS reachable: a run of pyramids
+            # can touch the right edge with its launch in column 1.
+            return sum(1 for c in range(col + 1, min(5, col + 4))
+                       if is_obstacle(info[(row, c)]))
 
         path = [(player[0], col)
                 for col in range(player[1] + 1, min(5, player[1] + 4))]
@@ -723,7 +727,13 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         path_items = any(info[cell]["item"] > .06
                          or info[cell].get("claw", 0.0) > .10
                          for cell in path)
-        right_targets = any(cell[1] >= 3
+        # Payload only when the dash's own break opens the lane to the
+        # target: three columns of pure advance cost three steps (120
+        # shards) on foot against 400 for the dash, so an off-row
+        # pickup at column 3+ never paid for it - yet it made every
+        # bare pair fire, bypassing both the stock gate and the
+        # preview-needs-payload rule (review 2026-08-22, 'economy').
+        right_targets = any(cell[0] == player[0] and cell[1] >= 3
                             for cell in (orange_items | mid_items))
         # Doctrine 2026-08-22 (user): two REAL pyramids pay for the
         # dash on their own - each break drops at ~46% and the dash
@@ -993,6 +1003,14 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             # (run 20260822T183056 n=14 stepped left for nothing). A
             # genuinely cornered explorer - real pyramids, no suspects
             # - may still escape left.
+            continue
+        if (direction == "right" and nxt[1] >= 2
+                and any(cell[1] == 0 for cell in (orange_items | mid_items))):
+            # The scroll budget is an invariant of the whole decision,
+            # not of the tour branch: when the tour cannot route to a
+            # column-0 pickup, falling through to explore used to
+            # scroll the very perishable the budget was protecting off
+            # the board (review 2026-08-22, 'conflicts' lens).
             continue
         base = {"right": 100, "down": 12, "up": 10, "left": -40}[direction]
         score = base + 20*v["highlight"]

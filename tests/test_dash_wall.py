@@ -170,14 +170,29 @@ class PairDashTests(unittest.TestCase):
         action, reason = strategy.choose(info)
         self.assertNotEqual(action[0], "dash")
 
-    def test_preview_supplies_the_second_pyramid_at_the_edge(self):
+    def test_preview_never_manufactures_a_pair_from_a_lawful_column(self):
+        # The old 'preview supplies the second pyramid' case needed the
+        # digi in column 2, which the game forbids (it is pinned to
+        # columns 0-1). From a lawful column the preview column is four
+        # cells away - out of the dash's three - so one real pyramid
+        # plus a promise is not a pair. Walls keep their own preview
+        # extension, which a launch in column 1 can reach.
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        wall(info, 2, (4,))
+        preview = [False, False, True, False, False]
+        action, reason = strategy.choose(info, preview=preview,
+                                         dash_stock=20)
+        self.assertNotEqual(action[0], "dash")
+
+    def test_off_row_pickup_does_not_pay_for_a_preview_pair(self):
         info = empty_grid()
         info[(2, 2)]["player"] = 0.2
         wall(info, 2, (4,))
         info[(0, 4)].update(item=0.10, orange=0.10)
         preview = [False, False, True, False, False]
         action, reason = strategy.choose(info, preview=preview)
-        self.assertEqual(action, ("dash", (2, 2), "right"))
+        self.assertNotEqual(action[0], "dash")
 
     def test_without_dashes_the_pair_is_ignored(self):
         info = empty_grid()
@@ -1534,6 +1549,64 @@ class PairDashEconomicsTests(unittest.TestCase):
         info[(2, 4)]["pyramid"] = 0.9
         action, reason = strategy.choose(info)
         self.assertEqual(action[0], "dash")
+
+
+class RightTargetPayloadTests(unittest.TestCase):
+    """Review 2026-08-22 ('economy' lens): right_targets made ANY
+    pickup at column >= 3, on any row, count as payload - so every
+    two-pyramid pair fired regardless of the stock gate and of the
+    preview-needs-payload rule, which is most of the time. The
+    economics do not hold: three columns of pure advance cost three
+    steps (120 shards) on foot against 400 for the dash. Advance is
+    only worth the dash when the dash's own break opens the lane to
+    that target - i.e. the target sits in the row the dash runs."""
+
+    def _pair(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 2)]["pyramid"] = 0.9
+        info[(2, 3)]["pyramid"] = 0.9
+        return info
+
+    def test_off_row_right_pickup_is_not_payload(self):
+        info = self._pair()
+        info[(0, 4)].update(item=0.16, orange=0.16)
+        action, reason = strategy.choose(info, player=(2, 1), dash_stock=4)
+        self.assertNotEqual(action[0], "dash")
+
+    def test_target_in_the_dash_row_still_pays(self):
+        info = self._pair()
+        info[(2, 4)].update(item=0.16, orange=0.16)
+        action, reason = strategy.choose(info, player=(2, 1), dash_stock=4)
+        self.assertEqual(action[0], "dash")
+
+    def test_comfortable_stock_still_fires_the_bare_pair(self):
+        action, reason = strategy.choose(self._pair(), player=(2, 1),
+                                         dash_stock=20)
+        self.assertEqual(action[0], "dash")
+
+
+class PerishableNeverScrolledAwayTests(unittest.TestCase):
+    """Review 2026-08-22 ('conflicts' lens): when the tour cannot find
+    a route inside its scroll budget, choose() falls through to
+    explore - which scrolls right freely and kills the very perishable
+    the budget was protecting. The budget is an invariant of the whole
+    decision, not of one branch."""
+
+    def test_unroutable_perishable_blocks_the_scrolling_explore(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        # Perishable at column 0 - one scroll kills it - walled in so
+        # the tour cannot route to it at all.
+        info[(0, 0)].update(item=0.16, orange=0.16)
+        info[(0, 1)]["pyramid"] = 0.9
+        info[(1, 0)]["pyramid"] = 0.9
+        info[(1, 1)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, player=(2, 1),
+                                         attacks_enabled=False)
+        if action is not None and action[0] == "move":
+            self.assertLess(tuple(action[1])[1], 2,
+                            "no scrolling step while a col-0 pickup lives")
 
 
 class DashEffectEvidenceTests(unittest.TestCase):
