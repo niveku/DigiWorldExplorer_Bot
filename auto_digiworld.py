@@ -589,13 +589,19 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     steps_cards = {cell for cell in mid_items
                    if pickup_type(info[cell]) == "steps"}
 
-    # One-frame suspects are excluded as goals, but a dash's forward scroll
-    # would delete them from the left band before the next frame can
-    # adjudicate them (run 20260821T154754 n=578 dashed three suspects to
-    # their death; all three were real). They veto dashes for that single
-    # frame: phantoms vanish and the dash fires on the very next pass.
-    suspect_risk = {cell for cell in suspect_cells
-                    if cell != player and cell[1] <= 2}
+    # (The left-band SUSPECT veto on dashes retired 2026-08-23. It was
+    # written on 2026-08-21 - run 20260821T154754 n=578 dashed three
+    # suspects to their death, all three real - under the old suspicion
+    # stack, where anything freshly seen was suspect for two frames. The
+    # world model classifies by ORIGIN: an item entering at the right
+    # edge is explained and believed on sight, so what stays suspect is
+    # an unexplained birth, which is what confetti is. Vetoing a
+    # 400-shard wall-clearing dash on a probable phantom left the bot
+    # dithering on the launch cell - run 20260823T074036 n=154-157 spent
+    # three paws walking off it and back before dashing, and n=80-83 the
+    # same. Real left-band pickups are still protected: they are BELIEVED
+    # items, so they sit in orange_items/mid_items and in the runner's
+    # left_band_risk, which every dash rule already honours.)
 
     # The world only scrolls forward, and it only scrolls on rightward
     # moves: an orange in the left two columns is about to leave the board
@@ -636,7 +642,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         standing_reach = sum(1 for cell in standing_path
                              if is_obstacle(info[cell]))
         standing_risk = {cell
-                         for cell in (orange_items | mid_items | suspect_risk)
+                         for cell in (orange_items | mid_items)
                          if cell not in standing_path and cell[1] <= 2
                          and cell not in steps_cards}
         if standing_reach >= 3 and not standing_risk:
@@ -651,7 +657,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             # survives the rescue; normal routing resumes after it.
             wall_path = {(launch[0], col)
                          for col in range(launch[1] + 1, min(5, launch[1] + 4))}
-            wall_risk = {cell for cell in (orange_items | mid_items | suspect_risk)
+            wall_risk = {cell for cell in (orange_items | mid_items)
                          if cell not in wall_path and cell[1] <= 2
                          and cell not in steps_cards}
             # The dash is ROUTING, not abandonment (user directive
@@ -716,7 +722,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         full_wall = nearest_dash_wall(info, player, preview=preview)
         # Tickets are worth ~nothing: only energy and mid-tier pickups may
         # veto a dash over scroll loss.
-        at_risk = {cell for cell in (orange_items | mid_items | suspect_risk)
+        at_risk = {cell for cell in (orange_items | mid_items)
                    if cell not in path and cell[1] <= 2
                    and cell not in steps_cards}
         # A bare two-pyramid pair no longer justifies 400 shards: the true
@@ -798,8 +804,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                         or dash_path_pyramids(*launch) >= 3):
                     continue
                 launch_risk = {cell
-                               for cell in (orange_items | mid_items
-                                            | suspect_risk)
+                               for cell in (orange_items | mid_items)
                                if cell not in launch_path and cell[1] <= 2
                                and cell not in steps_cards}
                 if launch_risk:
@@ -896,7 +901,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         # 3-column scroll, so they defer this dash for a frame too.
         dash_row = {(player[0], col)
                     for col in range(player[1] + 1, min(5, player[1] + 4))}
-        corridor_risk = {cell for cell in (orange_items | mid_items | suspect_risk)
+        corridor_risk = {cell for cell in (orange_items | mid_items)
                          if cell not in dash_row and cell[1] <= 2}
         if not corridor_risk:
             return ("dash", player, "right"), \
@@ -957,6 +962,38 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                 target, obstacle, direction = step
                 return ("move", target, direction), \
                     f"position for forming wall at {launch}"
+    # Refusing to advance protects a column-0 prize only if the prize can
+    # still be taken: a perishable walled off from the player is lost
+    # whatever we do, and standing still to mourn it burns paws for
+    # nothing (run 20260823T074036 n=197-199 ping-ponged (0,0)<->(0,1) to
+    # the end of the run over a dash orb behind a two-pyramid wall).
+    # allow_obstacles=False on purpose: a 200-shard garra to rescue a
+    # 20-energy orange is not a rescue, so a perishable reachable only by
+    # breaking through does not veto the advance either.
+    # tour_items, not the raw sightings: the veto and the plan must want
+    # the same things. Reading orange_items | mid_items let a pickup the
+    # tour had already pruned as not worth a detour still hold the whole
+    # world still on its behalf - two mechanisms disagreeing about what
+    # is worth protecting, which is the shape of bug this bot keeps
+    # growing (docs/review-2026-08-22.md).
+    gettable_perishables = any(
+        shortest_action(info, player, {cell}, allow_obstacles=False)
+        is not None
+        for cell in tour_items if cell[1] == 0)
+    # Can the belt be advanced at all without breaking something? Column 2
+    # is the cell a step must enter to scroll, so the explorer is BOXED
+    # when no free route reaches an unobstructed one. Asking it as a
+    # reachability FACT rather than looking one row up and down is what
+    # separates the two cases that look identical from a single cell: a
+    # sealed row can be the CORRIDOR to a free one (two paws, 80 shards,
+    # cheaper than the garra) or the last row before the edge (run
+    # 20260822T184638 n=66-67 stepped down into one and back up, two paws
+    # for nothing, and was still boxed).
+    advance_cells = {(row, 2) for row in range(5)
+                     if not is_obstacle(info[(row, 2)])}
+    boxed = (not advance_cells
+             or shortest_action(info, player, advance_cells,
+                                allow_obstacles=False) is None)
     candidates = []
     for dr, dc, direction in DIRS:
         nxt = (player[0]+dr, player[1]+dc)
@@ -982,8 +1019,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             # genuinely cornered explorer - real pyramids, no suspects
             # - may still escape left.
             continue
-        if (direction == "right" and nxt[1] >= 2
-                and any(cell[1] == 0 for cell in (orange_items | mid_items))):
+        if direction == "right" and nxt[1] >= 2 and gettable_perishables:
             # The scroll budget is an invariant of the whole decision,
             # not of the tour branch: when the tour cannot route to a
             # column-0 pickup, falling through to explore used to
@@ -1005,8 +1041,14 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         # between equally boring lanes (8 explore-pocket loop bans in
         # run 20260821T222310).
         if direction in ("up", "down"):
-            score += 6 * sum(1 for c in range(2, 5)
-                             if is_obstacle(info[(nxt[0], c)]))
+            if boxed:
+                # Nowhere to walk to: sink the step below the forward
+                # garra (5 + highlight). Shuffling only delays the 200
+                # shards, and the two paws it burns are not free either.
+                score -= 20
+            else:
+                score += 6 * sum(1 for c in range(2, 5)
+                                 if is_obstacle(info[(nxt[0], c)]))
             # Alignment toward an incoming wall beats scrolling from
             # the wrong row: the step that closes distance to the
             # nearest incoming row outbids the plain right (100).
@@ -1017,12 +1059,21 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                     score += 120
         if previous_direction and {previous_direction, direction} in ({"left","right"},{"up","down"}):
             score -= 30
-        candidates.append((score, nxt, obstacle, direction))
+        candidates.append((score, nxt, obstacle, direction,
+                           boxed and direction in ("up", "down")))
     if not candidates:
         return None, "no orthogonal candidate"
     # Cells banned by the loop breaker are avoided while any alternative
     # exists; falling back to them beats stalling in a fully banned pocket.
-    preferred = [entry for entry in candidates if entry[1] not in ignored]
+    # Cells the loop breaker banned are avoided; SUSPECT cells are not.
+    # ignored_targets carries both, and treating the suspects in it as
+    # terrain brought back the pathology retired from this very function
+    # on 2026-08-23: run 20260823T074036 n=155 stepped BACKWARD to (0,1)
+    # because the free step down happened to land on a one-frame
+    # suspect. Walking onto a maybe-item is free - it either collects
+    # something or nothing - so it can cost a goal, never a route.
+    avoided = ignored - set(suspect_cells)
+    preferred = [entry for entry in candidates if entry[1] not in avoided]
     # (The suspect filter and the 'boxed by suspects' wait retired
     # 2026-08-23: a confetti card is ground, not a wall, so there is
     # nothing to be boxed by. A pyramid hidden UNDER confetti keeps its
@@ -1034,9 +1085,13 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     # and bought a 200-shard garra beside a free move. The left escape
     # does not count as an alternative: it buys no progress, so a
     # truly cornered explorer (only left open) still breaks forward.
+    # Neither does a vertical step while BOXED - no row the player can
+    # reach can advance the belt - for the same reason: shuffling between
+    # sealed rows is not cheaper than the garra that opens the way, it is
+    # just quieter (run 20260822T184638 n=66-67).
     movers = [entry for entry in pool
-              if not entry[2] and entry[3] != "left"]
-    _, target, obstacle, direction = max(movers or pool)
+              if not entry[2] and entry[3] != "left" and not entry[4]]
+    _, target, obstacle, direction, _ = max(movers or pool)
     return ("attack" if obstacle else "move", target, direction), "explore right"
 
 

@@ -45,14 +45,42 @@ from PIL import Image
 import auto_digiworld as strategy
 import auto_digiworld_batch2 as runner
 import digiworld_bot as bot
+import step_ledger as ledger
 import world_model as wm
 
 
+def board_signature(info):
+    """What the planner can actually see: walls and pickups, by cell.
+
+    Two frames with the same signature describe the same world, so a
+    decision that reverses the previous one between them cannot be
+    explained by anything having changed.
+    """
+    walls = frozenset(cell for cell, v in info.items()
+                      if strategy.is_obstacle(v))
+    pickups = frozenset((cell, strategy.pickup_type(v))
+                        for cell, v in info.items()
+                        if strategy.pickup_type(v))
+    return walls, pickups
+
+
+def _direction(player, target):
+    """Which way a recorded tap went, for logs written before directions."""
+    if player is None:
+        return "right" if target[1] >= 2 else "up"
+    if target[1] != player[1]:
+        return "right" if target[1] > player[1] else "left"
+    return "down" if target[0] > player[0] else "up"
+
+
 def load_run(run_dir):
-    """Return (frames, actions_by_n): PNGs in shot order + logged acts."""
+    """Return (frames, actions_by_n, ledgered): PNGs in shot order, the
+    logged acts, and whether this footage came from a runner that already
+    reconciled on the paw receipt."""
     with open(os.path.join(run_dir, "events.jsonl"), encoding="utf-8") as fh:
         events = [json.loads(line) for line in fh]
     actions = {}
+    ledgered = any("ledger" in e for e in events)
     for e in events:
         n = e.get("next_index")
         a = e.get("action")
@@ -65,7 +93,7 @@ def load_run(run_dir):
         m = re.match(r"debug_(\d+)_", os.path.basename(path))
         if m:
             frames.append((int(m.group(1)), path))
-    return frames, actions
+    return frames, actions, ledgered
 
 
 class Replay:
@@ -75,6 +103,9 @@ class Replay:
         self.pending_reveals = {}
         self.prev_strip = None
         self.slide_waits = 0
+        self.paw_count = None
+        self.pending_taps = []
+        self.pending_player = None
         # Same board lock as the runner: without it the jittering
         # rectangle changes the strip's shape and the scroll sensor
         # measures nothing (74-85% of frames).
@@ -86,6 +117,17 @@ class Replay:
         self.last_player = None
         self.claimed = 0
         self.done = 0
+        # Where the belt stands and where the player has been standing on
+        # it: the two numbers the PING-PONG invariant compares.
+        self.belt = 0
+        self.recent_stands = []
+        self.last_item_cells = set()
+        self.last_decision = None
+        self.prev_choice_direction = None
+        # Runs recorded before the paw ledger existed are audited, not
+        # judged: their oscillations belong to code that no longer runs.
+        self.audit_recorded = False
+        self.pingpongs = []
         self.ghost_streaks = {}
         self.unseen_streaks = {}
         self.unseen_last_n = {}
@@ -103,6 +145,7 @@ class Replay:
         self.violations.append((n, kind, detail))
 
     def shift_left(self, times=1):
+        self.belt += times
         for _ in range(times):
             self.remembered = runner.shift_items_left(self.remembered)
             self.phantoms = runner.shift_items_left(self.phantoms)
@@ -132,8 +175,6 @@ class Replay:
         self.last_player = tuple(player)
         detected = dict(info)
 
-        # pixel scroll reconciliation (grace collapsed: offline frames
-        # already embody whatever landed late)
         strip = runner.board_strip(img, det.board)
         measured, sliding = runner.measure_scroll_px(self.prev_strip, strip,
                                                      max_cols=2)
@@ -144,23 +185,49 @@ class Replay:
             measured = None
         self.slide_waits = 0
         self.prev_strip = strip
-        if measured is not None and self.claimed <= 2 and measured != self.claimed:
-            delta = self.claimed - measured
-            if delta > 0:
-                for _ in range(delta):
-                    self.remembered = runner.shift_items_right(self.remembered)
-                    self.phantoms = runner.shift_items_right(self.phantoms)
-                    self.pending_reveals = runner.shift_items_right(
-                        self.pending_reveals)
-                    self.ghost_streaks = runner.shift_items_right(
-                        self.ghost_streaks)
-                    self.unseen_streaks = runner.shift_items_right(
-                        self.unseen_streaks)
-                    self.unseen_last_n = runner.shift_items_right(
-                        self.unseen_last_n)
+
+        # The belt advances on the game's receipt, not on our taps - the
+        # same order of authority the runner follows: paws, then pixels,
+        # then the taps we sent.
+        paws_now = ledger.sane_reading(
+            self.paw_count, runner.read_inventory_counters(img)["steps"],
+            ledger.move_taps(self.pending_taps))
+        claimed = ledger.move_taps(self.pending_taps)
+        charged = ledger.charged_steps(self.paw_count, paws_now, claimed)
+        if charged is None and self.prev_action != "dash":
+            charged = ledger.charge_matching_shift(self.pending_taps, measured)
+        if charged is None:
+            charged = claimed
+        belt_shift = ledger.conveyor_shift(self.pending_taps, charged)
+        self.shift_left(belt_shift)
+        self.claimed += belt_shift
+        self.paw_count = paws_now
+        self.pending_taps = []
+
+        # ---- PING-PONG: paws spent to end up where we started ----
+        # The belt is the only thing that makes rightward progress, so
+        # standing again on a cell we already left, with the world
+        # unmoved and nothing collected on the way, is pure waste. Run
+        # 20260823T074036 n=197-199 spent the tail of its budget
+        # alternating (0,0)<->(0,1) over an unreachable dash orb.
+        here = (tuple(player), self.belt)
+        if (tuple(player) not in self.last_item_cells
+                and len(self.recent_stands) >= 2
+                and self.recent_stands[-2] == here):
+            detail = (f"back on {tuple(player)} with the belt still at "
+                      f"{self.belt} and nothing collected")
+            # This audits what the RECORDED run did, which no fix can
+            # change retroactively - so it is a violation only for runs
+            # today's planner produced (their logs carry the ledger).
+            # For older footage it is counted and printed, and the count
+            # is what a new run has to beat. INDECISION below is the law
+            # that a fix can actually move.
+            if self.audit_recorded:
+                self.flag(n, "PING-PONG", detail)
             else:
-                self.shift_left(-delta)
-            self.claimed = measured
+                self.pingpongs.append((n, detail))
+        if not self.recent_stands or self.recent_stands[-1] != here:
+            self.recent_stands = (self.recent_stands + [here])[-4:]
 
         # ONE update of the tracked world model replaces the six
         # suspicion stages (fresh appearances, two-frame carryover,
@@ -180,6 +247,10 @@ class Replay:
                            if cell not in runner.item_cells_of(detected)}
         merged = runner.merge_remembered_items(info, self.remembered, player)
         merged = runner.merge_phantom_obstacles(merged, self.phantoms, self.done)
+        self._info = info
+        # What the next frame's PING-PONG check asks "did we collect
+        # anything on the way?" against.
+        self.last_item_cells = runner.item_cells_of(merged)
 
         # ---- invariants ----
         detected_cells = runner.item_cells_of(detected)
@@ -237,9 +308,17 @@ class Replay:
                           f"remembered {self.remembered[cell][0]} at {cell} "
                           f"clean-empty {streak} frames")
 
+        # previous_direction is the direction THIS planner last proposed,
+        # not the one the recorded run took: the anti-reverse hysteresis
+        # is part of the function under audit, and leaving it out made
+        # the harness measure a different function than the runner runs
+        # (two INDECISION reports of 2026-08-23 were exactly that).
         action, reason = strategy.choose(
-            merged, ignored_targets=set(suspects), player=player,
+            merged, self.prev_choice_direction,
+            ignored_targets=set(suspects), player=player,
             suspect_cells=suspects)
+        if action is not None and len(action) > 2:
+            self.prev_choice_direction = action[2]
         if self.debug_n == n:
             print(f"[debug n={n}] player={player} suspects={sorted(suspects)}")
             print(f"  remembered={self.remembered}")
@@ -256,6 +335,41 @@ class Replay:
                 self.flag(n, "STARVATION",
                           f"choose() proposes move to {target} that the tap "
                           f"gate refuses (reason: {reason})")
+        # ---- INDECISION: today's choose() undoing its own last step ----
+        # Run 20260823T074036 n=154-157: four frames, ONE unchanged board,
+        # three different answers (down, up, down) before the dash the
+        # first of them could already have set up. Stepping off a cell and
+        # straight back onto it costs two paws and buys nothing, so on a
+        # board that did not change it is never right. Unlike PING-PONG
+        # (which audits what the recorded run did) this asks what TODAY's
+        # planner would do, so a fix has somewhere to show up.
+        signature = board_signature(merged)
+        if action is not None and action[0] == "move":
+            target = tuple(action[1])
+            if self.last_decision is not None:
+                prev_sig, prev_from, prev_to = self.last_decision
+                if (prev_sig == signature and tuple(player) == prev_to
+                        and target == prev_from):
+                    self.flag(n, "INDECISION",
+                              f"steps back to {prev_from} on an unchanged "
+                              f"board (reason: {reason})")
+            self.last_decision = (signature, tuple(player), target)
+        elif action is not None:
+            self.last_decision = None
+
+        # ---- BACKSTEP: walking against the belt buys nothing ----
+        # User physics, 2026-08-23: the grid is furniture and the world
+        # rides a conveyor from right to left. A leftward step therefore
+        # only ever pays when it PICKS SOMETHING UP - exploring leftward
+        # walks toward cells the belt is about to deliver anyway, and a
+        # cornered explorer's own doctrine (auto_digiworld.py, `movers`)
+        # says it should break forward rather than retreat.
+        if (action is not None and action[0] == "move"
+                and len(action) > 2 and action[2] == "left"
+                and str(reason).startswith("explore")):
+            self.flag(n, "BACKSTEP",
+                      f"explores leftward from {tuple(player)} (reason: {reason})")
+
         if str(reason).startswith("explore"):
             # The player's own cell is excluded: the pickup card drawn
             # over the sprite scores as a non-suspect orange there.
@@ -297,15 +411,28 @@ class Replay:
                               if wall.dashable)
 
     def apply_recorded(self, n, acts):
+        # A move tap is a CLAIM until the game charges a paw for it: the
+        # belt is advanced by the receipt in process_frame, exactly as the
+        # runner does it. Recorded runs from before 2026-08-23 carry no
+        # direction on their taps, so it is walked back from the player.
+        pending, walked = [], self.last_player
+        for m in acts:
+            if m.get("type") != "move" or not m.get("target_cell"):
+                continue
+            target = tuple(m["target_cell"])
+            direction = m.get("direction") or _direction(walked, target)
+            pending.append({"type": "move", "target_cell": list(target),
+                            "direction": direction})
+            walked = ((target[0], target[1] - 1)
+                      if direction == "right" and target[1] >= 2 else target)
+        self.pending_taps = pending
+        self.pending_player = self.last_player
         for m in acts:
             kind = m.get("type")
             target = tuple(m.get("target_cell") or ())
             if kind == "move":
                 self.remembered.pop(target, None)
                 self.prev_action = "move"
-                if len(target) == 2 and target[1] >= 2:
-                    self.shift_left(1)
-                    self.claimed += 1
             elif kind == "attack":
                 self.prev_action = "attack"
                 self.prev_attack_target = target if target else None
@@ -326,10 +453,11 @@ class Replay:
                 self.claimed += shift
 
 
-def replay_run(run_dir, debug_n=None, world_stats=None):
-    frames, actions = load_run(run_dir)
+def replay_run(run_dir, debug_n=None, world_stats=None, pingpongs=None):
+    frames, actions, ledgered = load_run(run_dir)
     rep = Replay()
     rep.debug_n = debug_n
+    rep.audit_recorded = ledgered
     seen_n = None
     for idx, (n, path) in enumerate(frames):
         rep.process_frame(n, path)
@@ -338,6 +466,8 @@ def replay_run(run_dir, debug_n=None, world_stats=None):
             rep.apply_recorded(n, actions[n])
     if world_stats is not None:
         world_stats.update(rep.world_stats)
+    if pingpongs is not None:
+        pingpongs.extend(rep.pingpongs)
     return rep.violations
 
 
@@ -352,15 +482,21 @@ def main(argv):
         targets = argv
     total = 0
     for run_dir in targets:
+        pingpongs = []
         try:
-            violations = replay_run(run_dir)
+            violations = replay_run(run_dir, pingpongs=pingpongs)
         except FileNotFoundError as exc:
             print(f"{os.path.basename(run_dir)}: sin datos ({exc})")
             continue
         total += len(violations)
-        print(f"{os.path.basename(run_dir)}: {len(violations)} violaciones")
+        audited = (f" (+{len(pingpongs)} ping-pong auditados)"
+                   if pingpongs else "")
+        print(f"{os.path.basename(run_dir)}: {len(violations)} violaciones"
+              f"{audited}")
         for n, kind, detail in violations:
             print(f"  n={n:3d} {kind:10s} {detail}")
+        for n, detail in pingpongs:
+            print(f"  n={n:3d} {'ping-pong':10s} {detail}  [codigo previo]")
     return 1 if total else 0
 
 

@@ -19,6 +19,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 import auto_digiworld as strategy
 import digiworld_bot as bot
+import step_ledger
 import world_model
 
 
@@ -89,15 +90,6 @@ def should_hold_for_suspects(reason, item_goals, suspect_items, holds):
     return not (set(item_goals) - set(suspect_items))
 
 
-def _left_band_suspects(suspect_cells):
-    # A runner-forced dash scrolls three columns and deletes left-band
-    # suspects before their one-frame adjudication, exactly like the
-    # strategy-side dash rules it overrides; both overrides defer to
-    # them. Real remembered pickups are guarded separately, by the
-    # left_band_risk both overrides now receive.
-    return any(cell[1] <= 2 for cell in suspect_cells)
-
-
 def corridor_dash_due(action, last_attack, done, preview, dashes_enabled, ttl=4,
                       suspect_cells=(), player=None, left_band_risk=False):
     """Second garra on the same row with another pyramid incoming: dash.
@@ -116,13 +108,17 @@ def corridor_dash_due(action, last_attack, done, preview, dashes_enabled, ttl=4,
     - Every other dash rule defers to left-band pickups; this was the
       only one that did not, so it deleted real remembered items the
       strategy had just routed to (a col-1 item survives exactly one
-      scroll; a dash takes three).
+      scroll; a dash takes three). BELIEVED pickups only: the left-band
+      SUSPECT veto retired 2026-08-23 with the strategy's suspect_risk,
+      because holding a wall-clearing dash hostage to probable confetti
+      cost six paws of dithering in run 20260823T074036
+      (docs/review-2026-08-23.md).
     """
     if not dashes_enabled or action is None or action[0] != "attack":
         return False
     if preview is None or last_attack is None:
         return False
-    if _left_band_suspects(suspect_cells) or left_band_risk:
+    if left_band_risk:
         return False
     row = action[1][0]
     if player is not None and player[0] != row:
@@ -367,17 +363,13 @@ def should_hold_for_wall(wall_now, wall_stable, action, reason, holds,
 # for - the n=49-50 vaiven it once fixed is covered by the sticky TTL.)
 
 
-def rejection_needs_grace(refused, pending_rejection):
-    """One grace frame before believing a 'cannot move' rejection.
-
-    Run 20260822T175424 n=2-5: a stuck player was read as a rejection
-    and a phantom obstacle minted - and the NEXT frame showed the
-    player standing exactly where the 'refused' tap aimed. The tap had
-    landed late, not been rejected. Only a move still stuck on the
-    second consecutive look is a real rejection (mirrors the scroll
-    shortfall grace)."""
-    return tuple(refused) != (tuple(pending_rejection)
-                              if pending_rejection else None)
+# (rejection_needs_grace retired 2026-08-23 with silent_rejection. The
+# late-landing tap it defended against - run 20260822T175424 n=2-5, a
+# "refused" move the next frame showed had landed - cannot happen to the
+# receipt: a late tap still gets charged, and the charge is what the
+# runner reads. The "same cell refused twice mints the wall" rule that
+# replaced it costs no frame at all, because the first refusal is
+# replanned from a state we KNOW did not change.)
 
 
 def item_cells_of(info):
@@ -419,13 +411,13 @@ def committed_wall_dash(committed_wall, player, done, ttl=3, last_dash=None,
         return False
     if last_dash is not None and last_dash >= committed_wall[1]:
         return False
-    if _left_band_suspects(suspect_cells):
-        return False
     if left_band_risk:
         # Same deference as the strategy-side wall rule: the dash's
         # scroll deletes left-band pickups. Run 20260822T162851 n=52
         # fired this override with a remembered orange at (0,1) and
-        # scrolled it off the board.
+        # scrolled it off the board. BELIEVED pickups only - the
+        # left-band SUSPECT veto retired 2026-08-23 along with the
+        # strategy's suspect_risk (docs/review-2026-08-23.md).
         return False
     return done - committed_wall[1] <= ttl
 
@@ -483,13 +475,10 @@ def shift_items_left(remembered):
             for (row, col), value in remembered.items() if col - 1 >= 0}
 
 
-def shift_items_right(remembered):
-    """Undo one over-counted scroll: the world moved LESS than the taps
-    claimed, so every shifted structure steps one column back right.
-    Cells pushed past the right edge are dropped (nothing legitimate
-    lives there that memory needs to resurrect)."""
-    return {(row, col + 1): value
-            for (row, col), value in remembered.items() if col + 1 <= 4}
+# (shift_items_right retired 2026-08-23. It undid an over-counted scroll,
+# which only existed because memory was shifted OPTIMISTICALLY at tap
+# time and then argued with the pixel sensor a frame later. Memory now
+# shifts once, from the receipt, and never has to walk backwards.)
 
 
 class StableBoard:
@@ -673,18 +662,12 @@ def should_wait_for_slide(sliding, slide_waits, max_waits=3):
     return bool(sliding) and slide_waits < max_waits
 
 
-def scroll_shortfall_wait(measured, claimed, waits, max_waits=1):
-    """Give a late scroll one extra frame before reconciling.
-
-    A tap's scroll often lands AFTER the next screenshot: the sensor
-    reads short, and reconciling immediately unshifts memory that the
-    late scroll then re-desyncs (run 20260822T171206 n=91-95, five
-    'swallowed' taps in a row that were merely late). One held frame
-    lets the animation land; a shortfall that persists is a genuinely
-    swallowed tap and reconciles."""
-    if measured is None or measured >= claimed:
-        return False
-    return waits < max_waits
+# (scroll_shortfall_wait retired 2026-08-23. It existed because the
+# pixel sensor could not tell a LATE scroll from a SWALLOWED tap, so it
+# bought a frame of silence to find out - 14 of the 186 frames of run
+# 20260823T074036. The paw receipt answers the question outright: the
+# game either charged the step or it did not, and neither answer is
+# improved by waiting. See step_ledger.py.)
 
 
 def pointless_attack(detected_info, target):
@@ -835,23 +818,12 @@ def warmup_batch_limit(done, limit):
     return 1 if done < 3 else limit
 
 
-def silent_rejection(previous_action, expected_rollback, player,
-                     first_move_dest, player_source, player_score):
-    """The game refused the last move - detected by position, not pixels.
-
-    'Cannot move there' toasts are invisible since the confetti gate
-    (they do not degrade board detection; run 20260821T222310 n=124/129
-    had two such stuck frames with nothing in the log). A confidently
-    seen player still standing on the pre-move cell after a NON-SCROLL
-    move proves the tap was refused. Scroll rides prove nothing: riding
-    right leaves the player on the same screen cell by design."""
-    if previous_action != "move" or expected_rollback is None:
-        return False
-    if first_move_dest is None or first_move_dest == expected_rollback:
-        return False
-    if player != expected_rollback:
-        return False
-    return player_source == "vision" and player_score >= .12
+# (silent_rejection and its grace frame retired 2026-08-23. It inferred
+# a refusal from the player still standing on the pre-move cell, and its
+# own docstring conceded the blind spot: "scroll rides prove nothing -
+# riding right leaves the player on the same screen cell by design". The
+# paw receipt has no blind spot and needs no grace frame, which cost 9
+# of the 186 frames of run 20260823T074036. See step_ledger.refused_tap.)
 
 
 def should_trust_rejection(player_source, player_score):
@@ -1518,7 +1490,7 @@ def main():
     pending_attack_inv = None
     expected_player = None
     expected_rollback = None
-    pending_rejection = None
+    last_refused = None
     last_single_move = False
     memory_streak = 0
     attacks_enabled = True
@@ -1533,11 +1505,16 @@ def main():
     # the phantom-appearance check (guessing it let ghosts hide behind
     # coincidental mappings, run 20260820T184744 events 105/136).
     scrolls_since_frame = 0
+    # The paw ledger: what the game charged us for the taps still awaiting
+    # their receipt. `pending_taps` is emptied the moment the counter is
+    # read again, so a WAIT frame cannot swallow a scroll.
+    paw_count = None
+    pending_taps = []
+    pending_player = None
     total_scrolls = 0
     prev_strip = None
     frame_clock = FrameClock()
     world = world_model.WorldModel()
-    scroll_waits = 0
     slide_waits = 0
     lag_cooldown = 0
     committed_wall = None
@@ -1798,6 +1775,19 @@ def main():
         # distinguishable from gradual per-meter accrual in the log.
         event["energy"] = read_energy_counter(image)
 
+        # ---- the game's receipt for the taps still owed one ----
+        # The grid is furniture: it never moves. Its CONTENTS ride a belt
+        # that advances exactly one column when a CHARGED step carries the
+        # player from column 1 into column 2 (user doctrine 2026-08-23).
+        # So the scroll stopped being a pixel inference: the game charges a
+        # pink paw or it does not. Read here, before any wait can `continue`
+        # past it, and consumed at the reconciliation below - a WAIT frame
+        # leaves the taps pending and the reference untouched, so the delta
+        # still spans exactly the taps it should. 12 ms a frame.
+        paws_now = step_ledger.sane_reading(
+            paw_count, read_inventory_counters(image)["steps"],
+            step_ledger.move_taps(pending_taps))
+
         if stable_board is None:
             stable_board = det.board
         elif board_in_motion(det.board, stable_board):
@@ -1835,6 +1825,84 @@ def main():
         det = bot.Detection(det.state, det.confidence,
                             board_lock.settle(det.board), det.reason)
 
+        cur_strip = board_strip(image, det.board)
+        measured, board_sliding = measure_scroll_px(prev_strip, cur_strip,
+                                                    max_cols=2)
+        if should_wait_for_slide(board_sliding, slide_waits):
+            # The grid stands still while its CONTENTS slide: this
+            # screenshot caught the scroll in flight. Acting on it
+            # desynced memory 17 times in run 20260822T171206. The taps
+            # stay pending and the paw reference untouched, so the receipt
+            # below still spans exactly the steps it should.
+            slide_waits += 1
+            event["action"] = (f"WAIT: board content sliding "
+                               f"({slide_waits}/3)")
+            bot.log_event(log, event)
+            if args.verbose:
+                progress(done, args.steps,
+                         "Contenido del tablero en movimiento - espero", "33")
+            time.sleep(0.6)
+            continue
+        if board_sliding:
+            # Cap exhausted (run 20260822T212332 n=82: 47 straight
+            # sliding waits against a frozen reference). The content
+            # settled somewhere our old strip cannot recognize: rebase
+            # the reference on the CURRENT frame, skip this one
+            # measurement, and let the loop continue.
+            measured = None
+        slide_waits = 0
+        prev_strip = cur_strip
+
+        # ---- one quantity, one order of authority ----
+        # How many of the taps we sent did the game actually take? The
+        # receipt answers ~99% of frames; the pixel sensor fills in when a
+        # digit misreads; only if both stay silent do we fall back to
+        # assuming our own taps landed. There is no second opinion to
+        # argue with, and nothing to WAIT for: an uncharged tap did not
+        # happen, which is a fact to replan from, not a maybe to sit out.
+        # (This replaced the shortfall wait - 14 of 186 frames of run
+        # 20260823T074036 spent doing nothing - the grace frames for taps
+        # "not landed yet", and the reconcile-by-shifting-memory-back-and-
+        # forth that followed both.)
+        claimed = step_ledger.move_taps(pending_taps)
+        charged = step_ledger.charged_steps(paw_count, paws_now, claimed)
+        charge_source = "paws"
+        if charged is None and previous_action != "dash":
+            # A dash's jump is out of the strip's range and deterministic
+            # anyway (launch column + 2), so there is nothing to measure.
+            charged = step_ledger.charge_matching_shift(pending_taps, measured)
+            charge_source = "pixels"
+        if charged is None:
+            charged = claimed
+            charge_source = "assumed"
+        ledger_refused = None
+        if pending_taps:
+            event["ledger"] = {"claimed": claimed, "charged": charged,
+                               "source": charge_source}
+            ledger_refused = step_ledger.refused_tap(pending_taps, charged)
+            if pending_player is not None:
+                expected_player = step_ledger.landing(pending_taps, charged,
+                                                      pending_player)
+        belt_shift = step_ledger.conveyor_shift(pending_taps, charged)
+        for _ in range(belt_shift):
+            remembered_items = shift_items_left(remembered_items)
+            phantom_obstacles = shift_items_left(phantom_obstacles)
+            banned_targets = shift_items_left(banned_targets)
+            pending_reveals = shift_items_left(pending_reveals)
+            ban_history = shift_cells_left(ban_history)
+        scrolls_since_frame += belt_shift
+        if charged < claimed:
+            # The game swallowed taps: it is lagging. Single steps for the
+            # next two decisions instead of feeding batches into a freeze.
+            lag_cooldown = 2
+        # The receipt is consumed here, so the reference always advances -
+        # keeping a stale count against emptied taps would make the next
+        # delta span steps already accounted for. An unreadable frame
+        # costs exactly one fallback, never a drifting ledger.
+        paw_count = paws_now
+        pending_taps = []
+        pending_player = None
+
         info = strategy.cells(image, det.board)
         # After a rejected move with a weak player fix, the resolution runs
         # on pure vision once: no memory bridge and no highlight-cross,
@@ -1856,37 +1924,29 @@ def main():
             if cross is not None:
                 player, player_score, player_source = cross, .30, "highlight-cross"
         distrust_player = False
-        if silent_rejection(previous_action, expected_rollback, player,
-                            first_move_dest, player_source, player_score):
-            if rejection_needs_grace(first_move_dest, pending_rejection):
-                # The tap may simply not have landed yet (run
-                # 20260822T175424: two 'refusals' whose moves executed
-                # one frame later). One grace frame; a move still stuck
-                # on the second look is a real rejection.
-                pending_rejection = tuple(first_move_dest)
-                event["action"] = (f"WAIT: tap to {list(first_move_dest)} "
-                                   "not landed - grace frame")
-                bot.log_event(log, event)
-                if args.verbose:
-                    progress(done, args.steps,
-                             f"Tap hacia {list(first_move_dest)} sin aterrizar"
-                             " - frame de gracia", "33")
-                time.sleep(0.6)
-                continue
+        # The receipt already said whether the tap executed, so there is
+        # nothing to infer from where the player is standing and nothing
+        # to sit out a grace frame for. (silent_rejection admitted in its
+        # own docstring that it could not judge a scroll ride - it lands
+        # on the same screen cell by design - and its grace frame cost 9
+        # of the 186 frames of run 20260823T074036.) A first refusal is
+        # replanned from a state we KNOW did not change; the same cell
+        # refused twice is a wall the detector missed.
+        if ledger_refused is not None:
             rejected_streak += 1
-            pending_rejection = None
-            phantom_obstacles[first_move_dest] = done + 6
-            event["silent_rejection"] = {"stuck_at": list(player),
-                                         "refused": list(first_move_dest),
-                                         "streak": rejected_streak}
-            expected_player = player
+            event["refused_tap"] = {"cell": list(ledger_refused),
+                                    "streak": rejected_streak}
+            if ledger_refused == last_refused:
+                phantom_obstacles[ledger_refused] = done + 6
+                event["phantom_obstacle"] = list(ledger_refused)
+            last_refused = ledger_refused
             if args.verbose:
                 progress(done, args.steps,
-                         f"Movimiento rechazado hacia {list(first_move_dest)} "
-                         "- celda marcada como bloqueada", "33")
-        elif previous_action == "move" and expected_rollback is not None:
+                         f"El juego no cobró el paso hacia "
+                         f"{list(ledger_refused)} - replanifico", "33")
+        elif previous_action == "move":
             rejected_streak = 0
-            pending_rejection = None
+            last_refused = None
         ghost_player = impossible_player_jump(previous_action, expected_rollback,
                                               expected_player, player,
                                               last_single_move)
@@ -1939,87 +1999,6 @@ def main():
         # a remembered cell can never refresh its own timestamp through
         # the just-over-threshold patch the merge injects.
         detected_info = info
-        # Scroll reconciliation BEFORE the memory merge, by MEASURING
-        # the world instead of trusting the tap count (user doctrine
-        # 2026-08-22: 'confirmar que se movió y ya reconciliar'). The
-        # board strip of consecutive settled frames is aligned at
-        # shifts 0..3 columns; whatever the taps claimed, the argmin IS
-        # the scroll. This replaced the cell-fingerprint heuristic and
-        # closes every swallowed/duplicated-tap ghost in one place
-        # (run 20260822T164337 n=30-32: two hidden garras, HUD 41->39,
-        # from memory running one column ahead of a latency-swallowed
-        # tap).
-        cur_strip = board_strip(image, det.board)
-        measured, board_sliding = measure_scroll_px(prev_strip, cur_strip,
-                                                    max_cols=2)
-        # Three strip columns verify shifts up to 2; a dash's jump is
-        # out of range and the tap count is trusted (the dash has its
-        # own long animation and settle wait). Exemption by ACTION
-        # KIND, not by count: a col-0 dash claims only 2 columns and
-        # slipped into the measurable window the comment says dashes
-        # are exempt from, letting a mid-animation reading rewrite all
-        # board memory (review 2026-08-22, 'physics' lens). The dash's
-        # scroll count is deterministic (launch column + 2), so there
-        # is nothing to measure.
-        measurable = (scrolls_since_frame <= 2
-                      and previous_action != "dash")
-        if should_wait_for_slide(board_sliding, slide_waits):
-            # The grid stands still while its CONTENTS slide: this
-            # screenshot caught the scroll in flight. Acting on it
-            # desynced memory 17 times in run 20260822T171206.
-            slide_waits += 1
-            event["action"] = (f"WAIT: board content sliding "
-                               f"({slide_waits}/3)")
-            bot.log_event(log, event)
-            if args.verbose:
-                progress(done, args.steps,
-                         "Contenido del tablero en movimiento - espero", "33")
-            time.sleep(0.6)
-            continue
-        if board_sliding:
-            # Cap exhausted (run 20260822T212332 n=82: 47 straight
-            # sliding waits against a frozen reference). The content
-            # settled somewhere our old strip cannot recognize: rebase
-            # the reference on the CURRENT frame, skip this one
-            # measurement, and let the loop continue.
-            measured = None
-        slide_waits = 0
-        if measurable and scroll_shortfall_wait(measured, scrolls_since_frame,
-                                                scroll_waits):
-            scroll_waits += 1
-            event["action"] = (f"WAIT: scroll shortfall measured={measured} "
-                               f"claimed={scrolls_since_frame} ({scroll_waits}/1)")
-            bot.log_event(log, event)
-            if args.verbose:
-                progress(done, args.steps,
-                         "Scroll aún no aterriza - espero un frame", "33")
-            time.sleep(0.7)
-            continue
-        scroll_waits = 0
-        prev_strip = cur_strip
-        if (measurable and measured is not None
-                and measured != scrolls_since_frame):
-            delta = scrolls_since_frame - measured
-            step_right = delta > 0
-            for _ in range(abs(delta)):
-                shifter = shift_items_right if step_right else shift_items_left
-                remembered_items = shifter(remembered_items)
-                phantom_obstacles = shifter(phantom_obstacles)
-                banned_targets = shifter(banned_targets)
-                pending_reveals = shifter(pending_reveals)
-                if step_right:
-                    ban_history = {(r, c + 1) for r, c in ban_history
-                                   if c + 1 <= 4}
-                else:
-                    ban_history = shift_cells_left(ban_history)
-            event["scroll_reconciled"] = {"claimed": scrolls_since_frame,
-                                          "measured": measured}
-            if measured < scrolls_since_frame:
-                # The game swallowed taps: it is lagging. Single steps
-                # for the next two decisions instead of feeding batches
-                # into the freeze.
-                lag_cooldown = 2
-            scrolls_since_frame = measured
         if remembered_items:
             info = merge_remembered_items(info, remembered_items, player)
         # Standing on a cell PROVES it is walkable: a phantom under the
@@ -2337,6 +2316,7 @@ def main():
             event["batch_mode"] = "adaptive-3: no visible items"
         sent = []
         frame_picked = False
+        frame_scrolled = False
 
         # Approach moves toward a dash launch go one cell per screenshot so a
         # vertical approach can never batch past the launch row.
@@ -2468,7 +2448,15 @@ def main():
                 pending_reveals = remember_pending_reveals(
                     pending_reveals, [target], frame_clock.now)
             bot.adb(args.adb, args.serial, "shell", "input", "tap", str(x), str(y))
-            sent.append({"type": kind, "target_cell": list(target), "adb_xy": [x, y]})
+            sent.append({"type": kind, "target_cell": list(target),
+                         "direction": direction, "adb_xy": [x, y]})
+            # A tap is a CLAIM until the game charges a paw for it. The
+            # belt is advanced by the receipt at the top of the next
+            # frame, never here: shifting five memory stores on the way
+            # out and undoing the ones the pixels disagreed with on the
+            # way in was the reprocessing the user asked us to delete.
+            if pending_player is None:
+                pending_player = player
             expected_rollback = player
             expected_player = (player if kind == "attack"
                                else expected_after_move(target, direction))
@@ -2478,21 +2466,18 @@ def main():
             last_move_player_score = player_score
             if kind == "move":
                 # Stepping onto a cell collects whatever it held: its
-                # memory dies before the scroll shift below relabels it.
+                # memory dies before the belt relabels the column.
                 remembered_items.pop(tuple(target), None)
             if kind == "move" and direction == "right" and target[1] >= 2:
-                remembered_items = shift_items_left(remembered_items)
-                phantom_obstacles = shift_items_left(phantom_obstacles)
-                banned_targets = shift_items_left(banned_targets)
-                ban_history = shift_cells_left(ban_history)
-                pending_reveals = shift_items_left(pending_reveals)
-                # The wall commitment survives the scroll: wall_is_stable
+                # The belt itself waits for the receipt; only the pacing
+                # needs to know a scroll animation is on its way. (The
+                # wall commitment deliberately survives it: wall_is_stable
                 # carries the scroll count at sighting and adjusts the
                 # expected launch column. Clearing it here made a wall
                 # seen while riding rightward permanently "unstable" -
                 # run 20260822T004437 n=48-49 exploring right past a
-                # 3-pyramid wall one step down, never hunted.
-                scrolls_since_frame += 1
+                # 3-pyramid wall one step down, never hunted.)
+                frame_scrolled = True
             pickup = (confirmed_pickup(detected_info, info, target)
                       if kind == "move" else None)
             if pickup:
@@ -2521,17 +2506,13 @@ def main():
                     x2, y2 = bot.cell_center(det.board, *screen_target)
                     bot.adb(args.adb, args.serial, "shell", "input", "tap", str(x2), str(y2))
                     sent.append({"type": "move", "target_cell": list(screen_target),
+                                 "direction": direction,
                                  "validated_from_cell": list(checked), "adb_xy": [x2, y2]})
                     expected_player = expected_after_move(screen_target, direction)
                     remembered_items.pop(tuple(screen_target), None)
                     remembered_items.pop(tuple(checked), None)
                     if direction == "right" and screen_target[1] >= 2:
-                        remembered_items = shift_items_left(remembered_items)
-                        phantom_obstacles = shift_items_left(phantom_obstacles)
-                        banned_targets = shift_items_left(banned_targets)
-                        ban_history = shift_cells_left(ban_history)
-                        pending_reveals = shift_items_left(pending_reveals)
-                        scrolls_since_frame += 1
+                        frame_scrolled = True
                     pickup = item_category(info[checked])
                     if pickup:
                         collected[pickup] += 1
@@ -2540,6 +2521,10 @@ def main():
         event["action"] = sent
         event["collected_detected"] = dict(collected)
         bot.log_event(log, event)
+        # The taps now wait for their receipt: the belt, the player's cell
+        # and any refusal are all settled at the top of the next frame by
+        # what the game actually charged.
+        pending_taps = sent
         done += len(sent)
         if args.verbose:
             progress(done, args.steps, f"{len(sent)} acción(es) ejecutadas - nuevo escaneo", "32")
@@ -2557,7 +2542,7 @@ def main():
         previous_direction = direction
         previous_reason = reason
         lag_cooldown = max(0, lag_cooldown - 1)
-        time.sleep(action_delay(kind, scrolled=scrolls_since_frame > 0,
+        time.sleep(action_delay(kind, scrolled=frame_scrolled or kind == "dash",
                                 picked_up=frame_picked))
 
     final = bot.screenshot(args.adb, args.serial)

@@ -708,12 +708,22 @@ class CheapDetourTests(unittest.TestCase):
 
 
 class DashSuspectDeferenceTests(unittest.TestCase):
-    """Run 20260821T154754 n=578: the wall dash fired while three
-    just-appeared items at (0,1), (0,2) and (1,0) were still one-frame
-    suspects; the 3-column scroll deleted all three before the next
-    frame could confirm them. A suspect in the left band vetoes both
-    dash rules for that single frame: a phantom vanishes and the dash
-    fires on the very next pass, a real pickup gets rescued instead."""
+    """A dash defers to what the left band really holds, not to doubt.
+
+    The two tests that demanded deference to a mere SUSPECT retired
+    2026-08-23. They came from run 20260821T154754 n=578 (a wall dash
+    scrolled three just-appeared items to their death, all three real)
+    under the old suspicion stack, where anything freshly seen was
+    suspect for two frames. The world model classifies by ORIGIN
+    instead: an item entering at the right edge is explained and
+    believed on sight, so what remains suspect is an unexplained birth -
+    which is what confetti is. Holding a 400-shard wall-clearing dash
+    hostage to a probable phantom cost run 20260823T074036 three paws at
+    n=154-157 and three more at n=80-83, walking off the launch cell and
+    back. What replaces it: BELIEVED left-band pickups still veto, both
+    here (they are in orange_items/mid_items) and in the runner's
+    left_band_risk, which every dash rule honours.
+    """
 
     def pair_board(self):
         info = empty_grid()
@@ -725,20 +735,28 @@ class DashSuspectDeferenceTests(unittest.TestCase):
         info[(1, 4)].update(item=0.09, orange=0.09)
         return info
 
-    def test_wall_dash_defers_to_left_band_suspects(self):
+    def test_a_believed_left_band_pickup_still_vetoes_the_wall_dash(self):
+        info = empty_grid()
+        wall(info, 2, (2, 3, 4))
+        info[(2, 1)]["player"] = 0.2
+        info[(0, 1)].update(item=0.16, orange=0.16)
+        action, reason = strategy.choose(info, hunt_walls=True)
+        self.assertNotEqual(action[0], "dash", reason)
+
+    def test_a_mere_suspect_does_not_hold_the_wall_dash(self):
         info = empty_grid()
         wall(info, 2, (2, 3, 4))
         info[(2, 1)]["player"] = 0.2
         action, reason = strategy.choose(info, hunt_walls=True,
                                          ignored_targets={(0, 1)},
                                          suspect_cells={(0, 1)})
-        self.assertNotEqual(action[0], "dash")
+        self.assertEqual(action[0], "dash", reason)
 
-    def test_pair_dash_defers_to_left_band_suspects(self):
+    def test_a_mere_suspect_does_not_hold_the_pair_dash(self):
         action, reason = strategy.choose(self.pair_board(),
                                          ignored_targets={(4, 0)},
                                          suspect_cells={(4, 0)})
-        self.assertNotEqual(action[0], "dash")
+        self.assertEqual(action[0], "dash", reason)
 
     def test_pair_dash_fires_once_suspects_clear(self):
         action, reason = strategy.choose(self.pair_board())
@@ -752,22 +770,29 @@ class DashSuspectDeferenceTests(unittest.TestCase):
                                          suspect_cells={(0, 4)})
         self.assertEqual(action[0], "dash")
 
-    def test_corridor_dash_defers_to_left_band_suspects(self):
+    def test_the_runner_overrides_defer_to_believed_left_band_pickups(self):
+        # left_band_risk carries the BELIEVED pickups. The suspect half
+        # of these two vetoes (_left_band_suspects) retired 2026-08-23
+        # with the strategy's suspect_risk, for the same reason: it held
+        # a wall-clearing dash hostage to probable confetti and cost six
+        # paws of dithering in run 20260823T074036.
         action = ("attack", (3, 2), "right")
         preview = [False, False, False, True, False]
         self.assertTrue(runner.corridor_dash_due(
             action, (3, 84), 86, preview, True))
         self.assertFalse(runner.corridor_dash_due(
-            action, (3, 84), 86, preview, True, suspect_cells={(0, 1)}))
-        self.assertTrue(runner.corridor_dash_due(
-            action, (3, 84), 86, preview, True, suspect_cells={(0, 4)}))
-
-    def test_committed_wall_dash_defers_to_left_band_suspects(self):
+            action, (3, 84), 86, preview, True, left_band_risk=True))
         self.assertTrue(runner.committed_wall_dash(((4, 0), 10), (4, 0), 12))
         self.assertFalse(runner.committed_wall_dash(
-            ((4, 0), 10), (4, 0), 12, suspect_cells={(1, 2)}))
+            ((4, 0), 10), (4, 0), 12, left_band_risk=True))
+
+    def test_a_mere_suspect_no_longer_holds_the_runner_overrides(self):
+        action = ("attack", (3, 2), "right")
+        preview = [False, False, False, True, False]
+        self.assertTrue(runner.corridor_dash_due(
+            action, (3, 84), 86, preview, True, suspect_cells={(0, 1)}))
         self.assertTrue(runner.committed_wall_dash(
-            ((4, 0), 10), (4, 0), 12, suspect_cells={(0, 3)}))
+            ((4, 0), 10), (4, 0), 12, suspect_cells={(1, 2)}))
 
 
 class ExploreBounceBanTests(unittest.TestCase):
@@ -1386,16 +1411,23 @@ class PerishableNeverScrolledAwayTests(unittest.TestCase):
     a route inside its scroll budget, choose() falls through to
     explore - which scrolls right freely and kills the very perishable
     the budget was protecting. The budget is an invariant of the whole
-    decision, not of one branch."""
+    decision, not of one branch.
 
-    def test_unroutable_perishable_blocks_the_scrolling_explore(self):
+    Narrowed 2026-08-23 to perishables that can still be TAKEN. The
+    original board walled the orange in with three pyramids and demanded
+    the bot hold the world still for it anyway; with attacks disabled
+    that orange was unreachable forever, and standing guard over it is
+    the livelock that ended run 20260823T074036 (see
+    PerishableVetoNeedsAWayThereTests). A prize behind a wall is already
+    lost - the invariant protects the ones a route still reaches.
+    """
+
+    def test_an_unrouted_but_reachable_perishable_blocks_the_scroll(self):
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
-        # Perishable at column 0 - one scroll kills it - walled in so
-        # the tour cannot route to it at all.
+        # Perishable at column 0 - one scroll kills it - with a free
+        # column-0 lane still leading to it.
         info[(0, 0)].update(item=0.16, orange=0.16)
-        info[(0, 1)]["pyramid"] = 0.9
-        info[(1, 0)]["pyramid"] = 0.9
         info[(1, 1)]["pyramid"] = 0.9
         action, reason = strategy.choose(info, player=(2, 1),
                                          attacks_enabled=False)
@@ -1909,38 +1941,14 @@ class WarmupTests(unittest.TestCase):
         self.assertEqual(runner.warmup_batch_limit(10, 2), 2)
 
 
-class SilentRejectionTests(unittest.TestCase):
-    """Run 20260821T222310 n=124/129: 'cannot move there' toasts are
-    invisible since the confetti gate (they do not degrade board
-    detection), so rejections must be caught by POSITION: a confidently
-    seen player still standing on the pre-move cell after a non-scroll
-    move means the game refused it."""
-
-    def test_stuck_confident_player_is_a_rejection(self):
-        self.assertTrue(runner.silent_rejection(
-            "move", (2, 1), (2, 1), (1, 1), "vision", 0.20))
-
-    def test_a_player_that_moved_is_not_stuck(self):
-        self.assertFalse(runner.silent_rejection(
-            "move", (2, 1), (1, 1), (1, 1), "vision", 0.20))
-
-    def test_scroll_rides_cannot_be_judged(self):
-        # Riding right leaves the player on the same screen cell by
-        # design: dest == rollback == player proves nothing.
-        self.assertFalse(runner.silent_rejection(
-            "move", (2, 1), (2, 1), (2, 1), "vision", 0.20))
-
-    def test_weak_or_inferred_positions_prove_nothing(self):
-        self.assertFalse(runner.silent_rejection(
-            "move", (2, 1), (2, 1), (1, 1), "memory", 0.30))
-        self.assertFalse(runner.silent_rejection(
-            "move", (2, 1), (2, 1), (1, 1), "vision", 0.05))
-
-    def test_non_moves_never_reject(self):
-        self.assertFalse(runner.silent_rejection(
-            "attack", (2, 1), (2, 1), (1, 1), "vision", 0.20))
-        self.assertFalse(runner.silent_rejection(
-            "move", None, (2, 1), (1, 1), "vision", 0.20))
+# (SilentRejectionTests retired 2026-08-23 with silent_rejection itself.
+# It caught refusals by POSITION - a confidently seen player still on
+# the pre-move cell - and one of its own tests,
+# test_scroll_rides_cannot_be_judged, pinned the blind spot: riding right
+# leaves the player on the same screen cell by design, so the most common
+# move in the game could never be judged at all. The paw receipt judges
+# every move the same way, and tests/test_step_ledger.py RefusedTapTests
+# carries the replacement law, scroll rides included.)
 
 
 class CuriousExplorerTests(unittest.TestCase):
@@ -2178,18 +2186,12 @@ class ColumnZeroDoctrineTests(unittest.TestCase):
         self.assertIsNone(step)
 
 
-class ScrollUndoTests(unittest.TestCase):
-    """shift_items_right undoes an over-counted scroll when the pixel
-    measurement (measure_scroll_columns) says the world moved less
-    than the taps claimed. (The cell-fingerprint scroll_overcount
-    heuristic it once served was retired 2026-08-22 in favor of the
-    pixel sensor.)"""
-
-    def test_memory_shifts_back_right(self):
-        self.assertEqual(runner.shift_items_right({(1, 1): ("steps", 4)}),
-                         {(1, 2): ("steps", 4)})
-        self.assertEqual(runner.shift_items_right({(1, 4): ("steps", 4)}),
-                         {})
+# (ScrollUndoTests retired 2026-08-23 with shift_items_right. An
+# over-counted scroll only existed because memory was shifted
+# OPTIMISTICALLY at tap time and then argued with the pixel sensor a
+# frame later. Memory now shifts once, from the paw receipt, and never
+# has to walk backwards - tests/test_step_ledger.py ConveyorLawTests
+# pins the single forward law that replaced it.)
 
 
 class ExplorerNeverStepsBackTests(unittest.TestCase):
@@ -2348,22 +2350,13 @@ class PixelScrollTests(unittest.TestCase):
         self.assertEqual(runner.measure_scroll_columns(prev, cur), 1)
 
 
-class RejectionGraceTests(unittest.TestCase):
-    """Run 20260822T175424 n=2-5: the up-move was flagged 'refused'
-    (player still at origin) and a phantom obstacle was minted - then
-    the NEXT frame showed the player standing exactly where the
-    'refused' tap aimed: the tap had landed late, not been rejected.
-    The false phantom sent the explorer attacking around a wall that
-    did not exist. A stuck move now gets ONE grace frame (matching the
-    scroll shortfall grace); only a move still stuck on the second
-    look mints the phantom."""
-
-    def test_first_stuck_frame_gets_grace(self):
-        self.assertTrue(runner.rejection_needs_grace((1, 1), None))
-        self.assertTrue(runner.rejection_needs_grace((1, 1), (2, 1)))
-
-    def test_second_stuck_frame_confirms_the_rejection(self):
-        self.assertFalse(runner.rejection_needs_grace((1, 1), (1, 1)))
+# (RejectionGraceTests retired 2026-08-23 with rejection_needs_grace.
+# The late-landing tap it defended against - run 20260822T175424 n=2-5,
+# a "refused" move the next frame showed had landed - cannot fool the
+# receipt: a late tap still gets charged, and the charge is what the
+# runner reads. The "same cell refused twice mints the wall" rule that
+# replaced it costs no frame at all, because the first refusal is
+# replanned from a state the ledger proves did not change.)
 
 
 class SlidingBoardTests(unittest.TestCase):
@@ -2402,11 +2395,13 @@ class SlidingBoardTests(unittest.TestCase):
         cols, sliding = runner.measure_scroll_px(prev, prev)
         self.assertEqual((cols, sliding), (0, False))
 
-    def test_shortfall_waits_once_then_reconciles(self):
-        self.assertTrue(runner.scroll_shortfall_wait(0, 1, waits=0))
-        self.assertFalse(runner.scroll_shortfall_wait(0, 1, waits=1))
-        self.assertFalse(runner.scroll_shortfall_wait(1, 1, waits=0))
-        self.assertFalse(runner.scroll_shortfall_wait(2, 1, waits=0))
+    # (test_shortfall_waits_once_then_reconciles retired 2026-08-23 with
+    # scroll_shortfall_wait. The wait existed because the pixel sensor
+    # could not tell a LATE scroll from a SWALLOWED tap and bought a
+    # frame of silence to find out - 14 of the 186 frames of run
+    # 20260823T074036. The paw receipt answers outright, and neither
+    # answer is improved by waiting. The mid-slide detection this class
+    # also covers is untouched and still tested above.)
 
 
 class PointlessGarraTests(unittest.TestCase):
@@ -2532,6 +2527,103 @@ class HiddenGarraTests(unittest.TestCase):
         merged = runner.merge_phantom_obstacles(
             info, {cell: 9 for cell in world.believed_pyramids()}, 0)
         self.assertTrue(runner.unsafe_move_tap(merged, (1, 1)))
+
+
+class PocketRowsAreNotProgressTests(unittest.TestCase):
+    """A row blocked at the scroll column cannot be advanced from.
+
+    Run 20260822T184638 n=66-67, replayed through today's planner: boxed
+    into rows 3 and 4 (both walled at column 2, rows 0-2 sealed off), the
+    explorer stepped DOWN into row 4 - whose only exit is back up - and
+    the next frame stepped back. Two paws, no progress, still boxed. The
+    curiosity bonus had actively lured it in: it counts pyramids to the
+    right as a dash opportunity, and the lone (4,2) that made row 4
+    "interesting" was simply the wall sealing it.
+    """
+
+    def boxed_board(self):
+        info = empty_grid()
+        info[(3, 1)]["player"] = 0.2
+        for cell in ((1, 1), (1, 4), (2, 0), (2, 1), (3, 2), (4, 2)):
+            info[cell]["pyramid"] = 0.9
+        return info
+
+    def test_it_breaks_the_wall_instead_of_shuffling_into_the_pocket(self):
+        action, reason = strategy.choose(self.boxed_board(), player=(3, 1))
+        self.assertEqual(action[0], "attack",
+                         f"shuffled instead of opening the way ({reason})")
+
+    def test_a_row_that_can_be_advanced_from_still_attracts(self):
+        # Same shape, but row 4 is open at column 2: stepping down is a
+        # real lane change, and a free step must still beat a 200-shard
+        # garra.
+        info = self.boxed_board()
+        info[(4, 2)]["pyramid"] = 0.0
+        action, reason = strategy.choose(info, player=(3, 1))
+        self.assertEqual((action[0], action[2]), ("move", "down"), reason)
+
+
+class PerishableVetoNeedsAWayThereTests(unittest.TestCase):
+    """Refusing to advance protects a prize only if the prize is gettable.
+
+    Run 20260823T074036 n=197-199 ended the run ping-ponging (0,0)<->(0,1):
+    the explorer wanted right, the column-0 veto forbade the scroll on
+    behalf of a dash orb at (3,0), and row 1 was walled at columns 0 AND
+    1 - so the orb was unreachable and the veto was protecting nothing at
+    the price of every remaining paw.
+    """
+
+    def board_of_the_livelock(self):
+        info = empty_grid()
+        info[(0, 1)]["player"] = 0.2
+        for cell in ((1, 0), (1, 1), (3, 1), (3, 4)):
+            info[cell]["pyramid"] = 0.9
+        info[(3, 0)].update(item=0.10, green=0.10)      # dash orb
+        return info
+
+    def test_the_walled_off_perishable_does_not_veto_the_advance(self):
+        info = self.board_of_the_livelock()
+        action, reason = strategy.choose(info)
+        self.assertIsNotNone(action)
+        kind, target, direction = action
+        self.assertNotEqual(direction, "left",
+                            f"stepped backwards for an unreachable orb ({reason})")
+
+    def test_the_bot_never_steps_back_onto_the_cell_it_just_left(self):
+        # The ping-pong itself: from (0,0) the explorer goes right, and
+        # from (0,1) it must not answer by going straight back.
+        info = self.board_of_the_livelock()
+        forward, _ = strategy.choose(info)
+        self.assertNotEqual(forward[1], (0, 0))
+
+    def test_a_reachable_perishable_still_stops_the_scroll(self):
+        # The veto's real job survives: nothing walls off row 3 here, so
+        # advancing would scroll a collectable orb off the board.
+        info = empty_grid()
+        info[(0, 1)]["player"] = 0.2
+        info[(3, 0)].update(item=0.10, green=0.10)
+        action, reason = strategy.choose(info)
+        kind, target, direction = action
+        self.assertFalse(direction == "right" and target[1] >= 2,
+                         f"scrolled a reachable orb away ({reason})")
+
+    def test_a_perishable_behind_a_garra_does_not_veto_the_advance(self):
+        # Reachable only by breaking a 200-shard pyramid: the veto must
+        # not fire on its behalf. (The board deliberately holds no other
+        # target - with one, plan_tour's cost-blind ordering answers
+        # first and this stops testing the veto. That ordering is a
+        # separate open question, written up in
+        # docs/review-2026-08-23.md rather than pinned here.)
+        info = empty_grid()
+        info[(0, 1)]["player"] = 0.2
+        for cell in ((1, 0), (1, 1), (3, 1)):
+            info[cell]["pyramid"] = 0.9
+        info[(3, 0)].update(item=0.10, green=0.10)
+        # A dash orb three cells away behind a wall: prune_low_value_mids
+        # keeps it out of the tour, so only the veto can speak.
+        action, reason = strategy.choose(info)
+        kind, target, direction = action
+        self.assertNotEqual(direction, "left", reason)
 
 
 if __name__ == "__main__":

@@ -25,4 +25,9 @@ AGENTS.md
 CONTEXT_FOR_CODEX.md
 NEXT_SESSION.md
 CHANGELOG.md
-docs/
+# Review write-ups are the durable record of every finding that was not
+# fixed on the spot - reason, plan and evidence - so they are tracked.
+# The rest of docs/ stays local. Git cannot re-include a file from an
+# excluded DIRECTORY, hence docs/* rather than docs/.
+docs/*
+!docs/review-*.md

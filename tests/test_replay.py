@@ -34,6 +34,13 @@ CORPUS = [
     "20260822T234822_139608Z",   # scrolled own forming wall off the
                                  # board + dash-ingested orange
                                  # strict-banded and lost
+    "20260823T033159_051662Z",   # first run with the board rectangle
+                                 # locked (StableBoard)
+    "20260823T074036_943730Z",   # 'indecision, pasos estupidos hacia
+                                 # atras': 36 of 186 frames in WAIT and a
+                                 # run that ended alternating
+                                 # (0,0)<->(0,1) over a dash orb walled
+                                 # off from the player
 ]
 
 
