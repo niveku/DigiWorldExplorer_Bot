@@ -1108,7 +1108,7 @@ def main():
         args.adb = bot.resolve_adb(args.adb)
         args.serial = bot.resolve_serial(args.adb, args.serial)
     except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
-        print(f"FEHLER: {exc}", file=sys.stderr)
+        print(f"ERROR: {exc}", file=sys.stderr)
         return 10
     args.out.mkdir(parents=True, exist_ok=True)
     log_path = args.out / "digiworld_auto_steps.jsonl"

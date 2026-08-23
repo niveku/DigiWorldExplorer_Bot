@@ -1,8 +1,12 @@
 ﻿[CmdletBinding()]
 param(
     [int]$Steps = 0,
-    [double]$Interval = 0,
-    [switch]$DebugScreenshots,
+    # Diagnostic PNGs are ON by default: they are the only forensic
+    # record of a run, and the whole regression suite (replay_harness.py,
+    # tests/test_replay.py) is built from them. A misbehaving run without
+    # them cannot be diagnosed or turned into a corpus case. ~57 MB per
+    # 200 actions - use -NoDebugShots if disk is tight.
+    [switch]$NoDebugShots,
     [switch]$DebugMode,
     [string]$Adb = 'auto',
     [string]$Serial = 'auto'
@@ -52,60 +56,85 @@ Show-RobinThorBanner
 if (-not (Test-Path -LiteralPath $python)) {
     throw 'Falta el entorno local de Python. Ejecuta primero INSTALL.cmd.'
 }
+$botScript = Join-Path $projectRoot 'auto_digiworld_batch2.py'
+$runsDir = Join-Path $projectRoot 'runs'
+
+function Read-ActionCount {
+    param([int]$Default = 100)
+    $parsed = 0
+    while ($true) {
+        $answer = Read-Host "¿Cuántas acciones debe ejecutar el bot? [$Default]"
+        if ([string]::IsNullOrWhiteSpace($answer)) { return $Default }
+        if ([int]::TryParse($answer, [ref]$parsed) -and $parsed -gt 0) { return $parsed }
+        Write-Host '  Tiene que ser un entero positivo.' -ForegroundColor Yellow
+    }
+}
+
+# Reads the HUD once and prints what the planned run costs against what
+# is in the bag. The number can be re-typed here and re-costed as many
+# times as needed - choosing it beats guessing and then running dry.
+function Confirm-RunSize {
+    param([int]$Steps)
+    while ($true) {
+        Write-Host ''
+        & $python $botScript '--steps' $Steps '--plan-only' '--adb' $Adb '--serial' $Serial
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host '  No se pudo leer el inventario (¿el juego está en DigiWorld?).' -ForegroundColor Yellow
+        }
+        Write-Host ''
+        $answer = Read-Host "Arrancar con $Steps acciones? [S/n, u otro número]"
+        if ([string]::IsNullOrWhiteSpace($answer)) { return $Steps }
+        if ($answer -match '^(s|si|sí|y|yes)$') { return $Steps }
+        if ($answer -match '^(n|no)$') { return 0 }
+        $parsed = 0
+        if ([int]::TryParse($answer, [ref]$parsed) -and $parsed -gt 0) {
+            $Steps = $parsed
+            continue
+        }
+        Write-Host '  Responde s, n, o un número de acciones.' -ForegroundColor Yellow
+    }
+}
+
+# The diagnostic PNGs are worth their disk, but not silently: say what
+# they cost so the choice to keep them stays informed. Nothing here
+# deletes anything.
+function Show-RunsDiskUsage {
+    if (-not (Test-Path -LiteralPath $runsDir)) { return }
+    $files = Get-ChildItem -LiteralPath $runsDir -Recurse -File -ErrorAction SilentlyContinue
+    if (-not $files) { return }
+    $bytes = ($files | Measure-Object -Property Length -Sum).Sum
+    $gb = $bytes / 1GB
+    if ($gb -lt 3) { return }
+    $count = @(Get-ChildItem -LiteralPath $runsDir -Directory -ErrorAction SilentlyContinue).Count
+    Write-Host ("runs\ ocupa {0:N1} GB en {1} corridas guardadas." -f $gb, $count) -ForegroundColor DarkYellow
+    Write-Host "  Son la evidencia con la que se diagnostican los fallos; borra las más viejas a mano si necesitas espacio." -ForegroundColor DarkYellow
+    Write-Host ''
+}
+Show-RunsDiskUsage
+
 $nextSteps = $Steps
 $lastStatus = 0
 
 do {
     $runSteps = $nextSteps
     $nextSteps = 0
+    if ($runSteps -le 0) { $runSteps = Read-ActionCount }
+    $runSteps = Confirm-RunSize -Steps $runSteps
     if ($runSteps -le 0) {
-        $answer = Read-Host '¿Cuántas acciones debe ejecutar el bot? [100]'
-        if ([string]::IsNullOrWhiteSpace($answer)) {
-            $runSteps = 100
-        } elseif (-not [int]::TryParse($answer, [ref]$runSteps) -or $runSteps -le 0) {
-            throw 'El número de acciones debe ser un entero positivo.'
-        }
-    }
-
-    $defaultInterval = if ($Interval -gt 0) { $Interval } else { 0.50 }
-    $runInterval = $defaultInterval
-    $intervalAnswer = Read-Host "¿Pausa entre acciones en segundos? [$($defaultInterval.ToString('0.00'))]"
-    if (-not [string]::IsNullOrWhiteSpace($intervalAnswer)) {
-        $normalizedInterval = $intervalAnswer.Replace(',', '.')
-        if (-not [double]::TryParse($normalizedInterval, [Globalization.NumberStyles]::Float,
-                [Globalization.CultureInfo]::InvariantCulture, [ref]$runInterval)) {
-            throw 'El intervalo debe ser un número, por ejemplo 0,50.'
-        }
-    }
-
-    $experimentalAnswer = Read-Host '¿Usar ajustes experimentales? [s/N]'
-    $experimental = $experimentalAnswer -match '^(s|si|sí|j|ja|y|yes)$'
-    $runDebugScreenshots = [bool]$DebugMode
-
-    if ($experimental) {
-        if (-not $DebugMode) {
-            $debugAnswer = Read-Host '¿Guardar imágenes de diagnóstico? [s/N]'
-            $runDebugScreenshots = $debugAnswer -match '^(s|si|sí|j|ja|y|yes)$'
-        }
-    } elseif ($DebugScreenshots) {
-        $runDebugScreenshots = $true
-    }
-
-    if ($runInterval -lt 0.35) {
-        throw 'Los intervalos menores a 0,35 segundos están bloqueados por seguridad.'
+        Write-Host 'Cancelado.' -ForegroundColor Yellow
+        break
     }
 
     Set-Location -LiteralPath $projectRoot
     $arguments = @(
-        (Join-Path $projectRoot 'auto_digiworld_batch2.py'),
+        $botScript,
         '--steps', $runSteps,
-        '--interval', $runInterval.ToString([Globalization.CultureInfo]::InvariantCulture),
         '--min-confidence', '0.80',
         '--adb', $Adb,
         '--serial', $Serial,
-        '--out', (Join-Path $projectRoot 'runs')
+        '--out', $runsDir
     )
-    if ($runDebugScreenshots) { $arguments += '--debug-screenshots' }
+    if (-not $NoDebugShots) { $arguments += '--debug-screenshots' }
     if ($DebugMode) { $arguments += '--verbose' }
     else { $arguments += @('--progress-percent', '2') }
 

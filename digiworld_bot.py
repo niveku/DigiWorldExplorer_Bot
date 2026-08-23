@@ -365,7 +365,7 @@ def main() -> int:
         args.adb = resolve_adb(args.adb)
         args.serial = resolve_serial(args.adb, args.serial)
     except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
-        print(f"FEHLER: {exc}", file=sys.stderr)
+        print(f"ERROR: {exc}", file=sys.stderr)
         return 10
     print(json.dumps({"adb": args.adb, "serial": args.serial,
                       "mode": "input" if args.allow_input else "observe"},

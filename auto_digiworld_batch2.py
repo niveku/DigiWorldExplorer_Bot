@@ -131,6 +131,12 @@ def corridor_dash_due(action, last_attack, done, preview, dashes_enabled, ttl=4,
 # (refunds from claw/orb/paw pickups already netted out): 2,144 steps,
 # 91 garras, 73 dashes. Ratio ~24 steps : 1 garra : 0.8 dashes.
 BURN_PER_ACTION = {"steps": 0.78, "attacks": 0.033, "dashes": 0.027}
+#: The same rates in the single worst recorded run, re-measured
+#: 2026-08-23 over 39 runs / 9,650 actions (weighted means came out at
+#: 0.760 / 0.027 / 0.026, so the planning rates above still hold). A run
+#: that leans hard on garras burns three times the average, so a single
+#: confident number would be a lie: the launcher reports both ends.
+WORST_BURN_PER_ACTION = {"steps": 0.86, "attacks": 0.080, "dashes": 0.050}
 SHOP = {"steps": {"unit": 50, "cost": 2000},   # pack of 50 steps
         "attacks": {"unit": 1, "cost": 200},
         "dashes": {"unit": 1, "cost": 400}}
@@ -161,6 +167,76 @@ def purchase_recommendation(planned_actions, inventory, margin=1.15):
         total += cost
     result["total_shards"] = total
     return result
+
+
+def affordable_actions(inventory):
+    """How far the current inventory reaches, and what runs out first.
+
+    The inverse of purchase_recommendation: instead of "what do I need
+    for N actions", it answers "what is my N". Two numbers, because one
+    would be a lie - `actions` at the measured mean rates and
+    `safe_actions` at the worst single recorded run, which burns three
+    times the average in garras. No margin here: the margin belongs to
+    deciding what to BUY, and applying it on top of the worst case would
+    make the pessimistic end look rosier than the realistic one.
+
+    Unreadable counters are skipped rather than guessed; a HUD that says
+    nothing answers None.
+    """
+    per_resource, floors = {}, {}
+    for name, rate in BURN_PER_ACTION.items():
+        have = (inventory or {}).get(name)
+        if have is None:
+            continue
+        # The nudge keeps binary floats from turning 780/0.78 into 999:
+        # the counters are whole numbers and so should the answer look.
+        per_resource[name] = math.floor(max(0, have) / rate + 1e-9)
+        floors[name] = math.floor(
+            max(0, have) / WORST_BURN_PER_ACTION[name] + 1e-9)
+    if not per_resource:
+        return {"actions": None, "limiting": None, "per_resource": {},
+                "safe_actions": None}
+    limiting = min(per_resource, key=per_resource.get)
+    return {"actions": per_resource[limiting], "limiting": limiting,
+            "per_resource": per_resource, "safe_actions": min(floors.values())}
+
+
+def _thousands(value):
+    return f"{value:,}".replace(",", ".")
+
+
+def format_run_plan(planned_actions, inventory):
+    """The pre-run briefing: what N actions cost against what you carry.
+
+    Answers both directions of the question in one screen - "for N
+    actions I need X" and "with what I have I reach M" - so the number
+    typed at the prompt can be chosen instead of guessed.
+    """
+    labels = {"steps": "pasos", "attacks": "garras", "dashes": "dashes"}
+    rec = purchase_recommendation(planned_actions, inventory)
+    readable = [name for name in labels if rec.get(name)]
+    if not readable:
+        return ("No se pudo leer el inventario en pantalla. Revisa que el "
+                "juego esté en DigiWorld y vuelve a intentar.")
+    lines = [f"Para {_thousands(planned_actions)} acciones "
+             f"(con 15% de margen sobre el consumo medido):"]
+    for name in ("steps", "attacks", "dashes"):
+        entry = rec.get(name)
+        if not entry:
+            lines.append(f"  {labels[name]:<7s} contador ilegible")
+            continue
+        mark = "falta" if entry["deficit"] else "ok"
+        lines.append(f"  {labels[name]:<7s} necesitas {entry['need']:>5}   "
+                     f"tienes {_thousands(entry['have']):>7}   {mark}")
+    lines.append(format_purchase_advice(rec))
+    reach = affordable_actions(inventory)
+    if reach["actions"] is not None:
+        lines.append(
+            f"Con lo que llevas alcanzan ~{_thousands(reach['actions'])} "
+            f"acciones; el primero en agotarse sería "
+            f"{labels[reach['limiting']]}. En la peor corrida medida, "
+            f"~{_thousands(reach['safe_actions'])}.")
+    return "\n".join(lines)
 
 
 def format_purchase_advice(rec):
@@ -1451,6 +1527,9 @@ def main():
                    help="ignored: pacing is internal per action type")
     p.add_argument("--batch-size", type=int, default=2, choices=(1, 2, 3))
     p.add_argument("--debug-screenshots", action="store_true")
+    p.add_argument("--plan-only", action="store_true",
+                   help="read the HUD, print what --steps would cost, and "
+                        "exit without tapping anything")
     p.add_argument("--verbose", action="store_true", help="human-readable status for every scan")
     p.add_argument("--progress-percent", type=int, default=0, help="compact update interval in percent")
     p.add_argument("--min-confidence", type=float, default=.80)
@@ -1468,8 +1547,22 @@ def main():
         args.adb = bot.resolve_adb(args.adb)
         args.serial = bot.resolve_serial(args.adb, args.serial)
     except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
-        print(f"FEHLER: {exc}", file=sys.stderr)
+        print(f"ERROR: {exc}", file=sys.stderr)
         return 10
+
+    if args.plan_only:
+        # One screenshot, no taps, no run directory: the launcher asks
+        # this before committing so the number of actions can be CHOSEN
+        # against the inventory instead of guessed and then rescued with
+        # a mid-run purchase.
+        try:
+            print(format_run_plan(args.steps,
+                                  read_drop_counters(
+                                      bot.screenshot(args.adb, args.serial))))
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            print(f"No se pudo leer la pantalla: {exc}", file=sys.stderr)
+            return 10
+        return 0
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
     run_dir = args.out / run_id

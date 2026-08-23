@@ -125,6 +125,89 @@ class PurchaseRecommendationTests(unittest.TestCase):
         self.assertIn("attacks", rec)
 
 
+class AffordableActionsTests(unittest.TestCase):
+    """The inverse question the launcher asks before a run: with what I
+    am carrying, how far can I go, and what runs out first?
+
+    Re-measured 2026-08-23 over 39 recorded runs / 9,650 actions: 0.760
+    steps, 0.027 garras, 0.026 dashes per action on the weighted mean,
+    and 0.860 / 0.080 / 0.050 in the worst single run - which is why the
+    launcher reports a range instead of one confident number.
+    """
+
+    def test_it_names_how_far_the_inventory_goes(self):
+        reach = runner.affordable_actions({"steps": 780, "attacks": 100,
+                                           "dashes": 100})
+        # 780 paws at the measured 0.78 per action.
+        self.assertEqual(reach["actions"], 1000)
+        self.assertEqual(reach["limiting"], "steps")
+
+    def test_the_scarcest_resource_is_the_one_that_binds(self):
+        reach = runner.affordable_actions({"steps": 5000, "attacks": 40,
+                                           "dashes": 2})
+        self.assertEqual(reach["limiting"], "dashes")
+        self.assertEqual(reach["actions"], 74)
+
+    def test_an_empty_counter_stops_the_run_at_zero(self):
+        reach = runner.affordable_actions({"steps": 0, "attacks": 40,
+                                           "dashes": 40})
+        self.assertEqual((reach["actions"], reach["limiting"]), (0, "steps"))
+
+    def test_unreadable_counters_are_skipped_not_guessed(self):
+        reach = runner.affordable_actions({"steps": None, "attacks": 40,
+                                           "dashes": 40})
+        self.assertNotIn("steps", reach["per_resource"])
+        self.assertEqual(reach["limiting"], "attacks")
+
+    def test_a_fully_unreadable_hud_answers_nothing(self):
+        reach = runner.affordable_actions({"steps": None, "attacks": None,
+                                           "dashes": None})
+        self.assertIsNone(reach["actions"])
+        self.assertIsNone(reach["limiting"])
+
+    def test_the_worst_measured_run_gives_the_pessimistic_end(self):
+        # A run that leans hard on garras burns three times the average,
+        # so the reach is a range and the floor is never above the
+        # expectation.
+        reach = runner.affordable_actions({"steps": 780, "attacks": 100,
+                                           "dashes": 100})
+        self.assertEqual(reach["safe_actions"], 906)   # 780 / 0.86
+        self.assertLessEqual(reach["safe_actions"], reach["actions"])
+
+
+class RunPlanTests(unittest.TestCase):
+    """What the launcher shows after you type N, before anything is
+    tapped: what N costs, what you carry, and how far you could go."""
+
+    def test_it_states_the_need_and_the_stock_of_every_resource(self):
+        text = runner.format_run_plan(
+            300, {"steps": 3478, "attacks": 30, "dashes": 11})
+        for word in ("300", "pasos", "garras", "dashes", "3.478"):
+            self.assertIn(word, text)
+
+    def test_a_sufficient_inventory_says_so_plainly(self):
+        text = runner.format_run_plan(
+            100, {"steps": 5000, "attacks": 40, "dashes": 40})
+        self.assertIn("no hay que comprar nada", text)
+
+    def test_a_deficit_names_the_shards(self):
+        text = runner.format_run_plan(
+            500, {"steps": 10, "attacks": 0, "dashes": 0})
+        self.assertIn("shards", text)
+        self.assertIn("Compra recomendada", text)
+
+    def test_it_names_what_runs_out_first(self):
+        text = runner.format_run_plan(
+            100, {"steps": 5000, "attacks": 40, "dashes": 2})
+        self.assertIn("dashes", text)
+        self.assertIn("74", text)          # 2 / 0.027
+
+    def test_an_unreadable_hud_says_so_instead_of_inventing(self):
+        text = runner.format_run_plan(
+            100, {"steps": None, "attacks": None, "dashes": None})
+        self.assertIn("no se pudo leer", text.lower())
+
+
 class RevealedTypeTests(unittest.TestCase):
     def test_new_pickup_types_do_not_crash_the_aggregate(self):
         # Pyramids also drop paws/orbs now that pickup types are told
