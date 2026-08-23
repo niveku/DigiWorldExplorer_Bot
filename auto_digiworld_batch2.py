@@ -274,18 +274,35 @@ def suspect_appearances(current, previous, shift=0, attack_cell=None,
     # run 20260822T234822 n=20, a real orange entered at (1,3) during
     # a row-4 dash, was strict-banded into suspicion, sticky-held, and
     # scrolled off unclaimed.
-    scaled_floor = max(0, 4 - shift)
+    # Column 4 is not automatically legitimate either (review
+    # 2026-08-22): items enter only when the world SCROLLS, so with no
+    # scroll in the interval an appearance at the right edge cannot be
+    # an arrival - and a pickup at column 2 paints confetti out to
+    # column 4 (radius 2). Legitimacy is 'consistent with the measured
+    # scroll', not 'far enough right'.
+    # One formula for both: an item entering at column 4 on the first
+    # of k scrolls ends the interval at column 5-k, so cells at column
+    # >= 5-k are legitimate arrivals and everything left of that is
+    # not. With k=0 nothing can enter at all (floor 5: every fresh
+    # appearance is unexplained), with k=1 only column 4 is legitimate.
+    scaled_floor = max(0, 5 - shift)
     def floor_for(cell):
-        if not confetti_risk:
-            return scaled_floor
-        if confetti_rows is not None and cell[0] not in confetti_rows:
-            return scaled_floor
-        return 4
+        if confetti_risk and (confetti_rows is None
+                              or cell[0] in confetti_rows):
+            return 5
+        return scaled_floor
     return {cell for cell in fresh
             if cell[1] < floor_for(cell) and cell not in legit}
 
 
-def combined_suspects(fresh, previous_fresh, current):
+def _shifted(cells, shift):
+    """Last frame's cells expressed in this frame's coordinates."""
+    if not shift:
+        return set(cells)
+    return {(row, col - shift) for row, col in cells if col - shift >= 0}
+
+
+def combined_suspects(fresh, previous_fresh, current, shift=0):
     """Suspects for this frame: fresh arrivals plus last frame's fresh
     arrivals that are still visible.
 
@@ -293,8 +310,13 @@ def combined_suspects(fresh, previous_fresh, current):
     itself, run 20260820T184744 event 136), so a 1-frame check saw the
     second frame as a survivor. Carrying over only the FRESH set caps
     the suspicion at two frames: a real item unlocks on frame three.
+
+    The carryover is shift-aware (review 2026-08-22): last frame's
+    cells are in last frame's coordinates, so intersecting them raw
+    with this frame's cells lost every carryover across a scroll -
+    confetti that survived a move got believed on its second frame.
     """
-    return set(fresh) | (set(previous_fresh) & set(current))
+    return set(fresh) | (_shifted(previous_fresh, shift) & set(current))
 
 
 def prune_remembered_items(remembered, done, player, ttl=25):
@@ -684,6 +706,26 @@ def measure_scroll_px(prev_strip, cur_strip, max_cols=3, slide_tolerance=0.2,
     nearest = int(round(cols_f))
     sliding = abs(cols_f - nearest) > slide_tolerance
     return min(nearest, max_cols), sliding
+
+
+class FrameClock:
+    """Ticks once per screenshot.
+
+    Every confetti/reveal window used to be expressed in `done`, which
+    counts ACTIONS (done += len(sent), up to three per frame) while the
+    animations they bound last a fixed number of FRAMES: after a 3-tap
+    batch the two-frame confetti window was already expired on the very
+    next frame, so the protection evaporated exactly when the bot moved
+    fastest (review 2026-08-22, 'suspects' lens). Memory pruning keeps
+    using `done` on purpose - it guards against our own coordinate
+    errors per action, not against an animation."""
+
+    def __init__(self):
+        self.now = 0
+
+    def tick(self):
+        self.now += 1
+        return self.now
 
 
 def confetti_rows_of(dash_player, recent_pickups, done, ttl=2, radius=2):
@@ -1478,7 +1520,7 @@ def unsafe_move_tap(info, target, suspects=(), remembered=()):
 
 
 def burst_holds(prev_fresh, current_cells, recent_pickups, done,
-                radius=2, ttl=3):
+                radius=2, ttl=3, shift=0):
     """Confetti-zone survivors need one extra frame of belief.
 
     Confetti only exists around a fresh pickup, and its cards can
@@ -1490,7 +1532,7 @@ def burst_holds(prev_fresh, current_cells, recent_pickups, done,
     appears mid-board except garra drops (whitelisted) and right-edge
     arrivals (outside any burst zone by the time they matter)."""
     zones = [cell for cell, when in recent_pickups if done - when < ttl]
-    return {cell for cell in prev_fresh
+    return {cell for cell in _shifted(prev_fresh, shift)
             if cell in current_cells
             and any(abs(cell[0] - z[0]) <= radius
                     and abs(cell[1] - z[1]) <= radius for z in zones)}
@@ -1714,6 +1756,7 @@ def main():
     sticky_ages = {}
     mem_misses = {}
     prev_strip = None
+    frame_clock = FrameClock()
     scroll_waits = 0
     slide_waits = 0
     lag_cooldown = 0
@@ -1752,6 +1795,7 @@ def main():
 
     while done < args.steps:
         image = bot.screenshot(args.adb, args.serial)
+        frame_clock.tick()
         det = bot.classify(image)
         stamp = datetime.now(timezone.utc).isoformat()
         event = {"time_utc": stamp, "next_index": done, "detection": bot.asdict(det)}
@@ -2230,13 +2274,14 @@ def main():
         # no drops (they collect what they break), so they get no window.
         pending_reveals = {cell: expiry
                            for cell, expiry in pending_reveals.items()
-                           if expiry > done}
+                           if expiry > frame_clock.now}
         fresh_suspects = suspect_appearances(
             current_item_cells, prev_item_cells,
             shift=scrolls_since_frame,
             attack_cell=(previous_attack_target
                          if previous_action == "attack" else None),
-            revealed_cells=live_reveal_cells(pending_reveals, done),
+            revealed_cells=live_reveal_cells(pending_reveals,
+                                             frame_clock.now),
             # Confetti needs a source: a dash or a pickup in the last
             # couple of frames. Without one, the ingestion band scales
             # with the interval's scroll count so a real right-edge
@@ -2244,16 +2289,18 @@ def main():
             # flagged (run 20260822T205803 n=6: energy at (4,2) after
             # 3 scrolls, held suspect until it scrolled off unclaimed).
             confetti_risk=(previous_action == "dash"
-                           or any(done - when < 2
+                           or any(frame_clock.now - when < 2
                                   for _, when in recent_pickups)),
             confetti_rows=confetti_rows_of(
                 previous_dash_player if previous_action == "dash" else None,
-                recent_pickups, done))
+                recent_pickups, frame_clock.now))
         suspect_items = combined_suspects(fresh_suspects, prev_fresh_suspects,
-                                          current_item_cells)
+                                          current_item_cells,
+                                          shift=scrolls_since_frame)
         suspect_items = drop_remembered_suspects(suspect_items, remembered_items)
         suspect_items |= burst_holds(prev_fresh_suspects, current_item_cells,
-                                     recent_pickups, done)
+                                     recent_pickups, frame_clock.now,
+                                     shift=scrolls_since_frame)
         # Known-world doctrine (user 2026-08-22): an unexplained
         # left-band appearance can only be confetti, so it is never
         # promoted - it stays suspect for as long as it stays visible.
@@ -2644,7 +2691,7 @@ def main():
                 pending_attack_inv = read_drop_counters(image)
                 last_attack = (target[0], done)
                 pending_reveals = remember_pending_reveals(
-                    pending_reveals, [target], done)
+                    pending_reveals, [target], frame_clock.now)
             bot.adb(args.adb, args.serial, "shell", "input", "tap", str(x), str(y))
             sent.append({"type": kind, "target_cell": list(target), "adb_xy": [x, y]})
             expected_rollback = player
@@ -2676,7 +2723,7 @@ def main():
             pickup = item_category(info[target]) if kind == "move" else None
             if pickup:
                 collected[pickup] += 1
-                recent_pickups.append((tuple(target), done))
+                recent_pickups.append((tuple(target), frame_clock.now))
                 frame_picked = True
 
             # Never batch through an attack or a pickup animation.
@@ -2717,7 +2764,7 @@ def main():
                     pickup = item_category(info[checked])
                     if pickup:
                         collected[pickup] += 1
-                        recent_pickups.append((tuple(checked), done))
+                        recent_pickups.append((tuple(checked), frame_clock.now))
                         frame_picked = True
 
         event["action"] = sent

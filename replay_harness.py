@@ -49,9 +49,8 @@ import digiworld_bot as bot
 
 def load_run(run_dir):
     """Return (frames, actions_by_n): PNGs in shot order + logged acts."""
-    events = [json.loads(line)
-              for line in open(os.path.join(run_dir, "events.jsonl"),
-                               encoding="utf-8")]
+    with open(os.path.join(run_dir, "events.jsonl"), encoding="utf-8") as fh:
+        events = [json.loads(line) for line in fh]
     actions = {}
     for e in events:
         n = e.get("next_index")
@@ -186,10 +185,12 @@ class Replay:
             confetti_rows=runner.confetti_rows_of(
                 self.prev_dash_player if self.prev_action == "dash" else None,
                 self.recent_pickups, self.done))
-        suspects = runner.combined_suspects(fresh, self.prev_fresh, current)
+        suspects = runner.combined_suspects(fresh, self.prev_fresh, current,
+                                            shift=self.claimed)
         suspects = runner.drop_remembered_suspects(suspects, self.remembered)
         suspects |= runner.burst_holds(self.prev_fresh, current,
-                                       self.recent_pickups, self.done)
+                                       self.recent_pickups, self.done,
+                                       shift=self.claimed)
         shifted_prev = {(r, c - self.claimed) for r, c in self.prev_suspects
                         if c - self.claimed >= 0}
         shifted_ages = {(r, c - self.claimed): v

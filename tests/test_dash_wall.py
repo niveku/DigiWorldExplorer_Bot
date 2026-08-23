@@ -580,16 +580,23 @@ class SuspectAppearanceTests(unittest.TestCase):
                          {(0, 1), (3, 0)})
 
     def test_right_edge_arrival_is_legit(self):
-        previous = frozenset({(1, 3)})
+        # With a scroll in the interval, column 4 is where arrivals
+        # land. (Without one, nothing can enter at all - see
+        # RightEdgeIngestionTests.)
+        previous = frozenset({(1, 4)})
         current = frozenset({(1, 3), (2, 4)})
-        self.assertEqual(runner.suspect_appearances(current, previous, shift=0),
-                         set())
+        self.assertEqual(
+            runner.suspect_appearances(current, previous, shift=1,
+                                       confetti_risk=False),
+            set())
 
     def test_scroll_shift_is_legit(self):
         previous = frozenset({(1, 3), (3, 2)})
         current = frozenset({(1, 2), (3, 1), (4, 4)})
-        self.assertEqual(runner.suspect_appearances(current, previous, shift=1),
-                         set())
+        self.assertEqual(
+            runner.suspect_appearances(current, previous, shift=1,
+                                       confetti_risk=False),
+            set())
 
     def test_revealed_drop_at_attacked_cell_is_legit(self):
         previous = frozenset()
@@ -654,7 +661,8 @@ class SuspectAppearanceTests(unittest.TestCase):
         previous = frozenset()
         current = frozenset({(2, 0), (3, 1), (1, 1), (0, 2)})
         self.assertEqual(
-            runner.suspect_appearances(current, previous, shift=3),
+            runner.suspect_appearances(current, previous, shift=3,
+                                       confetti_risk=True),
             {(2, 0), (3, 1), (1, 1), (0, 2)})
 
     def test_post_dash_appearance_is_suspect(self):
@@ -1598,6 +1606,83 @@ class EarlyAdvanceTieBreakTests(unittest.TestCase):
                                         prefer_direction="right")
         target, obstacle, direction = step
         self.assertEqual(direction, "right")
+
+
+class ShiftAwareCarryoverTests(unittest.TestCase):
+    """Review 2026-08-22 ('suspects' lens): combined_suspects and
+    burst_holds intersect LAST frame's cells with THIS frame's cells,
+    but every sibling stage shift-compensates and these two do not. A
+    scroll moves a confetti cell from (r,3) to (r,2), the intersection
+    misses it, and the two-frame carryover silently evaporates exactly
+    when the bot is moving - so confetti gets believed on its second
+    frame and becomes a phantom target."""
+
+    def test_carryover_follows_the_scroll(self):
+        # (2,3) was fresh-suspect last frame; the world scrolled once,
+        # so it is now at (2,2) and must stay suspect.
+        prev_fresh = {(2, 3)}
+        current = {(2, 2)}
+        self.assertIn(
+            (2, 2),
+            runner.combined_suspects(set(), prev_fresh, current, shift=1))
+
+    def test_burst_zone_follows_the_scroll(self):
+        prev_fresh = {(2, 3)}
+        current = {(2, 2)}
+        # Pickup made at (2,1) last frame; after the scroll its zone
+        # sits at (2,0), still within radius 2 of (2,2).
+        held = runner.burst_holds(prev_fresh, current, [((2, 1), 5)], 6,
+                                  shift=1)
+        self.assertIn((2, 2), held)
+
+
+class RightEdgeIngestionTests(unittest.TestCase):
+    """Review 2026-08-22 ('suspects' lens): column 4 was a blind spot -
+    the ingestion band only ever excluded cells with col < floor, so
+    an appearance AT the right edge was always legitimate and entered
+    memory on a single sighting. But items enter only when the world
+    SCROLLS: with no scroll in the interval, a col-4 appearance cannot
+    be an arrival, and a pickup at col 2 paints confetti out to col 4
+    (radius 2). Legitimacy is 'entered consistently with the measured
+    scroll', not 'far enough right'."""
+
+    def test_col_four_arrival_without_a_scroll_is_suspect(self):
+        self.assertEqual(
+            runner.suspect_appearances(frozenset({(2, 4)}), frozenset(),
+                                       shift=0),
+            {(2, 4)})
+
+    def test_col_four_arrival_after_a_scroll_is_legit(self):
+        self.assertEqual(
+            runner.suspect_appearances(frozenset({(2, 4)}), frozenset(),
+                                       shift=1, confetti_risk=False),
+            set())
+
+
+class FrameClockTests(unittest.TestCase):
+    """Review 2026-08-22 ('suspects' lens): every confetti/reveal
+    window is expressed in `done`, which counts ACTIONS (done +=
+    len(sent), up to 3 per frame), while the phenomena they bound are
+    measured in FRAMES of animation. After a 3-tap batch the two-frame
+    confetti window is already expired on the very next frame, so the
+    protection evaporates precisely when the bot moves fastest. A
+    frame clock ticks once per screenshot."""
+
+    def test_frame_clock_ticks_once_per_screenshot(self):
+        clock = runner.FrameClock()
+        self.assertEqual(clock.now, 0)
+        clock.tick()
+        clock.tick()
+        self.assertEqual(clock.now, 2)
+
+    def test_batches_do_not_age_the_frame_clock(self):
+        clock = runner.FrameClock()
+        clock.tick()
+        stamp = clock.now
+        # Three taps sent in one batch, then the next screenshot.
+        clock.tick()
+        self.assertEqual(clock.now - stamp, 1,
+                         "a batch must age the clock by one frame")
 
 
 class FormingWallGateAgreementTests(unittest.TestCase):
