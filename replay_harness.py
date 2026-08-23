@@ -122,8 +122,15 @@ class Replay:
         self.belt = 0
         self.recent_stands = []
         self.last_item_cells = set()
+        # Pickups so far. A round trip is only waste if this number is
+        # the same on both stands: run 20260823T144136 n=12-16 walked
+        # down two cells for a claw and back up through (3,0), and the
+        # old rule - "did THIS cell hold an item" - called a paid detour
+        # a ping-pong because the claw was collected one frame earlier.
+        self.pickups = 0
         self.last_decision = None
         self.prev_choice_direction = None
+        self.blocked_direction = None
         # Runs recorded before the paw ledger existed are audited, not
         # judged: their oscillations belong to code that no longer runs.
         self.audit_recorded = False
@@ -199,10 +206,17 @@ class Replay:
         if charged is None:
             charged = claimed
         belt_shift = ledger.conveyor_shift(self.pending_taps, charged)
+        had_taps = bool(self.pending_taps)
         self.shift_left(belt_shift)
         self.claimed += belt_shift
         self.paw_count = paws_now
         self.pending_taps = []
+        # Same law the runner applies, for the same reason the previous
+        # direction is threaded through: leaving it out would audit a
+        # different function than the one that ships.
+        self.blocked_direction = runner.next_blocked_direction(
+            self.blocked_direction, had_taps, claimed, charged, belt_shift,
+            tuple(player) in self.last_item_cells, self.prev_choice_direction)
 
         # ---- PING-PONG: paws spent to end up where we started ----
         # The belt is the only thing that makes rightward progress, so
@@ -210,9 +224,10 @@ class Replay:
         # unmoved and nothing collected on the way, is pure waste. Run
         # 20260823T074036 n=197-199 spent the tail of its budget
         # alternating (0,0)<->(0,1) over an unreachable dash orb.
-        here = (tuple(player), self.belt)
-        if (tuple(player) not in self.last_item_cells
-                and len(self.recent_stands) >= 2
+        if tuple(player) in self.last_item_cells:
+            self.pickups += 1
+        here = (tuple(player), self.belt, self.pickups)
+        if (len(self.recent_stands) >= 2
                 and self.recent_stands[-2] == here):
             detail = (f"back on {tuple(player)} with the belt still at "
                       f"{self.belt} and nothing collected")
@@ -316,7 +331,8 @@ class Replay:
         action, reason = strategy.choose(
             merged, self.prev_choice_direction,
             ignored_targets=set(suspects), player=player,
-            suspect_cells=suspects)
+            suspect_cells=suspects,
+            blocked_direction=self.blocked_direction)
         if action is not None and len(action) > 2:
             self.prev_choice_direction = action[2]
         if self.debug_n == n:

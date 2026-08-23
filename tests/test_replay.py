@@ -41,6 +41,22 @@ CORPUS = [
                                  # run that ended alternating
                                  # (0,0)<->(0,1) over a dash orb walled
                                  # off from the player
+    # (Two runs are deliberately NOT here, both recordings of a bug
+    # fixed after they were taken. PING-PONG audits the positions the
+    # RECORDED run actually stood on, which no fix can change, so they
+    # can never reach zero. 20260823T143257_188677Z is the
+    # orange-vs-dash-pair livelock, guarded now by ReverseStepVetoTests
+    # in test_dash_wall; 20260823T150408_141217Z walked back to (3,1)
+    # across a wall-stabilizing wait, guarded by BlockedDirectionTests
+    # in test_pyramid_stats.)
+    "20260823T142253_022914Z",   # first live run under the paw receipt:
+                                 # the closing energy read lost to a
+                                 # pickup animation
+    "20260823T144136_225636Z",   # a paid claw detour the PING-PONG rule
+                                 # read as waste: the pickup happened one
+                                 # frame before the second stand
+    "20260823T150728_355188Z",   # 80 actions, 79/79 taps charged, two
+                                 # waits: the shape a clean run has
 ]
 
 

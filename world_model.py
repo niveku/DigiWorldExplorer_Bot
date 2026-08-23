@@ -227,6 +227,19 @@ class WorldModel:
     def at(self, cell):
         return self.tracks.get(tuple(cell))
 
+    def refute(self, cell):
+        """Drop a track the eyes denied at the moment of acting on it.
+
+        Pyramids are believed unconditionally, so a misdetected one is
+        otherwise immortal: run 20260823T145105 planned a garra at a
+        believed pyramid on (0,2) that raw vision could not see, the
+        runner refused the swing, and the pair looped for 579 frames
+        without a single action. Raw pixels at the instant of the swing
+        outrank a track assembled from earlier frames; if the entity is
+        really there, the next frame that sees it starts a new track.
+        """
+        self.tracks.pop(tuple(cell), None)
+
     def believed_items(self):
         return {cell: track.category
                 for cell, track in self.tracks.items()

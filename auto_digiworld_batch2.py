@@ -1005,6 +1005,61 @@ def confirmed_energy(previous, current):
     return None
 
 
+ENERGY_FINAL_RETRIES = 3
+ENERGY_FINAL_PAUSE = 0.45
+
+
+def final_energy(read, loop_reading, retries=ENERGY_FINAL_RETRIES,
+                 pause=time.sleep, wait=ENERGY_FINAL_PAUSE):
+    """The closing HUD read, taken after the last pickup stops flying.
+
+    A collected orange animates from the board into the counter and
+    covers it for most of a second (run 20260823T142253: the last step
+    picked one up, the final screenshot caught the icon mid-flight, and
+    a run whose energy the loop had read in 36 of 38 frames reported
+    "contador ilegible"). Retry while the animation clears; if it never
+    does, the last value the loop itself read is a truthful floor and
+    beats discarding the run's headline number.
+    """
+    for attempt in range(retries + 1):
+        value = read()
+        if value is not None:
+            return value, "final"
+        if attempt < retries:
+            pause(wait)
+    if loop_reading is not None:
+        return loop_reading, "loop"
+    return None, None
+
+
+REVERSE_DIRECTION = {"up": "down", "down": "up",
+                     "left": "right", "right": "left"}
+
+
+def next_blocked_direction(current, had_taps, claimed, charged, belt_shift,
+                           picked, direction):
+    """The direction that would undo the last charged step.
+
+    A charged step that collected nothing and did not scroll leaves the
+    board byte-identical, so walking back re-enters a state the strategy
+    already judged and two goals that disagree about the two cells trade
+    the player between them (run 20260823T143257 n=45-52: six paws, zero
+    progress).
+
+    The fact is about the board, not the frame, so a frame that brings
+    no receipt - a wait, a hold, a skip - leaves the standing veto
+    alone. Recomputing it from an empty receipt is what let run
+    20260823T150408 n=70-72 walk back to (3,1) across a
+    wall-stabilizing wait.
+    """
+    if not had_taps:
+        return current
+    if (claimed and charged == claimed and not belt_shift and not picked
+            and direction in REVERSE_DIRECTION):
+        return REVERSE_DIRECTION[direction]
+    return None
+
+
 def player_cell(info):
     return max(((p, v["player"]) for p, v in info.items()), key=lambda q: q[1])
 
@@ -1240,6 +1295,77 @@ def item_category(values):
 
 def format_rate(value):
     return f"{value:,.1f}".replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+MAX_IDLE_FRAMES = 25
+
+
+def idle_streak(streak, acted):
+    """Frames in a row that sent no tap."""
+    return 0 if acted else streak + 1
+
+
+def idle_exhausted(streak, limit=MAX_IDLE_FRAMES):
+    """True once the loop is provably not making progress.
+
+    Every skip and hold in this file is a local "replan and try again",
+    and each one is reasonable on its own; nothing bounded how many
+    could follow each other. Run 20260823T145105 executed 46 of its 80
+    actions and then repeated one refused-garra frame 579 times, so
+    --steps was never reached and the run had no way to end. The limit
+    sits well above the largest legitimate hold (the unreliable-board
+    wait, 5).
+    """
+    return streak >= limit
+
+
+def log_frame(log, event):
+    """Write the frame and report whether it produced no action at all.
+
+    A frame whose only action is a WAIT string bought nothing but time;
+    counting them here keeps the 11 wait sites from each needing their
+    own bookkeeping.
+    """
+    bot.log_event(log, event)
+    action = event.get("action")
+    return 1 if isinstance(action, str) and action.startswith("WAIT") else 0
+
+
+def efficiency_report(claimed, charged, waits, frames, elapsed, energy_delta):
+    """The two kinds of waste a run can produce, plus its exchange rate.
+
+    A refused tap costs no paw but costs a frame and usually drags a
+    re-plan behind it; a wait frame costs time and nothing else. Both
+    were invisible in the closing line before 2026-08-23, so a
+    pathfinding change could only be judged by watching the emulator.
+    energy_per_paw is the number the whole bot exists to raise.
+    """
+    refused = max(0, claimed - charged)
+    return {
+        "claimed": claimed,
+        "charged": charged,
+        "refused": refused,
+        "refused_share": refused / claimed if claimed else None,
+        "waits": waits,
+        "frames": frames,
+        "wait_share": waits / frames if frames else None,
+        "seconds_per_action": elapsed / charged if charged else None,
+        "energy_per_paw": (energy_delta / charged
+                           if charged and energy_delta is not None else None),
+    }
+
+
+def format_efficiency(report):
+    parts = [f"{report['charged']}/{report['claimed']} taps cobrados"]
+    if report["refused"]:
+        parts.append(f"{report['refused']} rechazados "
+                     f"({report['refused_share']:.0%})")
+    parts.append(f"{report['waits']} esperas")
+    if report["seconds_per_action"] is not None:
+        parts.append(f"{report['seconds_per_action']:.2f}s/accion")
+    if report["energy_per_paw"] is not None:
+        parts.append(f"{report['energy_per_paw']:.0f} energia/patica")
+    return " | ".join(parts)
 
 
 def run_summary(elapsed_seconds, collected, energy_start=None, energy_end=None):
@@ -1578,6 +1704,7 @@ def main():
                  "green_ticket": 0, "purple_ticket": 0}
     energy_start = None
     last_energy_read = None
+    last_loop_energy = None
     inventory_start = None
     dash_stock = None
     pending_attack_inv = None
@@ -1621,6 +1748,14 @@ def main():
     previous_dash_obstacles = 0
     pending_dash = None
     previous_direction = None
+    pending_picked = False
+    wait_frames = 0
+    frames_seen = 0
+    idle_frames = 0
+    idle_abort = False
+    taps_claimed = 0
+    taps_charged = 0
+    blocked_direction = None
     previous_reason = None
     suspect_holds = 0
     stable_board = None
@@ -1643,6 +1778,14 @@ def main():
     recent_states = []
 
     while done < args.steps:
+        frames_seen += 1
+        idle_frames = idle_streak(idle_frames, acted=False)
+        if idle_exhausted(idle_frames):
+            idle_abort = True
+            print(f"Sin avance: {idle_frames} cuadros seguidos sin ejecutar "
+                  "ninguna accion. Se corta la corrida para no gastar tiempo "
+                  "en vacio; revisa la ultima captura en la carpeta del run.")
+            break
         image = bot.screenshot(args.adb, args.serial)
         frame_clock.tick()
         det = bot.classify(image)
@@ -1692,7 +1835,7 @@ def main():
                 if not claim["verified"] and args.verbose:
                     progress(done, args.steps,
                              "Cofre no reclamado - reintentando", "33")
-                bot.log_event(log, event)
+                wait_frames += log_frame(log, event)
                 if args.verbose:
                     progress(done, args.steps,
                              "Cofre de milestone reclamado", "32")
@@ -1739,7 +1882,7 @@ def main():
                     if out_of_steps(read_inventory_counters(image),
                                     rejected_streak):
                         event["action"] = "STOP: out of steps (stamina 0)"
-                        bot.log_event(log, event)
+                        wait_frames += log_frame(log, event)
                         print("Pasos agotados: el contador de estamina marca 0 "
                               "y el juego rechaza cada movimiento. Se regeneran "
                               "por debajo de 100, o se compran con shards "
@@ -1759,7 +1902,7 @@ def main():
                             event["evidence"] = str(evidence_path)
                         except OSError:
                             pass
-                        bot.log_event(log, event)
+                        wait_frames += log_frame(log, event)
                         show_run_summary(done, args.steps, started_at, collected,
                                          energy_start, read_energy_counter(image), "33")
                         return 6
@@ -1790,11 +1933,11 @@ def main():
                         event["evidence"] = str(evidence_path)
                     except OSError:
                         pass
-                    bot.log_event(log, event)
+                    wait_frames += log_frame(log, event)
                     show_run_summary(done, args.steps, started_at, collected,
                                      energy_start, read_energy_counter(image), "33")
                     return 5
-            bot.log_event(log, event)
+            wait_frames += log_frame(log, event)
             if args.verbose: progress(done, args.steps, str(event["action"]), "33")
             time.sleep(RESCAN_DELAY); continue
 
@@ -1823,7 +1966,7 @@ def main():
                         label = ("Stage Failed + Growth Guide - cerrando "
                                  "para continuar")
                     progress(done, args.steps, label, "33")
-            bot.log_event(log, event)
+            wait_frames += log_frame(log, event)
             if args.verbose: progress(done, args.steps, "Tablero inestable - nuevo escaneo", "33")
             if unreliable >= 5:
                 show_run_summary(done, args.steps, started_at, collected, energy_start, read_energy_counter(image), "33")
@@ -1837,7 +1980,7 @@ def main():
             last_stamina_check = done
             if out_of_steps(read_inventory_counters(image), rejected_streak=2):
                 event["action"] = "STOP: out of steps (stamina 0)"
-                bot.log_event(log, event)
+                wait_frames += log_frame(log, event)
                 print("Pasos agotados: el contador de estamina marca 0. "
                       "Se regeneran por debajo de 100, o se compran con "
                       "shards (2000 = 50 pasos).")
@@ -1867,6 +2010,10 @@ def main():
         # Per-frame energy timeline: makes milestone rewards (+1000 spikes)
         # distinguishable from gradual per-meter accrual in the log.
         event["energy"] = read_energy_counter(image)
+        if event["energy"] is not None:
+            # Kept for the closing summary: a pickup animation can cover
+            # the counter exactly when the run ends (see final_energy).
+            last_loop_energy = event["energy"]
 
         # ---- the game's receipt for the taps still owed one ----
         # The grid is furniture: it never moves. Its CONTENTS ride a belt
@@ -1893,7 +2040,7 @@ def main():
                 event["action"] = f"WAIT: board in motion ({settle_waits}/3)"
                 event["board_motion"] = {"detected": list(det.board),
                                          "stable": list(stable_board)}
-                bot.log_event(log, event)
+                wait_frames += log_frame(log, event)
                 if args.verbose:
                     progress(done, args.steps,
                              "Tablero en movimiento - espero a que asiente",
@@ -1930,7 +2077,7 @@ def main():
             slide_waits += 1
             event["action"] = (f"WAIT: board content sliding "
                                f"({slide_waits}/3)")
-            bot.log_event(log, event)
+            wait_frames += log_frame(log, event)
             if args.verbose:
                 progress(done, args.steps,
                          "Contenido del tablero en movimiento - espero", "33")
@@ -1984,6 +2131,20 @@ def main():
             pending_reveals = shift_items_left(pending_reveals)
             ban_history = shift_cells_left(ban_history)
         scrolls_since_frame += belt_shift
+        taps_claimed += claimed
+        taps_charged += charged
+        # A charged step that collected nothing and did not scroll leaves
+        # the board byte-identical: walking back re-enters a state the
+        # strategy already judged, and two goals that disagree about the
+        # two cells will trade the player between them forever (run
+        # 20260823T143257 n=45-52, six paws for zero progress). The
+        # receipt is what makes this safe to assert - a refused tap never
+        # moved anyone, so it never blocks anything.
+        blocked_direction = next_blocked_direction(
+            blocked_direction, bool(pending_taps), claimed, charged,
+            belt_shift, pending_picked, previous_direction)
+        if pending_taps:
+            pending_picked = False
         if charged < claimed:
             # The game swallowed taps: it is lagging. Single steps for the
             # next two decisions instead of feeding batches into a freeze.
@@ -2056,7 +2217,7 @@ def main():
                 or memory_streak > 2 or player[1] > 1 or ghost_player):
             player_unreliable += 1
             event["action"] = f"WAIT: player score {player_score:.3f} ({player_unreliable}/5)"
-            bot.log_event(log, event)
+            wait_frames += log_frame(log, event)
             if args.verbose: progress(done, args.steps, "Posición del jugador insegura - nuevo escaneo", "33")
             if player_unreliable >= 5:
                 event["action"] = "STOP: five consecutive unreliable player frames"
@@ -2066,7 +2227,7 @@ def main():
                     event["evidence"] = str(evidence_path)
                 except OSError:
                     pass
-                bot.log_event(log, event)
+                wait_frames += log_frame(log, event)
                 show_run_summary(done, args.steps, started_at, collected, energy_start, read_energy_counter(image), "33")
                 return 3
             time.sleep(1.0); continue
@@ -2319,7 +2480,8 @@ def main():
                                          player=player, preview=preview,
                                          hunt_walls=wall_stable,
                                          suspect_cells=suspect_items,
-                                         dash_stock=dash_stock)
+                                         dash_stock=dash_stock,
+                                         blocked_direction=blocked_direction)
         left_band_risk = any(
             cell[1] <= 2 and strategy.pickup_type(info[cell])
             not in (None, "purple_ticket", "green_ticket", "steps")
@@ -2343,7 +2505,7 @@ def main():
             event["reason"] = reason
             event["action"] = (f"WAIT: wall at {list(wall_now)} stabilizing "
                                f"({wall_holds}/2)")
-            bot.log_event(log, event)
+            wait_frames += log_frame(log, event)
             if args.verbose:
                 progress(done, args.steps,
                          "Muro a la vista sin confirmar - espero un frame", "33")
@@ -2356,7 +2518,7 @@ def main():
             event["reason"] = reason
             event["action"] = ("WAIT: suspects pending confirmation "
                                f"{sorted(list(c) for c in suspect_items)}")
-            bot.log_event(log, event)
+            wait_frames += log_frame(log, event)
             if args.verbose:
                 progress(done, args.steps,
                          "Sospechosos sin confirmar - espero un frame", "33")
@@ -2378,7 +2540,8 @@ def main():
                                                               | suspect_items),
                                              player=player, preview=preview,
                                              hunt_walls=wall_stable,
-                                             suspect_cells=suspect_items)
+                                             suspect_cells=suspect_items,
+                                             blocked_direction=blocked_direction)
         if action is None:
             # One unreadable frame must not kill a run: rescan a few
             # times before giving up.
@@ -2387,14 +2550,14 @@ def main():
             # sticky TTL (4 frames) before the surroundings adjudicate.
             if no_action_waits < 5:
                 event["action"] = f"WAIT: no safe action ({no_action_waits}/5)"
-                bot.log_event(log, event)
+                wait_frames += log_frame(log, event)
                 if args.verbose:
                     progress(done, args.steps,
                              "Sin acción segura - nuevo escaneo", "33")
                 time.sleep(.4)
                 continue
             event["action"] = "STOP: no safe action"
-            bot.log_event(log, event)
+            wait_frames += log_frame(log, event)
             if args.verbose: progress(done, args.steps, "STOP - sin acción segura", "31")
             show_run_summary(done, args.steps, started_at, collected, energy_start, read_energy_counter(image), "33")
             return 4
@@ -2450,7 +2613,7 @@ def main():
                 dashes_enabled = False
                 dashes_disabled_at = done
                 event["action"] = "WAIT: dash button missing"
-                bot.log_event(log, event)
+                wait_frames += log_frame(log, event)
                 if args.verbose: progress(done, args.steps, "Dash no disponible - replanificando", "33")
                 continue
             dash_path = dash_path_report(info, player)
@@ -2491,7 +2654,7 @@ def main():
             if kind == "move" and not lawful_tap(target):
                 # Defense in depth: no tap ever goes beyond column 2.
                 event["action"] = f"SKIP: unlawful tap at {list(target)}"
-                bot.log_event(log, event)
+                wait_frames += log_frame(log, event)
                 if args.verbose:
                     progress(done, args.steps,
                              f"Tap ilegal a {list(target)} suprimido - "
@@ -2505,8 +2668,14 @@ def main():
                 # n=163) and then forced an 8-step detour around a wall
                 # that did not exist. Drop the phantom, replan.
                 phantom_obstacles.pop(tuple(target), None)
+                # The eyes just denied this pyramid at the instant of the
+                # swing, which outranks a track built from earlier
+                # frames. Without this the belief is immortal and mints
+                # the same refused garra forever (run 20260823T145105:
+                # 579 frames, zero actions).
+                world.refute(tuple(target))
                 event["action"] = f"SKIP: garra at visually empty {list(target)}"
-                bot.log_event(log, event)
+                wait_frames += log_frame(log, event)
                 if args.verbose:
                     progress(done, args.steps,
                              f"Garra a celda vacía {list(target)} suprimida - "
@@ -2527,7 +2696,7 @@ def main():
                 else:
                     event["action"] = f"SKIP: move onto suspect at {list(target)}"
                     note = "sospechoso"
-                bot.log_event(log, event)
+                wait_frames += log_frame(log, event)
                 if args.verbose:
                     progress(done, args.steps,
                              f"Tap sobre {note} en {list(target)} suprimido - "
@@ -2613,11 +2782,14 @@ def main():
 
         event["action"] = sent
         event["collected_detected"] = dict(collected)
-        bot.log_event(log, event)
+        wait_frames += log_frame(log, event)
         # The taps now wait for their receipt: the belt, the player's cell
         # and any refusal are all settled at the top of the next frame by
         # what the game actually charged.
         pending_taps = sent
+        pending_picked = frame_picked
+        if sent:
+            idle_frames = 0
         done += len(sent)
         if args.verbose:
             progress(done, args.steps, f"{len(sent)} acción(es) ejecutadas - nuevo escaneo", "32")
@@ -2646,7 +2818,10 @@ def main():
     event = {"time_utc": datetime.now(timezone.utc).isoformat(), "status": "complete",
              "steps": done, "run_dir": str(run_dir),
              "detection": bot.asdict(final_det)}
-    energy_end = read_energy_counter(final, run_dir / "energy_roi_end.png")
+    energy_end, energy_end_source = final_energy(
+        lambda: read_energy_counter(bot.screenshot(args.adb, args.serial),
+                                    run_dir / "energy_roi_end.png"),
+        last_loop_energy)
     event["inventory_hud"] = {"start": inventory_start,
                               "end": read_drop_counters(final)}
     event["collected_detected"] = dict(collected)
@@ -2655,11 +2830,17 @@ def main():
         "end": energy_end,
         "difference": (energy_end - energy_start
                        if energy_start is not None and energy_end is not None else None),
+        "end_source": energy_end_source,
     }
+    event["efficiency"] = efficiency_report(
+        taps_claimed, taps_charged, wait_frames, frames_seen,
+        time.monotonic() - started_at,
+        event["energy_hud"]["difference"])
     event["elapsed_seconds"] = round(time.monotonic() - started_at, 3)
-    bot.log_event(log, event)
+    wait_frames += log_frame(log, event)
     show_run_summary(done, args.steps, started_at, collected, energy_start, energy_end)
-    return 0
+    progress(done, args.steps, format_efficiency(event["efficiency"]), "36")
+    return 8 if idle_abort else 0
 
 
 if __name__ == "__main__":

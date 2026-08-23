@@ -87,6 +87,176 @@ class EnergyConsensusTests(unittest.TestCase):
         self.assertIsNone(runner.confirmed_energy(3805, 3555))
 
 
+class FinalEnergyTests(unittest.TestCase):
+    """The closing HUD read races the pickup animation.
+
+    Run 20260823T142253 n=39 collected an orange on the last step; the
+    flying icon still covered the counter when the final screenshot was
+    taken, read_energy_counter returned None, and the whole run reported
+    "Contador de energia ilegible" even though 36 of 38 frames had read
+    it cleanly. The closing read retries while the animation clears, and
+    falls back to the last reading the loop already trusted rather than
+    throwing the run's headline number away.
+    """
+
+    def test_a_clean_first_read_is_taken_as_is(self):
+        reads = iter([40265])
+        value, source = runner.final_energy(lambda: next(reads), 3410,
+                                            pause=lambda _s: None)
+        self.assertEqual((value, source), (40265, "final"))
+
+    def test_an_occluded_read_retries_until_the_animation_clears(self):
+        reads = iter([None, None, 40265])
+        value, source = runner.final_energy(lambda: next(reads), 3410,
+                                            pause=lambda _s: None)
+        self.assertEqual((value, source), (40265, "final"))
+
+    def test_a_read_that_never_clears_falls_back_to_the_loop(self):
+        value, source = runner.final_energy(lambda: None, 40265,
+                                            pause=lambda _s: None)
+        self.assertEqual((value, source), (40265, "loop"))
+
+    def test_nothing_readable_anywhere_stays_unknown(self):
+        value, source = runner.final_energy(lambda: None, None,
+                                            pause=lambda _s: None)
+        self.assertEqual((value, source), (None, None))
+
+    def test_retries_are_bounded(self):
+        calls = []
+        runner.final_energy(lambda: calls.append(1), None,
+                            pause=lambda _s: None)
+        self.assertLessEqual(len(calls), 4)
+
+
+class EfficiencyReportTests(unittest.TestCase):
+    """What the run cost, in the two currencies that matter.
+
+    The per-frame ledger already proves which taps the game charged for,
+    but nothing added them up: a run could waste one tap in ten and the
+    closing line would look identical. These are the numbers that say
+    whether a pathfinding change paid for itself.
+    """
+
+    def test_counts_the_taps_the_game_refused(self):
+        report = runner.efficiency_report(claimed=59, charged=53, waits=4,
+                                          frames=53, elapsed=71.3,
+                                          energy_delta=770)
+        self.assertEqual(report["refused"], 6)
+        self.assertAlmostEqual(report["refused_share"], 6 / 59)
+
+    def test_energy_per_paw_is_the_run_s_exchange_rate(self):
+        report = runner.efficiency_report(claimed=10, charged=10, waits=0,
+                                          frames=10, elapsed=10.0,
+                                          energy_delta=500)
+        self.assertAlmostEqual(report["energy_per_paw"], 50.0)
+
+    def test_an_unknown_energy_delta_stays_unknown(self):
+        report = runner.efficiency_report(claimed=10, charged=10, waits=0,
+                                          frames=10, elapsed=10.0,
+                                          energy_delta=None)
+        self.assertIsNone(report["energy_per_paw"])
+
+    def test_a_run_that_never_acted_does_not_divide_by_zero(self):
+        report = runner.efficiency_report(claimed=0, charged=0, waits=2,
+                                          frames=2, elapsed=3.0,
+                                          energy_delta=0)
+        self.assertIsNone(report["refused_share"])
+        self.assertIsNone(report["energy_per_paw"])
+
+    def test_wait_frames_are_reported_as_a_share_of_all_frames(self):
+        report = runner.efficiency_report(claimed=8, charged=8, waits=2,
+                                          frames=10, elapsed=10.0,
+                                          energy_delta=0)
+        self.assertAlmostEqual(report["wait_share"], 0.2)
+
+    def test_the_line_names_both_kinds_of_waste(self):
+        line = runner.format_efficiency(
+            runner.efficiency_report(claimed=59, charged=53, waits=4,
+                                     frames=53, elapsed=71.3,
+                                     energy_delta=770))
+        self.assertIn("6", line)
+        self.assertIn("4", line)
+
+
+class IdleGuardTests(unittest.TestCase):
+    """A run that cannot act must end, not spin.
+
+    Run 20260823T145105 asked for 80 actions, executed 46, and then sat
+    in the same refused-garra frame 579 times: --steps was never
+    reached, so the loop had no exit. Every skip path is a "replan and
+    try again" and each one is individually reasonable; what was missing
+    was a ceiling on how many frames in a row may produce no tap at all.
+    """
+
+    def test_a_productive_frame_resets_the_count(self):
+        self.assertEqual(runner.idle_streak(9, acted=True), 0)
+
+    def test_an_empty_frame_advances_the_count(self):
+        self.assertEqual(runner.idle_streak(9, acted=False), 10)
+
+    def test_the_ceiling_is_reached_only_at_the_limit(self):
+        limit = runner.MAX_IDLE_FRAMES
+        self.assertFalse(runner.idle_exhausted(limit - 1))
+        self.assertTrue(runner.idle_exhausted(limit))
+
+    def test_the_ceiling_leaves_room_for_ordinary_waits(self):
+        # The board-in-motion and unreliable-board holds cap at 3 and 5;
+        # the guard must not fire on a legitimate one.
+        self.assertGreater(runner.MAX_IDLE_FRAMES, 15)
+
+
+class BlockedDirectionTests(unittest.TestCase):
+    """How long "do not walk back" stays true.
+
+    The fact it encodes is about the BOARD, not about the frame: while
+    nothing scrolled and nothing was collected, the cell we just left is
+    still the cell we just left. Run 20260823T150408 n=70-72 lost two
+    paws because a wall-stabilizing WAIT sat between the step and the
+    replan, the veto was recomputed from an empty receipt, and the
+    planner walked straight back to (3, 1).
+    """
+
+    def test_a_clean_charged_step_blocks_its_own_reverse(self):
+        self.assertEqual(
+            runner.next_blocked_direction(None, had_taps=True, claimed=1,
+                                          charged=1, belt_shift=0,
+                                          picked=False, direction="down"),
+            "up")
+
+    def test_a_wait_frame_keeps_the_standing_veto(self):
+        self.assertEqual(
+            runner.next_blocked_direction("up", had_taps=False, claimed=0,
+                                          charged=0, belt_shift=0,
+                                          picked=False, direction=None),
+            "up")
+
+    def test_a_scroll_clears_it_because_the_board_moved(self):
+        self.assertIsNone(
+            runner.next_blocked_direction("up", had_taps=True, claimed=1,
+                                          charged=1, belt_shift=1,
+                                          picked=False, direction="right"))
+
+    def test_a_pickup_clears_it_because_the_step_paid(self):
+        self.assertIsNone(
+            runner.next_blocked_direction("up", had_taps=True, claimed=1,
+                                          charged=1, belt_shift=0,
+                                          picked=True, direction="down"))
+
+    def test_a_refused_tap_blocks_nothing(self):
+        # Nobody moved, so there is no cell to avoid going back to.
+        self.assertIsNone(
+            runner.next_blocked_direction("up", had_taps=True, claimed=2,
+                                          charged=1, belt_shift=0,
+                                          picked=False, direction="down"))
+
+    def test_an_attack_frame_clears_it(self):
+        # An attack has no direction and changes the board.
+        self.assertIsNone(
+            runner.next_blocked_direction("up", had_taps=True, claimed=0,
+                                          charged=0, belt_shift=0,
+                                          picked=False, direction="up"))
+
+
 class PurchaseRecommendationTests(unittest.TestCase):
     """Measured net burn across 13 runs / 2,750 actions: 0.78 steps,
     0.033 garras, 0.027 dashes per action (refunds and pickups already

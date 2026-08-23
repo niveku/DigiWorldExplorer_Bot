@@ -532,7 +532,42 @@ def simulate_tour(player, order):
 
 def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
            ignored_targets=(), player=None, preview=None, hunt_walls=True,
-           suspect_cells=(), dash_stock=None):
+           suspect_cells=(), dash_stock=None, blocked_direction=None):
+    """Pick the next action, refusing to undo the step just taken.
+
+    blocked_direction is the runner's receipt-backed report that the last
+    charged step collected nothing and did not scroll: the board is
+    byte-identical, so walking back re-enters a state already judged and
+    the two goals that disagree about it will keep trading the player
+    between two cells (run 20260823T143257 n=45-52: orange at (0,3) wins
+    from row 1, dash-pair launch at (1,1) wins from row 0, six paws for
+    zero progress; the explorer's own -30 reversal penalty never saw it
+    because the two goals live in different branches).
+
+    The veto is applied to the outcome rather than inside every branch:
+    close the cell we came from and ask again. It never strands the
+    player - if the closed board has no answer, the original stands.
+    """
+    action, reason = _choose(info, previous_direction, attacks_enabled,
+                             dashes_enabled, ignored_targets, player, preview,
+                             hunt_walls, suspect_cells, dash_stock)
+    if (blocked_direction is None or action is None
+            or action[0] != "move" or action[2] != blocked_direction):
+        return action, reason
+    closed = {cell: (dict(values, pyramid=0.9) if cell == action[1] else values)
+              for cell, values in info.items()}
+    detour, detour_reason = _choose(closed, previous_direction, attacks_enabled,
+                                    dashes_enabled, ignored_targets, player,
+                                    preview, hunt_walls, suspect_cells,
+                                    dash_stock)
+    if detour is None or (detour[0] == "move" and detour[1] == action[1]):
+        return action, reason
+    return detour, f"{detour_reason} (no back-step)"
+
+
+def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
+            ignored_targets=(), player=None, preview=None, hunt_walls=True,
+            suspect_cells=(), dash_stock=None):
     # A caller that already resolved the player (dead reckoning, large-sprite
     # locator) passes it in; per-cell scores stay authoritative otherwise.
     if player is None:

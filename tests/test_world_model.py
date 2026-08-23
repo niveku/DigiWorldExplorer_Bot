@@ -304,3 +304,47 @@ class NoReprocessingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RefutedPyramidTests(unittest.TestCase):
+    """A believed pyramid the eyes deny at the moment of the swing.
+
+    Pyramids are believed unconditionally - doubting the strongest
+    signal on the board only ever walked the bot into one - which also
+    means a misdetected pyramid track is immortal. Run
+    20260823T145105 minted one at (0,2), merged it as an obstacle every
+    frame, planned a garra at it every frame, and the runner refused the
+    garra every frame because raw vision saw an empty cell: 579 frames,
+    zero actions, the run never ended.
+
+    The refusal is the adjudication. Raw pixels at the instant of the
+    swing outrank a track built from earlier frames, so the track dies.
+    """
+
+    def test_a_refuted_pyramid_stops_being_believed(self):
+        world = wm.WorldModel()
+        world.observe(seen(pyramids=[(0, 2)]))
+        self.assertIn((0, 2), world.believed_pyramids())
+        world.refute((0, 2))
+        self.assertNotIn((0, 2), world.believed_pyramids())
+
+    def test_refuting_an_untracked_cell_is_harmless(self):
+        world = wm.WorldModel()
+        world.observe(seen(pyramids=[(0, 2)]))
+        world.refute((4, 4))
+        self.assertIn((0, 2), world.believed_pyramids())
+
+    def test_a_refuted_cell_can_be_seen_again_later(self):
+        # The eyes are the authority in both directions: a real pyramid
+        # that was momentarily invisible must be able to come back.
+        world = wm.WorldModel()
+        world.observe(seen(pyramids=[(0, 2)]))
+        world.refute((0, 2))
+        world.observe(seen(pyramids=[(0, 2)]))
+        self.assertIn((0, 2), world.believed_pyramids())
+
+    def test_refuting_does_not_disturb_a_neighbouring_item(self):
+        world = wm.WorldModel()
+        world.observe(seen(items=[((0, 3), "orange")], pyramids=[(0, 2)]))
+        world.refute((0, 2))
+        self.assertIn((0, 3), world.believed_items())

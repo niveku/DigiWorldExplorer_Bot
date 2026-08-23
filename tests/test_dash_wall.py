@@ -49,6 +49,62 @@ class NearestDashWallTests(unittest.TestCase):
         self.assertEqual(strategy.nearest_dash_wall(info, (0, 0)), (0, 1))
 
 
+class ReverseStepVetoTests(unittest.TestCase):
+    """A step back onto the cell you just left cannot pay for itself.
+
+    Run 20260823T143257 n=45-52 alternated (1,1) up -> (0,1) down -> (1,1)
+    for eight frames on a board that never changed: from row 1 the orange
+    at (0,3) won, from row 0 the dash-pair launch at (1,1) won, and each
+    goal lives in a different branch of choose() so the explorer's own
+    -30 reversal penalty never saw them. Six paws burned for zero
+    progress.
+
+    The law is physical, not a heuristic: a charged step that collected
+    nothing and did not scroll leaves the board byte-identical, so
+    returning to the previous cell re-enters a state already judged. The
+    runner reports that case as blocked_direction and choose() must route
+    around it - but only while an alternative exists.
+    """
+
+    def _livelock_board(self, player):
+        info = empty_grid()
+        info[player]["player"] = 0.5
+        for cell in ((1, 2), (1, 3), (3, 1)):
+            info[cell]["pyramid"] = 0.9
+        info[(0, 3)].update(item=0.10, orange=0.10)
+        return info
+
+    def test_the_livelock_reversal_is_refused(self):
+        info = self._livelock_board((0, 1))
+        action, _ = strategy.choose(info, player=(0, 1),
+                                    blocked_direction="down")
+        self.assertNotEqual(action[2], "down")
+
+    def test_without_the_veto_the_livelock_still_reproduces(self):
+        # Guards the fixture: if the strategy ever stops choosing "down"
+        # here on its own, this test has stopped proving anything.
+        info = self._livelock_board((0, 1))
+        action, _ = strategy.choose(info, player=(0, 1))
+        self.assertEqual(action[2], "down")
+
+    def test_a_veto_never_strands_the_player(self):
+        # Boxed in by pyramids on three sides: the only way out is back.
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.5
+        for cell in ((1, 1), (3, 1), (2, 2)):
+            info[cell]["pyramid"] = 0.9
+        action, _ = strategy.choose(info, player=(2, 1),
+                                    blocked_direction="left")
+        self.assertIsNotNone(action)
+
+    def test_an_unrelated_direction_is_untouched(self):
+        info = self._livelock_board((0, 1))
+        free, _ = strategy.choose(info, player=(0, 1))
+        vetoed, _ = strategy.choose(info, player=(0, 1),
+                                    blocked_direction="up")
+        self.assertEqual(free, vetoed)
+
+
 class IrresistibleDashTests(unittest.TestCase):
     def test_wall_still_hunted_past_a_surviving_orange(self):
         # The dash is routing (user directive 2026-08-21b): an orange at
