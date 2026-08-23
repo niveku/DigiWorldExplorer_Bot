@@ -917,6 +917,40 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     incoming_rows = ([r for r in range(5)
                       if preview[r] and is_obstacle(info[(r, 4)])]
                      if preview is not None else [])
+    # Forming wall with its LEFT side already in place: a partial run
+    # touching columns 1-2 on a row with reinforcements incoming
+    # ((r,4) pyramid or preview lit). Physics: pyramids only enter
+    # when the bot scrolls, and every scroll also EATS the left side
+    # of that run - run 20260822T234822 n=14 scrolled 3 times and
+    # expelled its own (4,1),(4,2) unbroken. The right play is to walk
+    # to the launch and pair-dash what is already there: the dash's
+    # own 3-column scroll pulls the reinforcements in for the next
+    # wall. Route to the launch instead of exploring.
+    if preview is not None:
+        for r in range(5):
+            reinforced = preview[r] or is_obstacle(info[(r, 4)])
+            if not reinforced:
+                continue
+            start = next((c for c in range(5)
+                          if is_obstacle(info[(r, c)])), None)
+            if start is None or not 1 <= start <= 2:
+                continue
+            run_len = 0
+            while start + run_len < 5 and is_obstacle(info[(r, start + run_len)]):
+                run_len += 1
+            if run_len < 2:
+                continue
+            launch = (r, start - 1)
+            if tuple(player) == launch:
+                break
+            step = shortest_action(info, player, {launch},
+                                   allow_obstacles=False,
+                                   prefer_direction=previous_direction,
+                                   avoid=set(suspect_cells))
+            if step:
+                target, obstacle, direction = step
+                return ("move", target, direction), \
+                    f"position for forming wall at {launch}"
     candidates = []
     for dr, dc, direction in DIRS:
         nxt = (player[0]+dr, player[1]+dc)

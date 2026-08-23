@@ -84,6 +84,8 @@ class Replay:
         self.expected_player = None
         self.prev_action = None
         self.prev_attack_target = None
+        self.prev_dash_player = None
+        self.last_player = None
         self.claimed = 0
         self.done = 0
         self.ghost_streaks = {}
@@ -122,6 +124,7 @@ class Replay:
         if player[1] > 1:
             self.flag(n, "PLAYER-LAW", f"player resolved at {player}")
             return
+        self.last_player = tuple(player)
         detected = dict(info)
 
         # pixel scroll reconciliation (grace collapsed: offline frames
@@ -179,7 +182,10 @@ class Replay:
                                                     self.done),
             confetti_risk=(self.prev_action == "dash"
                            or any(self.done - when < 2
-                                  for _, when in self.recent_pickups)))
+                                  for _, when in self.recent_pickups)),
+            confetti_rows=runner.confetti_rows_of(
+                self.prev_dash_player if self.prev_action == "dash" else None,
+                self.recent_pickups, self.done))
         suspects = runner.combined_suspects(fresh, self.prev_fresh, current)
         suspects = runner.drop_remembered_suspects(suspects, self.remembered)
         suspects |= runner.burst_holds(self.prev_fresh, current,
@@ -320,6 +326,7 @@ class Replay:
                         self.pending_reveals, [target], self.done)
             elif kind == "dash":
                 self.prev_action = "dash"
+                self.prev_dash_player = self.last_player
                 shift = 3  # col unknown offline; col-1 launch dominates
                 self.shift_left(shift)
                 self.claimed += shift

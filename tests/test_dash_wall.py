@@ -622,6 +622,19 @@ class SuspectAppearanceTests(unittest.TestCase):
                                        shift=3, confetti_risk=False),
             set())
 
+    def test_dash_confetti_risk_is_local_to_the_dash_rows(self):
+        # Run 20260822T234822 n=20: a real orange entered from the
+        # right DURING the dash and landed at (1,3); the dash ran in
+        # row 4, and dash confetti only exists around the cells it
+        # broke (rows 2-4). Row 1 cannot hold dash confetti, so the
+        # scaled ingestion band applies there and the arrival is
+        # legitimate. The sticky hold then never traps it.
+        self.assertEqual(
+            runner.suspect_appearances(frozenset({(1, 3)}), frozenset(),
+                                       shift=3, confetti_risk=True,
+                                       confetti_rows=(2, 3, 4)),
+            set())
+
     def test_confetti_risk_keeps_the_strict_band(self):
         # Same shift, but the interval had a dash (or a pickup): the
         # confetti can paint anywhere, so the strict band stands - this
@@ -1618,9 +1631,10 @@ class IncomingWallAlignmentTests(unittest.TestCase):
                                          preview=None)
         self.assertEqual(action, ("move", (4, 2), "right"))
 
-    def test_already_aligned_scrolls_the_wall_in(self):
-        # Standing on the incoming row already: keep scrolling right -
-        # every scroll pulls the wall (and the launch) toward the bot.
+    def test_already_aligned_scrolls_a_fully_outside_wall_in(self):
+        # Standing on the incoming row with the wall entirely outside
+        # (edge + preview only): keep scrolling right - every scroll
+        # pulls the wall (and the launch) toward the bot.
         info = empty_grid()
         info[(3, 1)]["player"] = 0.2
         info[(3, 4)]["pyramid"] = 0.9
@@ -1628,6 +1642,28 @@ class IncomingWallAlignmentTests(unittest.TestCase):
         action, reason = strategy.choose(info, player=(3, 1),
                                          preview=preview)
         self.assertEqual(action, ("move", (3, 2), "right"))
+
+    def test_partial_wall_already_in_place_is_not_scrolled_away(self):
+        # Run 20260822T234822 n=14: row 4 held (4,1),(4,2) IN POSITION
+        # plus (4,4) and the preview lit - a 5-pyramid wall forming
+        # with its left side already at the launch. The explorer
+        # scrolled 3 times and expelled its own (4,1),(4,2) off the
+        # board unbroken. Physics: every scroll eats the left side of
+        # a forming wall. With a partial run in columns <=2 and
+        # reinforcements incoming on the same row, scrolling that row
+        # is forbidden - hold position and let the wall connect.
+        info = empty_grid()
+        info[(3, 1)]["player"] = 0.2
+        info[(4, 1)]["pyramid"] = 0.9
+        info[(4, 2)]["pyramid"] = 0.9
+        info[(4, 4)]["pyramid"] = 0.9
+        preview = [False, False, False, False, True]
+        action, reason = strategy.choose(info, player=(3, 1),
+                                         preview=preview)
+        if action is not None:
+            self.assertNotEqual(action, ("move", (3, 2), "right"))
+            self.assertNotEqual(tuple(action[1])[1], 2,
+                                "no scrolling right while the wall forms")
 
 
 class ExplorerNeverBuysGarraOverFreeStepTests(unittest.TestCase):

@@ -218,7 +218,8 @@ def milestone_chest_ready(image):
 
 
 def suspect_appearances(current, previous, shift=0, attack_cell=None,
-                        revealed_cells=(), confetti_risk=True):
+                        revealed_cells=(), confetti_risk=True,
+                        confetti_rows=None):
     """Item cells that appeared where nothing can appear.
 
     Game invariants (user-confirmed 2026-08-21): items only enter the
@@ -253,9 +254,21 @@ def suspect_appearances(current, previous, shift=0, attack_cell=None,
     # band, stuck to the left-band hold, and scrolled off unclaimed.
     # With confetti risk the strict band stands (run 20260822T201927:
     # post-dash confetti painted 8 phantoms across columns 0-2).
-    entry_floor = 4 if confetti_risk else max(0, 4 - shift)
+    # confetti_rows: confetti only exists around the cells that
+    # produced it (dash path / pickup, radius 2). A fresh arrival on a
+    # row no confetti can reach uses the scaled band even under risk:
+    # run 20260822T234822 n=20, a real orange entered at (1,3) during
+    # a row-4 dash, was strict-banded into suspicion, sticky-held, and
+    # scrolled off unclaimed.
+    scaled_floor = max(0, 4 - shift)
+    def floor_for(cell):
+        if not confetti_risk:
+            return scaled_floor
+        if confetti_rows is not None and cell[0] not in confetti_rows:
+            return scaled_floor
+        return 4
     return {cell for cell in fresh
-            if cell[1] < entry_floor and cell not in legit}
+            if cell[1] < floor_for(cell) and cell not in legit}
 
 
 def combined_suspects(fresh, previous_fresh, current):
@@ -657,6 +670,27 @@ def measure_scroll_px(prev_strip, cur_strip, max_cols=3, slide_tolerance=0.2,
     nearest = int(round(cols_f))
     sliding = abs(cols_f - nearest) > slide_tolerance
     return min(nearest, max_cols), sliding
+
+
+def confetti_rows_of(dash_player, recent_pickups, done, ttl=2, radius=2):
+    """Rows where confetti can exist this frame, or None when a source
+    has no known location (conservative: confetti possible anywhere).
+
+    Confetti only appears around a fresh pickup or the cells a dash
+    broke (radius 2). A dash launched from row r can only paint rows
+    r+-2; a real item entering on a farther row during the dash's
+    3-column scroll is not confetti and must not be strict-banded
+    (run 20260822T234822 n=20: orange in at (1,3), dash in row 4)."""
+    sources = []
+    if dash_player is not None:
+        sources.append(dash_player[0])
+    sources += [cell[0] for cell, when in recent_pickups
+                if done - when < ttl]
+    if not sources:
+        return None
+    return tuple({r for src in sources
+                  for r in range(max(0, src - radius),
+                                 min(5, src + radius + 1))})
 
 
 def should_wait_for_slide(sliding, slide_waits, max_waits=3):
@@ -2182,7 +2216,10 @@ def main():
             # 3 scrolls, held suspect until it scrolled off unclaimed).
             confetti_risk=(previous_action == "dash"
                            or any(done - when < 2
-                                  for _, when in recent_pickups)))
+                                  for _, when in recent_pickups)),
+            confetti_rows=confetti_rows_of(
+                previous_dash_player if previous_action == "dash" else None,
+                recent_pickups, done))
         suspect_items = combined_suspects(fresh_suspects, prev_fresh_suspects,
                                           current_item_cells)
         suspect_items = drop_remembered_suspects(suspect_items, remembered_items)

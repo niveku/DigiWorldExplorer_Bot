@@ -31,6 +31,9 @@ CORPUS = [
                                  # n=82 (47 straight waits)
     "20260822T215547_461705Z",   # explore garra bought over a free
                                  # step by the anti-reverse hysteresis
+    "20260822T234822_139608Z",   # scrolled own forming wall off the
+                                 # board + dash-ingested orange
+                                 # strict-banded and lost
 ]
 
 
