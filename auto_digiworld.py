@@ -668,7 +668,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         if launch is not None:
             step = shortest_action(info, player, {launch},
                                    allow_obstacles=False,
-                                   avoid=set(suspect_cells))
+                                   )
             if step:
                 target, _, direction = step
                 return ("move", target, direction), f"approach dash wall via {launch}"
@@ -840,22 +840,8 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                                                       and first in orange_items),
                                      prefer_direction=previous_direction,
                                      protect=order[1:],
-                                     avoid=set(suspect_cells),
+                                     
                                      with_cost=True)
-            # Suspects adjudicate in 1-2 free rescans: when dodging
-            # them costs 2+ extra taps over the suspect-free route,
-            # waiting beats walking (run 20260822T205803 n=25-28
-            # walked the 4-tap column-0 horseshoe around one confetti
-            # cell instead of the 2-tap diagonal).
-            if suspect_cells and routed:
-                free = shortest_action(
-                    info, player, {first},
-                    allow_obstacles=(attacks_enabled
-                                     and first in orange_items),
-                    prefer_direction=previous_direction,
-                    protect=order[1:], with_cost=True)
-                if free and routed[1] > free[1] + 1.5:
-                    return None, "tour boxed by suspects"
             if routed:
                 target, obstacle, direction = routed[0]
                 # The label names the FIRST target's real category: every
@@ -871,18 +857,10 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                     label = pickup_type(info[first]) or "pickup"
                 return ("attack" if obstacle else "move", target, direction), \
                     f"{label} targets={order}"
-            if suspect_cells and shortest_action(
-                    info, player, {first},
-                    allow_obstacles=(attacks_enabled
-                                     and first in orange_items),
-                    prefer_direction=previous_direction,
-                    protect=order[1:]):
-                # The route exists - only suspicion severs it. Suspects
-                # adjudicate in 1-2 frames, so a free rescan beats
-                # falling through to a paid explore walk (run
-                # 20260822T201927 n=9: confetti walled off column 2 and
-                # the bot wandered while the real orange waited).
-                return None, "tour boxed by suspects"
+            # (The 'tour boxed by suspects' wait retired 2026-08-23:
+            # suspicion no longer severs routes, so there is nothing to
+            # wait out. A route can now only be cut by a pyramid, and
+            # waiting never removes one.)
 
     # Tickets remain as a last-resort target - never worth a garra.
     # Mid-tier cards are excluded here: a card the pruner judged not
@@ -893,7 +871,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
         step = shortest_action(info, player, ticket_goals,
                                allow_obstacles=False,
                                prefer_direction=previous_direction,
-                               avoid=set(suspect_cells))
+                               )
         if step:
             target, obstacle, direction = step
             return ("attack" if obstacle else "move", target, direction), \
@@ -974,7 +952,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             step = shortest_action(info, player, {launch},
                                    allow_obstacles=False,
                                    prefer_direction=previous_direction,
-                                   avoid=set(suspect_cells))
+                                   )
             if step:
                 target, obstacle, direction = step
                 return ("move", target, direction), \
@@ -1045,17 +1023,11 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     # Cells banned by the loop breaker are avoided while any alternative
     # exists; falling back to them beats stalling in a fully banned pocket.
     preferred = [entry for entry in candidates if entry[1] not in ignored]
-    # The fallback may reuse loop-banned cells, but never suspect cells:
-    # stepping onto unadjudicated ground is what the tap gate refuses
-    # (replay harness 2026-08-22, STARVATION class).
-    fallback = [entry for entry in candidates
-                if entry[1] not in suspect_cells]
-    if not (preferred or fallback):
-        # Every orthogonal cell is an unadjudicated suspect: stepping
-        # onto one is exactly what the tap gate refuses. Rescan; the
-        # suspects adjudicate within a few frames.
-        return None, "boxed by suspects"
-    pool = preferred or fallback
+    # (The suspect filter and the 'boxed by suspects' wait retired
+    # 2026-08-23: a confetti card is ground, not a wall, so there is
+    # nothing to be boxed by. A pyramid hidden UNDER confetti keeps its
+    # own track in the world model and is refused as the pyramid it is.)
+    pool = preferred or candidates
     # A garra never outbids a free step that advances or flanks
     # (up/down/right). Run 20260822T215547 n=47: the anti-reverse
     # hysteresis (-30) sank the free step up below the attack's score

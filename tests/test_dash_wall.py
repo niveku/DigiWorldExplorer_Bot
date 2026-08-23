@@ -2,6 +2,7 @@ import unittest
 
 import auto_digiworld as strategy
 import auto_digiworld_batch2 as runner
+import world_model
 
 
 def empty_grid():
@@ -1434,24 +1435,6 @@ class PyramidKillsClawTests(unittest.TestCase):
             self.assertNotEqual(tuple(action[1]), (2, 2))
 
 
-class BoxedExplorerWaitsTests(unittest.TestCase):
-    """Replay harness STARVATION class: with every orthogonal cell
-    suspect the explorer's last-resort fallback stepped onto one - the
-    exact cell the tap gate then refused. All-suspect surroundings now
-    return no action; the runner rescans and the suspects adjudicate
-    within a few frames."""
-
-    def test_all_suspect_surroundings_yield_no_action(self):
-        info = empty_grid()
-        info[(2, 1)]["player"] = 0.2
-        neighbors = {(1, 1), (3, 1), (2, 0), (2, 2)}
-        for cell in neighbors:
-            info[cell].update(item=0.10, orange=0.10)
-        action, reason = strategy.choose(
-            info, ignored_targets=neighbors, suspect_cells=neighbors)
-        self.assertIsNone(action)
-
-
 class EarlyAdvanceTieBreakTests(unittest.TestCase):
     """User doctrine 2026-08-22 (correcting the short-lived scroll-late
     rule): between routes of equal taps and resources, the one that
@@ -1744,95 +1727,64 @@ class SlidingWaitCapTests(unittest.TestCase):
         self.assertFalse(runner.should_wait_for_slide(False, 0))
 
 
-class CostlyDetourWaitsTests(unittest.TestCase):
-    """Run 20260822T205803 n=25-28: post-dash confetti made (1,1)
-    suspect, the direct 2-tap route to the real orange at (0,1) died to
-    avoid=, and the router walked the 4-tap column-0 horseshoe instead
-    - including the backward tap the user flagged. Suspects adjudicate
-    in 1-2 free rescans: when the detour costs 2+ extra taps, waiting
-    beats walking."""
+# Retired 2026-08-23 with suspicion-as-terrain: BoxedExplorerWaits,
+# CostlyDetourWaits and TourBoxedBySuspects all existed to escape walls
+# that confetti never actually built. What they protected - never
+# tapping a pyramid hidden under a card - is now
+# HiddenGarraTests.test_a_pyramid_under_confetti_still_refuses_the_tap,
+# which keeps the pyramid's track instead of suspecting its neighbours.
 
-    def test_detour_two_taps_longer_waits_for_adjudication(self):
+
+class SuspectsAreTargetsNotTerrainTests(unittest.TestCase):
+    """Run 20260823T033159 n=20-23 (user: 'dio un paso adelante y
+    después se devolvió'): post-pickup confetti at (1,1) and (2,1) made
+    the free column-1 descent illegal, so the bot scrolled three times
+    to bring the dash orb closer instead - and those scrolls carried
+    the pyramid at (2,4) into (2,1), blocking that lane FOR REAL. Eight
+    taps where six sufficed, and the obstacle was its own doing.
+
+    The confusion came from the retired suspicion stack: a suspect is a
+    cell that may hold NOTHING, which is a reason not to walk there FOR
+    IT - not a reason to treat empty ground as a wall. Pyramids are the
+    only impassable thing on this board. Making suspicion a property of
+    goals instead of terrain also retires three waiting rules built to
+    escape the walls it invented."""
+
+    def test_the_planner_descends_through_confetti(self):
+        # The board of run 20260823T033159 n=20: the orb sits three
+        # rows down in column 1 and the lane holds confetti. The bot
+        # must walk down it, not scroll around it - the scroll is what
+        # brought a real pyramid into that lane.
+        info = empty_grid()
+        info[(0, 1)]["player"] = 0.2
+        info[(3, 1)].update(item=0.16, orange=0.16)
+        for cell in ((1, 1), (2, 1)):
+            info[cell].update(item=0.16, orange=0.16)
+        action, reason = strategy.choose(
+            info, player=(0, 1), ignored_targets={(1, 1), (2, 1)},
+            suspect_cells={(1, 1), (2, 1)})
+        self.assertEqual(action[0], "move")
+        self.assertEqual(action[2], "down", "confetti is ground, not a wall")
+
+    def test_a_suspect_is_still_not_a_goal(self):
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
-        info[(0, 1)].update(item=0.17, orange=0.17)
-        suspects = {(1, 1), (1, 2), (2, 2)}
+        info[(2, 2)].update(item=0.16, orange=0.16)
         action, reason = strategy.choose(info, player=(2, 1),
-                                         suspect_cells=suspects)
-        self.assertIsNone(action)
-        self.assertIn("boxed", reason)
+                                         ignored_targets={(2, 2)},
+                                         suspect_cells={(2, 2)})
+        self.assertNotIn("orange targets", reason)
 
-    def test_equal_cost_alternative_route_walks(self):
-        # When a same-cost route exists around the suspect there is
-        # nothing to wait for: walk it.
+    def test_the_tap_gate_allows_stepping_on_a_suspect(self):
         info = empty_grid()
-        info[(2, 1)]["player"] = 0.2
-        info[(1, 2)].update(item=0.17, orange=0.17)
-        suspects = {(1, 1)}
-        action, reason = strategy.choose(info, player=(2, 1),
-                                         suspect_cells=suspects)
-        self.assertIsNotNone(action)
+        info[(2, 2)].update(item=0.16, orange=0.16)
+        self.assertFalse(runner.unsafe_move_tap(info, (2, 2),
+                                                suspects={(2, 2)}))
 
-
-class TourBoxedBySuspectsTests(unittest.TestCase):
-    """Run 20260822T201927 n=9 (surfaced by the harness after the
-    empty-previous fix): post-pickup confetti made every column-2 cell
-    suspect, the real orange at (1,4) became unroutable, and choose()
-    fell through the tour into 'explore right' - spending paticas
-    walking while the real target waited. Suspects adjudicate within
-    1-2 frames: when the ONLY thing severing the route is suspicion,
-    a free rescan beats a blind walk."""
-
-    def _boxed_info(self):
+    def test_the_tap_gate_still_refuses_a_pyramid(self):
         info = empty_grid()
-        info[(3, 1)]["player"] = 0.2
-        info[(1, 4)].update(item=0.13, orange=0.13)
-        return info, {(1, 0), (1, 1), (1, 2), (2, 2), (3, 2), (4, 2)}
-
-    def test_unroutable_orange_waits_out_the_suspects(self):
-        info, suspects = self._boxed_info()
-        action, reason = strategy.choose(info, player=(3, 1),
-                                         suspect_cells=suspects)
-        self.assertIsNone(action)
-        self.assertIn("boxed", reason)
-
-    def test_pyramid_blockade_still_falls_through(self):
-        # Same shape but the blockade is REAL pyramids and no suspects:
-        # nothing will adjudicate away, so waiting starves - the normal
-        # attack/explore fallback must survive.
-        info = empty_grid()
-        info[(3, 1)]["player"] = 0.2
-        info[(1, 4)].update(item=0.13, orange=0.13)
-        for cell in ((1, 0), (1, 1), (1, 2), (2, 2), (3, 2), (4, 2)):
-            info[cell]["pyramid"] = 0.9
-        action, reason = strategy.choose(info, player=(3, 1))
-        self.assertIsNotNone(action)
-
-
-class SuspectImpassableTests(unittest.TestCase):
-    """Replay harness, first sweep (15 STARVATION hits across the
-    2026-08-22 runs): choose() kept routing THROUGH suspect cells the
-    tap gate then refused - a decision/guard contradiction that
-    starved the tour in four-skip loops. The constraint belongs in the
-    router: an unadjudicated suspect cell is impassable ground."""
-
-    def test_route_walks_around_a_suspect_cell(self):
-        info = empty_grid()
-        info[(2, 1)]["player"] = 0.2
-        info[(2, 3)].update(item=0.10, orange=0.10)
-        step = strategy.shortest_action(info, (2, 1), {(2, 3)},
-                                        avoid={(2, 2)})
-        self.assertIsNotNone(step)
-        target, obstacle, direction = step
-        self.assertNotEqual(target, (2, 2))
-
-    def test_avoid_never_blocks_the_target_itself(self):
-        info = empty_grid()
-        info[(2, 1)]["player"] = 0.2
-        info[(2, 2)].update(item=0.10, orange=0.10)
-        step = strategy.shortest_action(info, (2, 1), {(2, 2)},
-                                        avoid={(2, 2)})
-        self.assertIsNotNone(step)
+        info[(2, 2)]["pyramid"] = 0.9
+        self.assertTrue(runner.unsafe_move_tap(info, (2, 2)))
 
 
 class FragileDetourTests(unittest.TestCase):
@@ -2540,30 +2492,24 @@ class HiddenGarraTests(unittest.TestCase):
         self.assertTrue(runner.unsafe_move_tap(info, (1, 0)))
         self.assertFalse(runner.unsafe_move_tap(info, (1, 1)))
 
-    def test_remembered_cell_overrides_the_suspect_veto(self):
-        # Run 20260822T194747 n=20 (user: 'no recogió 2 energías'):
-        # the orange at (4,1) was REMEMBERED - real and tracked - but
-        # its cell also flickered suspect, and the tap gate refused the
-        # route to it FOUR times in a row while four known oranges
-        # paraded off the left edge. Memory outranks suspicion at the
-        # tap gate exactly as it does in drop_remembered_suspects.
+    def test_a_pyramid_under_confetti_still_refuses_the_tap(self):
+        # The precise replacement for the retired suspect veto (run
+        # 20260822T160202 n=89, one hidden 200-shard garra): the world
+        # model keeps the pyramid's own track when a card is painted
+        # over it, the runner merges it back as an obstacle, and the
+        # gate refuses it as the pyramid it is - instead of turning
+        # every confetti cell into a wall, which cost two taps per
+        # detour and three waiting rules (run 20260823T033159).
+        world = world_model.WorldModel()
+        world.observe({"items": {}, "pyramids": {(1, 1)}}, shift=0)
+        world.observe({"items": {(1, 1): "orange"}, "pyramids": set()},
+                      shift=0)
+        self.assertIn((1, 1), world.believed_pyramids())
         info = empty_grid()
-        self.assertFalse(runner.unsafe_move_tap(
-            info, (4, 1), suspects={(4, 1)},
-            remembered={(4, 1): ("orange", 3)}))
-        self.assertTrue(runner.unsafe_move_tap(
-            info, (4, 1), suspects={(4, 1)}, remembered={}))
-
-    def test_move_tap_onto_a_suspect_is_unsafe(self):
-        # Run 20260822T160202 n=89: the route stepped UP onto the
-        # suspect cell (1,1) - confetti covering a pyramid the vision
-        # could not see - and the tap executed a garra. A suspect cell
-        # is unknown ground: never tap it, wait for adjudication.
-        info = empty_grid()
-        self.assertTrue(runner.unsafe_move_tap(info, (1, 1),
-                                               suspects={(1, 1)}))
-        self.assertFalse(runner.unsafe_move_tap(info, (1, 1),
-                                                suspects={(2, 2)}))
+        info[(1, 1)].update(item=0.16, orange=0.16)
+        merged = runner.merge_phantom_obstacles(
+            info, {cell: 9 for cell in world.believed_pyramids()}, 0)
+        self.assertTrue(runner.unsafe_move_tap(merged, (1, 1)))
 
 
 if __name__ == "__main__":

@@ -139,6 +139,41 @@ class OriginClassificationTests(unittest.TestCase):
                          {(0, 1): "orange", (4, 3): "claw"})
 
 
+class PyramidsSurviveTheirCoverTests(unittest.TestCase):
+    """A pyramid does not become a pickup because a card was painted
+    over it. Run 20260822T160202 n=89: confetti covered a pyramid, the
+    cell read as an item, and the move tap onto it executed a hidden
+    200-shard garra. The old answer was to treat every suspect cell as
+    impassable ground, which invented walls out of harmless confetti
+    (run 20260823T033159: eight taps where six sufficed). The precise
+    answer is that a pyramid only leaves by being broken or by
+    scrolling off, so the track stays and the cell stays impassable
+    for the ordinary reason: it is a pyramid."""
+
+    def test_confetti_over_a_pyramid_does_not_replace_it(self):
+        world = running()
+        world.observe(seen(pyramids={(1, 1)}), shift=0)
+        world.observe(seen(items={(1, 1): "orange"}), shift=0)
+        self.assertIn((1, 1), world.believed_pyramids())
+        self.assertNotIn((1, 1), world.believed_items())
+
+    def test_a_broken_pyramid_leaves_at_once(self):
+        # Vision reading the cell as plain empty is the break: pyramids
+        # score 0.88-0.99, they do not flicker like items do.
+        world = running()
+        world.observe(seen(pyramids={(1, 1)}), shift=0)
+        world.observe(seen(), shift=0)
+        self.assertNotIn((1, 1), world.believed_pyramids())
+
+    def test_a_real_drop_on_a_broken_pyramid_cell_is_believed(self):
+        world = running()
+        world.observe(seen(pyramids={(1, 1)}), shift=0)
+        world.observe(seen(), shift=0)                      # garra broke it
+        world.observe(seen(items={(1, 1): "orange"}), shift=0,
+                      revealed={(1, 1)})
+        self.assertIn((1, 1), world.believed_items())
+
+
 class BeliefIsNotRelitigatedTests(unittest.TestCase):
     """Run 20260822T194747 n=20 (four-skip starvation, two energies
     lost): a remembered orange whose cell flickered suspect had its

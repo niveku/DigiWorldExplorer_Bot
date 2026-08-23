@@ -71,14 +71,8 @@ def load_run(run_dir):
 class Replay:
     def __init__(self):
         self.remembered = {}
-        self.mem_misses = {}
         self.phantoms = {}
         self.pending_reveals = {}
-        self.recent_pickups = []
-        self.prev_item_cells = None
-        self.prev_fresh = set()
-        self.prev_suspects = set()
-        self.sticky_ages = {}
         self.prev_strip = None
         self.slide_waits = 0
         self.expected_player = None
@@ -107,10 +101,8 @@ class Replay:
     def shift_left(self, times=1):
         for _ in range(times):
             self.remembered = runner.shift_items_left(self.remembered)
-            self.mem_misses = runner.shift_items_left(self.mem_misses)
             self.phantoms = runner.shift_items_left(self.phantoms)
             self.pending_reveals = runner.shift_items_left(self.pending_reveals)
-            self.recent_pickups = runner.shift_pickup_log_left(self.recent_pickups)
             self.ghost_streaks = runner.shift_items_left(self.ghost_streaks)
             self.unseen_streaks = runner.shift_items_left(self.unseen_streaks)
             self.unseen_last_n = runner.shift_items_left(self.unseen_last_n)
@@ -151,7 +143,6 @@ class Replay:
             if delta > 0:
                 for _ in range(delta):
                     self.remembered = runner.shift_items_right(self.remembered)
-                    self.mem_misses = runner.shift_items_right(self.mem_misses)
                     self.phantoms = runner.shift_items_right(self.phantoms)
                     self.pending_reveals = runner.shift_items_right(
                         self.pending_reveals)
@@ -306,12 +297,6 @@ class Replay:
             if kind == "move":
                 self.remembered.pop(target, None)
                 self.prev_action = "move"
-                # A recorded move onto a visible item is a pickup: it
-                # feeds burst_holds and the confetti_risk window just
-                # like the live runner's pickup log.
-                if (self.prev_item_cells
-                        and target in self.prev_item_cells):
-                    self.recent_pickups.append((target, self.done))
                 if len(target) == 2 and target[1] >= 2:
                     self.shift_left(1)
                     self.claimed += 1

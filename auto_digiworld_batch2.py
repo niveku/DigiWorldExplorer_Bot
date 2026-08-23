@@ -483,12 +483,6 @@ def shift_items_left(remembered):
             for (row, col), value in remembered.items() if col - 1 >= 0}
 
 
-def shift_pickup_log_left(recent_pickups):
-    """Scroll compensation for the burst-zone pickup log."""
-    return [((row, col - 1), when)
-            for (row, col), when in recent_pickups if col - 1 >= 0]
-
-
 def shift_items_right(remembered):
     """Undo one over-counted scroll: the world moved LESS than the taps
     claimed, so every shifted structure steps one column back right.
@@ -1286,10 +1280,14 @@ def unsafe_move_tap(info, target, suspects=(), remembered=()):
     route to a REMEMBERED orange four times in a row because its cell
     also flickered suspect, and four known oranges paraded off the
     left edge (user: 'no recogió 2 energías')."""
-    if strategy.is_obstacle(info[tuple(target)]):
-        return True
-    return (tuple(target) in suspects
-            and tuple(target) not in remembered)
+    # Only a pyramid can make a move tap unsafe. Refusing SUSPECT cells
+    # too was the blunt answer to confetti hiding a pyramid (run
+    # 20260822T160202 n=89, one hidden garra); it turned harmless cards
+    # into walls and cost eight taps where six sufficed in run
+    # 20260823T033159. The precise answer lives in the world model: a
+    # covered pyramid keeps its own track, so this line still refuses
+    # it - as a pyramid, which is what it is.
+    return strategy.is_obstacle(info[tuple(target)])
 
 
 def lawful_tap(cell):
@@ -1511,7 +1509,6 @@ def main():
     scroll_waits = 0
     slide_waits = 0
     lag_cooldown = 0
-    recent_pickups = []
     committed_wall = None
     wall_holds = 0
     last_dash = None
@@ -1973,11 +1970,8 @@ def main():
                 if step_right:
                     ban_history = {(r, c + 1) for r, c in ban_history
                                    if c + 1 <= 4}
-                    recent_pickups = [((r, c + 1), w) for (r, c), w
-                                      in recent_pickups if c + 1 <= 4]
                 else:
                     ban_history = shift_cells_left(ban_history)
-                    recent_pickups = shift_pickup_log_left(recent_pickups)
             event["scroll_reconciled"] = {"claimed": scrolls_since_frame,
                                           "measured": measured}
             if measured < scrolls_since_frame:
@@ -2056,6 +2050,15 @@ def main():
                             if cell not in detected_cells_now}
         if remembered_items:
             info = merge_remembered_items(info, remembered_items, player)
+        # A pyramid the confetti is covering right now still blocks: its
+        # track outlives the card painted over it, and the planner must
+        # see it as the obstacle it is rather than have the whole
+        # neighbourhood suspected on its behalf.
+        covered_pyramids = {cell for cell in world.believed_pyramids()
+                            if cell not in detected_pyramids}
+        if covered_pyramids:
+            info = merge_phantom_obstacles(
+                info, {cell: done + 1 for cell in covered_pyramids}, done)
         total_scrolls += scrolls_since_frame
         scrolls_since_frame = 0
         # Detection-only: logging the merged board painted remembered
@@ -2138,11 +2141,6 @@ def main():
                     dash_stock = inv_after["dashes"]
                 pending_dash = None
             current_right_obstacles = consecutive_right_obstacles(info, player)
-            # The dash path collected whatever it broke: its cells are
-            # confetti sources for the same two frames a move pickup is.
-            recent_pickups = dash_pickup_log(recent_pickups,
-                                             previous_dash_player,
-                                             frame_clock.now)
             if (previous_dash_obstacles >= 2 and current_right_obstacles >= 2
                     and dash_had_no_effect(
                         dash_inv_before,
@@ -2369,7 +2367,6 @@ def main():
                 banned_targets = shift_items_left(banned_targets)
                 ban_history = shift_cells_left(ban_history)
                 pending_reveals = shift_items_left(pending_reveals)
-                recent_pickups = shift_pickup_log_left(recent_pickups)
             scrolls_since_frame += dash_shift
             # No reveal window after a dash: it breaks and collects in
             # the same motion, so nothing it touches ever stays on the
@@ -2449,7 +2446,6 @@ def main():
                 banned_targets = shift_items_left(banned_targets)
                 ban_history = shift_cells_left(ban_history)
                 pending_reveals = shift_items_left(pending_reveals)
-                recent_pickups = shift_pickup_log_left(recent_pickups)
                 # The wall commitment survives the scroll: wall_is_stable
                 # carries the scroll count at sighting and adjusts the
                 # expected launch column. Clearing it here made a wall
@@ -2461,7 +2457,6 @@ def main():
                       if kind == "move" else None)
             if pickup:
                 collected[pickup] += 1
-                recent_pickups.append((tuple(target), frame_clock.now))
                 frame_picked = True
 
             # Never batch through an attack or a pickup animation.
@@ -2496,12 +2491,10 @@ def main():
                         banned_targets = shift_items_left(banned_targets)
                         ban_history = shift_cells_left(ban_history)
                         pending_reveals = shift_items_left(pending_reveals)
-                        recent_pickups = shift_pickup_log_left(recent_pickups)
                         scrolls_since_frame += 1
                     pickup = item_category(info[checked])
                     if pickup:
                         collected[pickup] += 1
-                        recent_pickups.append((tuple(checked), frame_clock.now))
                         frame_picked = True
 
         event["action"] = sent

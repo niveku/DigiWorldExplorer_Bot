@@ -63,11 +63,16 @@ class Track:
 
     @property
     def believed(self):
-        """Real enough to route to.
+        """Real enough to act on.
 
         An explained birth is believed at once - it is where the game
-        puts things. An unexplained one has to outlive the confetti."""
-        return self.explained or self.sightings >= CONFIRM_SIGHTINGS
+        puts things. An unexplained one has to outlive the confetti.
+        Pyramids are always believed: the confetti phenomenon paints
+        CARDS, never pyramids, and a pyramid reads 0.88-0.99 against
+        an item's 0.06-0.20 - doubting the strongest signal on the
+        board only ever walked the bot into one."""
+        return (self.kind == "pyramid" or self.explained
+                or self.sightings >= CONFIRM_SIGHTINGS)
 
     @property
     def stage(self):
@@ -142,7 +147,12 @@ class WorldModel:
             if cell in seen_cells or cell in blind:
                 continue
             track.misses += 1
-            if track.misses >= MAX_MISSES:
+            # A pyramid that vision reports as plainly empty was broken:
+            # it does not flicker at 0.88-0.99, and the only other way
+            # out is the left edge, which the shift already handles.
+            # Items get three frames of tolerance because confetti
+            # covers them and the sprite hides them.
+            if track.kind == "pyramid" or track.misses >= MAX_MISSES:
                 del self.tracks[cell]
 
         if player is not None:
@@ -180,6 +190,17 @@ class WorldModel:
             track.misses = 0
             if category:
                 track.category = category
+            return
+        if (track is not None and track.kind == "pyramid"
+                and kind == "item"):
+            # A card painted over a pyramid does not turn it into a
+            # pickup. A pyramid leaves only by being broken - which
+            # reads as a plainly EMPTY cell, since pyramids score
+            # 0.88-0.99 and do not flicker - or by scrolling off. Run
+            # 20260822T160202 n=89 tapped such a cell and paid a hidden
+            # 200-shard garra; suspecting the whole neighbourhood was
+            # the old, blunt answer.
+            track.misses = 0
             return
         origin = self._classify(cell, shift, first_frame, revealed)
         self.tracks[cell] = Track(cell=cell, kind=kind, category=category,
