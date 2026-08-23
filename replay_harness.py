@@ -45,6 +45,7 @@ from PIL import Image
 import auto_digiworld as strategy
 import auto_digiworld_batch2 as runner
 import digiworld_bot as bot
+import world_model as wm
 
 
 def load_run(run_dir):
@@ -92,6 +93,13 @@ class Replay:
         self.unseen_last_n = {}
         self.violations = []
         self.debug_n = None
+        # The tracked world model runs alongside the legacy stack over
+        # the same frames and the same reconciled scroll, so its
+        # beliefs can be judged on real footage before it drives
+        # anything (migration of docs/review-2026-08-22.md PENDING-1).
+        self.world = wm.WorldModel()
+        self.world_stats = {"frames": 0, "believed": 0, "suspect": 0,
+                            "tracks": 0, "walls": 0, "ghosts": 0}
 
     def flag(self, n, kind, detail):
         self.violations.append((n, kind, detail))
@@ -157,62 +165,24 @@ class Replay:
                 self.shift_left(-delta)
             self.claimed = measured
 
+        # ONE update of the tracked world model replaces the six
+        # suspicion stages (fresh appearances, two-frame carryover,
+        # burst holds, sticky left-band holds, remembered-suspect
+        # drops, clean-miss decay) plus the separate memory. Identity
+        # carried across the measured scroll makes the flicker, the
+        # carryover and the contradiction rules unnecessary rather
+        # than fixed one at a time.
+        self._observe_world(img, det, detected, player)
+        self.claimed = 0
         self.phantoms.pop(tuple(player), None)
-        self.remembered.pop(tuple(player), None)
-        self.mem_misses.pop(tuple(player), None)
-        for cell in set(self.remembered) & set(self.phantoms):
-            self.remembered.pop(cell, None)
-            self.phantoms.pop(cell, None)
-            self.mem_misses.pop(cell, None)
-        for cell in [c for c in self.remembered
-                     if strategy.is_obstacle(detected[c])]:
-            self.remembered.pop(cell, None)
-            self.mem_misses.pop(cell, None)
         self.phantoms = {c: e for c, e in self.phantoms.items() if e > self.done}
+        suspects = self.world.suspect_cells()
+        # Memory = believed tracks vision cannot see right now.
+        self.remembered = {cell: (category, self.done)
+                           for cell, category in self.world.believed_items().items()
+                           if cell not in runner.item_cells_of(detected)}
         merged = runner.merge_remembered_items(info, self.remembered, player)
         merged = runner.merge_phantom_obstacles(merged, self.phantoms, self.done)
-
-        current = runner.item_cells_of(merged)
-        fresh = runner.suspect_appearances(
-            current, self.prev_item_cells, shift=self.claimed,
-            attack_cell=(self.prev_attack_target
-                         if self.prev_action == "attack" else None),
-            revealed_cells=runner.live_reveal_cells(self.pending_reveals,
-                                                    self.done),
-            confetti_risk=(self.prev_action == "dash"
-                           or any(self.done - when < 2
-                                  for _, when in self.recent_pickups)),
-            confetti_rows=runner.confetti_rows_of(
-                self.prev_dash_player if self.prev_action == "dash" else None,
-                self.recent_pickups, self.done))
-        suspects = runner.combined_suspects(fresh, self.prev_fresh, current,
-                                            shift=self.claimed)
-        suspects = runner.drop_remembered_suspects(suspects, self.remembered)
-        suspects |= runner.burst_holds(self.prev_fresh, current,
-                                       self.recent_pickups, self.done,
-                                       shift=self.claimed)
-        shifted_prev = {(r, c - self.claimed) for r, c in self.prev_suspects
-                        if c - self.claimed >= 0}
-        shifted_ages = {(r, c - self.claimed): v
-                        for (r, c), v in self.sticky_ages.items()
-                        if c - self.claimed >= 0}
-        held, self.sticky_ages = runner.sticky_left_band_suspects(
-            shifted_prev, current, shifted_ages)
-        suspects |= held
-        suspects = runner.drop_remembered_suspects(suspects, self.remembered)
-        self.prev_suspects = set(suspects)
-        self.prev_fresh = fresh
-        self.prev_item_cells = current
-        self.claimed = 0
-
-        self.remembered = runner.remember_confirmed_items(
-            self.remembered, detected, player, suspects, self.done)
-        self.remembered = runner.drop_shift_ghosts(self.remembered, detected)
-        self.remembered, self.mem_misses = runner.decay_unseen_left_band(
-            self.remembered, self.mem_misses,
-            runner.item_cells_of(detected), suspects, player)
-        self.remembered = runner.prune_remembered_items(
-            self.remembered, self.done, player)
 
         # ---- invariants ----
         detected_cells = runner.item_cells_of(detected)
@@ -303,6 +273,32 @@ class Replay:
 
         self.done += 1
 
+    def _observe_world(self, img, det, detected, player):
+        """Feed the tracked model the same frame, with the RECONCILED
+        scroll - the tap count corrected by the pixel sensor, which is
+        the only number that survives a 3-move batch or a dash (the raw
+        sensor saturates at two columns)."""
+        items, pyramids = {}, set()
+        for cell, values in detected.items():
+            if strategy.is_obstacle(values):
+                pyramids.add(cell)
+                continue
+            category = strategy.pickup_type(values)
+            if category:
+                items[cell] = category
+        self.world.observe(
+            {"items": items, "pyramids": pyramids},
+            shift=self.claimed, player=player,
+            revealed=runner.live_reveal_cells(self.pending_reveals, self.done),
+            preview=strategy.sixth_column_preview(img, det.board))
+        stats = self.world_stats
+        stats["frames"] += 1
+        stats["believed"] += len(self.world.believed_items())
+        stats["suspect"] += len(self.world.suspect_cells())
+        stats["tracks"] += len(self.world.tracks)
+        stats["walls"] += sum(1 for wall in self.world.incoming_walls().values()
+                              if wall.dashable)
+
     def apply_recorded(self, n, acts):
         for m in acts:
             kind = m.get("type")
@@ -339,7 +335,7 @@ class Replay:
                 self.claimed += shift
 
 
-def replay_run(run_dir, debug_n=None):
+def replay_run(run_dir, debug_n=None, world_stats=None):
     frames, actions = load_run(run_dir)
     rep = Replay()
     rep.debug_n = debug_n
@@ -349,6 +345,8 @@ def replay_run(run_dir, debug_n=None):
         last_of_n = idx + 1 >= len(frames) or frames[idx + 1][0] != n
         if last_of_n and n in actions:
             rep.apply_recorded(n, actions[n])
+    if world_stats is not None:
+        world_stats.update(rep.world_stats)
     return rep.violations
 
 

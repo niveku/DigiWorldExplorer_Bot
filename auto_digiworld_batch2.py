@@ -19,6 +19,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 import auto_digiworld as strategy
 import digiworld_bot as bot
+import world_model
 
 
 DIR_DELTA = {"right": (0, 1), "left": (0, -1), "down": (1, 0), "up": (-1, 0)}
@@ -229,150 +230,6 @@ def milestone_chest_ready(image):
 # suspect filter adjudicates phantoms and the confirmed-item memory holds
 # real items through animation frames, so the whole-board flicker guard
 # only added 0.4-0.8s of dead time per pickup wave.
-
-
-def suspect_appearances(current, previous, shift=0, attack_cell=None,
-                        revealed_cells=(), confetti_risk=True,
-                        confetti_rows=None):
-    """Item cells that appeared where nothing can appear.
-
-    Game invariants (user-confirmed 2026-08-21): items only enter the
-    board from the right edge, or revealed at a cell whose pyramid was
-    just broken - by a garra (attack_cell) or by a dash (revealed_cells,
-    the dash path shifted by its own 3-column scroll). Any other arrival
-    is animation residue - the +20 confetti painted 6-9 phantom oranges
-    per pickup (run 20260820T183527). Suspects are ignored as targets
-    for one frame; a real item survives into the next frame's
-    previous-set and stops being suspect. The caller always counts the
-    scroll exactly (the old guess-the-shift fallback hid ghost 105 of
-    run 20260820T184744 behind a coincidental mapping).
-    """
-    if previous is None:
-        # First frame only: no observation to compare against. An
-        # OBSERVED empty board is a real observation - run
-        # 20260822T201927 n=37 hit `if not previous` with the empty
-        # pre-dash board, the detector went silent, 8 confetti phantoms
-        # entered memory and the bot circled its own ghosts while the
-        # one real energy scrolled away.
-        return set()
-    shifted = {(row, col - shift) for row, col in previous}
-    fresh = set(current) - shifted
-    legit = {tuple(cell) for cell in revealed_cells}
-    if attack_cell:
-        legit.add(tuple(attack_cell))
-    # Ingestion band: an item entering at column 4 during a k-scroll
-    # interval can legitimately land anywhere down to column 4-(k-1).
-    # The band only scales when the interval had NO confetti source
-    # (no dash, no pickup): run 20260822T205803 n=6, a real energy
-    # landed at (4,2) after a 3-move batch, got flagged by the fixed
-    # band, stuck to the left-band hold, and scrolled off unclaimed.
-    # With confetti risk the strict band stands (run 20260822T201927:
-    # post-dash confetti painted 8 phantoms across columns 0-2).
-    # confetti_rows: confetti only exists around the cells that
-    # produced it (dash path / pickup, radius 2). A fresh arrival on a
-    # row no confetti can reach uses the scaled band even under risk:
-    # run 20260822T234822 n=20, a real orange entered at (1,3) during
-    # a row-4 dash, was strict-banded into suspicion, sticky-held, and
-    # scrolled off unclaimed.
-    # Column 4 is not automatically legitimate either (review
-    # 2026-08-22): items enter only when the world SCROLLS, so with no
-    # scroll in the interval an appearance at the right edge cannot be
-    # an arrival - and a pickup at column 2 paints confetti out to
-    # column 4 (radius 2). Legitimacy is 'consistent with the measured
-    # scroll', not 'far enough right'.
-    # One formula for both: an item entering at column 4 on the first
-    # of k scrolls ends the interval at column 5-k, so cells at column
-    # >= 5-k are legitimate arrivals and everything left of that is
-    # not. With k=0 nothing can enter at all (floor 5: every fresh
-    # appearance is unexplained), with k=1 only column 4 is legitimate.
-    scaled_floor = max(0, 5 - shift)
-    def floor_for(cell):
-        if confetti_risk and (confetti_rows is None
-                              or cell[0] in confetti_rows):
-            return 5
-        return scaled_floor
-    return {cell for cell in fresh
-            if cell[1] < floor_for(cell) and cell not in legit}
-
-
-def _shifted(cells, shift):
-    """Last frame's cells expressed in this frame's coordinates."""
-    if not shift:
-        return set(cells)
-    return {(row, col - shift) for row, col in cells if col - shift >= 0}
-
-
-def combined_suspects(fresh, previous_fresh, current, shift=0):
-    """Suspects for this frame: fresh arrivals plus last frame's fresh
-    arrivals that are still visible.
-
-    The pickup confetti spans two frames (it starts on the pickup frame
-    itself, run 20260820T184744 event 136), so a 1-frame check saw the
-    second frame as a survivor. Carrying over only the FRESH set caps
-    the suspicion at two frames: a real item unlocks on frame three.
-
-    The carryover is shift-aware (review 2026-08-22): last frame's
-    cells are in last frame's coordinates, so intersecting them raw
-    with this frame's cells lost every carryover across a scroll -
-    confetti that survived a move got believed on its second frame.
-    """
-    return set(fresh) | (_shifted(previous_fresh, shift) & set(current))
-
-
-def prune_remembered_items(remembered, done, player, ttl=25):
-    """Drop remembered pickups that expired or were just visited.
-
-    Game invariant (user, 2026-08-21): no pickup - claws included - ever
-    vanishes except by collection or the left edge, so the old
-    claw-specific 4-frame TTL only recreated the flicker churn the
-    memory exists to prevent. One unified TTL guards against our own
-    coordinate errors; collection pops and the scroll shift handle the
-    legitimate exits.
-
-    (The time-based left-band fast TTL lived here for one run and was
-    a regression - confetti covers a real item for a frame and the
-    clock kills it (run 20260822T184638, user: 'falló muchos drops').
-    Left-band ghosts are handled by decay_unseen_left_band, which
-    counts CLEAN misses instead of time.)"""
-    return {cell: value for cell, value in remembered.items()
-            if done - value[1] <= ttl and cell != player}
-
-
-def decay_unseen_left_band(remembered, misses, detected_cells, suspects,
-                           player, band=2, max_misses=3):
-    """Left-band memory dies only after its cell was seen truly EMPTY.
-
-    The band is fully visible, so a remembered item whose cell shows
-    NOTHING - no item detected, no suspect (confetti) covering it, no
-    player sprite nearby to blind the detector - three separate times
-    is a shift-accounting ghost (run 20260822T183056 n=25/54 chased
-    those). A plain time TTL was a regression: confetti covers a REAL
-    tracked item for a frame, the clock kills it, and its reappearance
-    reads as an unexplained arrival - sticky, ignored, scrolled off
-    (run 20260822T184638, user: 'falló muchos drops'). Clean-miss
-    counting kills ghosts just as fast (their cells look clean every
-    frame) and never touches a covered real item.
-    Returns (kept_memory, updated_misses)."""
-    kept = {}
-    new_misses = {}
-    for cell, value in remembered.items():
-        if cell[1] > band:
-            kept[cell] = value
-            continue
-        near_player = (abs(cell[0] - player[0]) <= 1
-                       and abs(cell[1] - player[1]) <= 1)
-        if cell in detected_cells:
-            kept[cell] = value
-            continue
-        if cell in suspects or near_player:
-            kept[cell] = value
-            new_misses[cell] = misses.get(cell, 0)
-            continue
-        count = misses.get(cell, 0) + 1
-        if count < max_misses:
-            kept[cell] = value
-            new_misses[cell] = count
-    return kept, new_misses
 
 
 def close_reward_overlay(tap, capture, classify, max_taps=5, pause=None):
@@ -758,19 +615,6 @@ def dash_had_no_effect(inventory_before, inventory_after, player_moved,
     return not player_moved and obstacles_after >= obstacles_before
 
 
-def dash_pickup_log(recent_pickups, launch, frame, reach=3):
-    """Log the dash path as pickup sources for the confetti window.
-
-    A dash collects everything in its path in one motion - the richest
-    pickup event in the game - but only move-pickups were ever logged,
-    so the burst zone around a dash lasted a single frame against a
-    two-frame phenomenon (review 2026-08-22)."""
-    row, col = launch
-    return list(recent_pickups) + [((row, c), frame)
-                                   for c in range(col + 1,
-                                                  min(5, col + 1 + reach))]
-
-
 class FrameClock:
     """Ticks once per screenshot.
 
@@ -789,27 +633,6 @@ class FrameClock:
     def tick(self):
         self.now += 1
         return self.now
-
-
-def confetti_rows_of(dash_player, recent_pickups, done, ttl=2, radius=2):
-    """Rows where confetti can exist this frame, or None when a source
-    has no known location (conservative: confetti possible anywhere).
-
-    Confetti only appears around a fresh pickup or the cells a dash
-    broke (radius 2). A dash launched from row r can only paint rows
-    r+-2; a real item entering on a farther row during the dash's
-    3-column scroll is not confetti and must not be strict-banded
-    (run 20260822T234822 n=20: orange in at (1,3), dash in row 4)."""
-    sources = []
-    if dash_player is not None:
-        sources.append(dash_player[0])
-    sources += [cell[0] for cell, when in recent_pickups
-                if done - when < ttl]
-    if not sources:
-        return None
-    return tuple({r for src in sources
-                  for r in range(max(0, src - radius),
-                                 min(5, src + radius + 1))})
 
 
 def should_wait_for_slide(sliding, slide_waits, max_waits=3):
@@ -847,47 +670,6 @@ def pointless_attack(detected_info, target):
     cell - and then walked an 8-step detour around a wall that did not
     exist. A phantom vision cannot confirm gets dropped, not hit."""
     return not strategy.is_obstacle(detected_info[tuple(target)])
-
-
-def sticky_left_band_suspects(prev_suspects, current_cells, ages, band=2,
-                              ttl=4):
-    """An unexplained left-band appearance is not believed - for a TTL.
-
-    Doctrine 2026-08-22 (user): columns 0-2 are KNOWN world - nothing
-    new can exist there except a garra drop (whitelisted) or what
-    memory already tracks, so an unexplained appearance is confetti by
-    definition and stays suspect while visible. But only for ttl
-    frames: run 20260822T165752 n=12-17 (user force-stop) flagged a
-    REAL orange once during phantom-tap chaos and the un-expiring
-    version blind-sided the bot against an energy sitting in front of
-    it. Confetti never survives 4 settled frames (measured over the
-    2026-08-22 runs); anything that does is real and gets released.
-    The age survives ONE covered frame (review 2026-08-22, 'suspects'
-    lens, confirmed): dropping it on the first detection miss - the
-    very confetti-cover flicker decay_unseen_left_band was rebuilt
-    around - made the reappearance read as a brand-new arrival, so the
-    clock restarted from zero and a real item suspected once could be
-    held until it scrolled off. Two consecutive misses do forget the
-    cell: that is confetti that vanished, not an item under cover.
-    Ages are (age, missed) pairs; plain ints are accepted from older
-    state.
-    Returns (held_cells, updated_ages)."""
-    held = set()
-    new_ages = {}
-    for cell in prev_suspects:
-        if cell[1] > band:
-            continue
-        stored = ages.get(cell, 0)
-        age, missed = stored if isinstance(stored, tuple) else (stored, False)
-        if cell not in current_cells:
-            if not missed:
-                new_ages[cell] = (age, True)
-            continue
-        age += 1
-        if age < ttl:
-            held.add(cell)
-            new_ages[cell] = (age, False)
-    return held, new_ages
 
 
 RESCAN_DELAY = 0.5
@@ -1098,41 +880,6 @@ def compact_state(info, player, remembered):
     }
 
 
-def remember_confirmed_items(remembered, info, player, suspects, done):
-    """Record every confirmed pickup sighting; a pickup cannot vanish.
-
-    It leaves the board by collection or by the left edge, nothing else
-    (game physics, user-confirmed). Run 20260821T192126 lost eleven
-    confirmed pickups to the left edge because each flickered one frame
-    under a pickup animation and re-entered as a fresh suspect forever.
-    Memory recorded from PRE-merge detections (so a remembered ghost can
-    never refresh itself through its own merged patch) bridges the
-    flicker: the cell stays visible to the pathfinder and never reads as
-    a fresh arrival again. Suspects are not recorded - confetti phantoms
-    live shorter than the two-frame adjudication."""
-    updated = dict(remembered)
-    for cell, values in info.items():
-        if cell == player or cell in suspects:
-            continue
-        if not is_pickup(values):
-            continue
-        category = item_category(values)
-        if category is not None:
-            updated[cell] = (category, done)
-    return updated
-
-
-def drop_remembered_suspects(suspects, remembered):
-    """Memory outranks suspicion: a remembered cell cannot be a suspect.
-
-    Run 20260821T213642 n=51-56: the dash orb at (4,0) sat in memory
-    (confirmed) and in the suspect set (its detection flickered into a
-    'fresh arrival' every other frame) at the same time. Suspects feed
-    choose() as ignored targets, so the confirmed orb was never targeted
-    and scrolled off the board."""
-    return {cell for cell in suspects if cell not in remembered}
-
-
 def dash_scroll_count(player_col):
     """Columns the world scrolls on a dash: clamp-to-column-1 physics.
 
@@ -1169,43 +916,6 @@ def should_disable_attacks(no_effect_streak):
     cornered bot stopped the run. A single swallowed tap retries
     naturally on the next frame."""
     return no_effect_streak >= 2
-
-
-def drop_shift_ghosts(remembered, info):
-    """Kill memory twins created by an over-counted scroll.
-
-    Run 20260821T225908 n=13-14 (user-confirmed: ONE claw on screen, two
-    in memory): a scroll tap the game swallowed still counted in the
-    shift accounting, so memory slid the claw one column left while the
-    live detection re-recorded it in place - and after grabbing the real
-    one the bot stepped left into the ghost. A remembered cell that is
-    NOT detected while its right neighbor holds a live detection of the
-    same category is such a ghost and dies."""
-    def detected_category(cell):
-        values = info.get(cell)
-        if values is None or not is_pickup(values):
-            return None
-        return item_category(values)
-
-    return {cell: value for cell, value in remembered.items()
-            if not (detected_category(cell) is None
-                    and detected_category((cell[0], cell[1] + 1)) == value[0])}
-
-
-def remember_revealed_pickup(remembered, pyramid_result, cell, done):
-    """A pickup revealed by a broken pyramid enters memory immediately.
-
-    The reveal animation can hide the drop from the very next frame's
-    detector (user report 2026-08-21: broke a pyramid, walked to the
-    middle cell, only then saw the energy and walked back). The attack
-    result already names the revealed category, so the cell becomes a
-    remembered goal before the detector ever needs to see it."""
-    revealed = (pyramid_result or {}).get("revealed")
-    if not revealed or not (pyramid_result or {}).get("broken"):
-        return remembered
-    updated = dict(remembered)
-    updated[tuple(cell)] = (revealed, done)
-    return updated
 
 
 def should_reenable(disabled_at, done, span=REENABLE_ACTIONS):
@@ -1582,25 +1292,6 @@ def unsafe_move_tap(info, target, suspects=(), remembered=()):
             and tuple(target) not in remembered)
 
 
-def burst_holds(prev_fresh, current_cells, recent_pickups, done,
-                radius=2, ttl=3, shift=0):
-    """Confetti-zone survivors need one extra frame of belief.
-
-    Confetti only exists around a fresh pickup, and its cards can
-    survive the standard two sightings (run 20260822T160202 n=36-38:
-    the SKIP frame donated one, and the bot walked to an empty cell).
-    A fresh appearance from the PREVIOUS frame that sits within radius
-    cells of a pickup made in the last ttl frames stays suspect for
-    one more frame; real items are untouched - nothing legitimately
-    appears mid-board except garra drops (whitelisted) and right-edge
-    arrivals (outside any burst zone by the time they matter)."""
-    zones = [cell for cell, when in recent_pickups if done - when < ttl]
-    return {cell for cell in _shifted(prev_fresh, shift)
-            if cell in current_cells
-            and any(abs(cell[0] - z[0]) <= radius
-                    and abs(cell[1] - z[1]) <= radius for z in zones)}
-
-
 def lawful_tap(cell):
     """Game law: with the digi pinned to columns 0-1, a cross move can
     reach column 2 at most - any tap beyond it is invalid by definition
@@ -1814,12 +1505,9 @@ def main():
     # coincidental mappings, run 20260820T184744 events 105/136).
     scrolls_since_frame = 0
     total_scrolls = 0
-    prev_fresh_suspects = set()
-    prev_suspect_items = set()
-    sticky_ages = {}
-    mem_misses = {}
     prev_strip = None
     frame_clock = FrameClock()
+    world = world_model.WorldModel()
     scroll_waits = 0
     slide_waits = 0
     lag_cooldown = 0
@@ -1828,7 +1516,6 @@ def main():
     wall_holds = 0
     last_dash = None
     chest_cooldown = 0
-    prev_item_cells = None
     last_attack = None
     previous_action = None
     previous_attack_target = None
@@ -2194,19 +1881,23 @@ def main():
                 return 3
             time.sleep(1.0); continue
         player_unreliable = 0
+        occluded_cells = set()
         if player_source == "large-sprite":
             # A big sprite's own colors read as pickups in the cells its body
             # covers; wipe them so the bot stops chasing its own wings. Items
             # sighted from afar are remembered so getting close (and wiping
             # their cell) does not make the goal flicker away.
             info = strategy.suppress_sprite_leaks(info, player)
-            for cell, values in info.items():
-                if values["item"] > .06 and cell != player:
-                    remembered_items[cell] = (item_category(values) or "orange", done)
+            # The wiped cells are unobservable, not empty: the model is
+            # told so instead of memory being hand-fed (the old
+            # workaround wrote straight into remembered_items).
+            occluded_cells = {(player[0] + dr, player[1] + dc)
+                              for dr in (-1, 0, 1) for dc in (-1, 0, 1)
+                              if 0 <= player[0] + dr < 5
+                              and 0 <= player[1] + dc < 5}
         # (The separate claw-sighting loop retired 2026-08-21: claws are
         # ordinary confirmed pickups now - remember_confirmed_items
         # records them with the same suspect gating as everything else.)
-        remembered_items = prune_remembered_items(remembered_items, done, player)
         # Memory is recorded from this pre-merge snapshot further down, so
         # a remembered cell can never refresh its own timestamp through
         # the just-over-threshold patch the merge injects.
@@ -2284,11 +1975,9 @@ def main():
                                    if c + 1 <= 4}
                     recent_pickups = [((r, c + 1), w) for (r, c), w
                                       in recent_pickups if c + 1 <= 4]
-                    mem_misses = shift_items_right(mem_misses)
                 else:
                     ban_history = shift_cells_left(ban_history)
                     recent_pickups = shift_pickup_log_left(recent_pickups)
-                    mem_misses = shift_items_left(mem_misses)
             event["scroll_reconciled"] = {"claimed": scrolls_since_frame,
                                           "measured": measured}
             if measured < scrolls_since_frame:
@@ -2310,7 +1999,6 @@ def main():
         # standing on (replay harness 2026-08-22, BLIND-TOUR class -
         # 'explore' while a remembered orange sat under its own feet).
         remembered_items.pop(tuple(player), None)
-        mem_misses.pop(tuple(player), None)
         # A cell cannot be a remembered ITEM and a phantom OBSTACLE at
         # once: choose() wants it, the tap gate vetoes it, and the bot
         # deadlocks for frames (replay harness 2026-08-22, n=107 of run
@@ -2320,7 +2008,6 @@ def main():
         for cell in set(remembered_items) & set(phantom_obstacles):
             remembered_items.pop(cell, None)
             phantom_obstacles.pop(cell, None)
-            mem_misses.pop(cell, None)
         # Same law against DETECTED pyramids: a remembered item on a
         # cell the screen shows as a pyramid is a contradicted belief -
         # the merge rightly refuses to paint it, so it can only linger
@@ -2330,73 +2017,47 @@ def main():
         for cell in [c for c in remembered_items
                      if strategy.is_obstacle(detected_info[c])]:
             remembered_items.pop(cell, None)
-            mem_misses.pop(cell, None)
         phantom_obstacles = {cell: expiry
                              for cell, expiry in phantom_obstacles.items()
                              if expiry > done}
         info = merge_phantom_obstacles(info, phantom_obstacles, done)
-        current_item_cells = item_cells_of(info)
-        # Mid-board arrivals that neither the scroll nor a garra-broken
-        # pyramid explains are confetti: ignored as targets for one frame
-        # instead of waiting. Only garra target cells stay whitelisted
-        # for a few frames via pending_reveals - the fall animation can
-        # delay the drop's detection past the break frame. Dashes leave
-        # no drops (they collect what they break), so they get no window.
+        # ---- ONE world-model update replaces the six-stage stack ----
+        # Fresh appearances, the two-frame carryover, burst holds,
+        # sticky left-band holds, remembered-suspect drops and the
+        # clean-miss decay each grew from one field bug and ended up
+        # disagreeing with one another (docs/review-2026-08-22.md).
+        # They are gone: every entity is a TRACK whose identity
+        # survives the scroll and survives being covered, classified
+        # once at birth by where it can physically have come from.
+        preview = strategy.sixth_column_preview(image, det.board)
         pending_reveals = {cell: expiry
                            for cell, expiry in pending_reveals.items()
                            if expiry > frame_clock.now}
-        fresh_suspects = suspect_appearances(
-            current_item_cells, prev_item_cells,
-            shift=scrolls_since_frame,
-            attack_cell=(previous_attack_target
-                         if previous_action == "attack" else None),
-            revealed_cells=live_reveal_cells(pending_reveals,
-                                             frame_clock.now),
-            # Confetti needs a source: a dash or a pickup in the last
-            # couple of frames. Without one, the ingestion band scales
-            # with the interval's scroll count so a real right-edge
-            # arrival that crossed columns during a move batch is not
-            # flagged (run 20260822T205803 n=6: energy at (4,2) after
-            # 3 scrolls, held suspect until it scrolled off unclaimed).
-            confetti_risk=(previous_action == "dash"
-                           or any(frame_clock.now - when < 2
-                                  for _, when in recent_pickups)),
-            confetti_rows=confetti_rows_of(
-                previous_dash_player if previous_action == "dash" else None,
-                recent_pickups, frame_clock.now))
-        suspect_items = combined_suspects(fresh_suspects, prev_fresh_suspects,
-                                          current_item_cells,
-                                          shift=scrolls_since_frame)
-        suspect_items = drop_remembered_suspects(suspect_items, remembered_items)
-        suspect_items |= burst_holds(prev_fresh_suspects, current_item_cells,
-                                     recent_pickups, frame_clock.now,
-                                     shift=scrolls_since_frame)
-        # Known-world doctrine (user 2026-08-22): an unexplained
-        # left-band appearance can only be confetti, so it is never
-        # promoted - it stays suspect for as long as it stays visible.
-        shifted_prev_susp = {(r, c - scrolls_since_frame)
-                             for r, c in prev_suspect_items
-                             if c - scrolls_since_frame >= 0}
-        shifted_ages = {(r, c - scrolls_since_frame): v
-                        for (r, c), v in sticky_ages.items()
-                        if c - scrolls_since_frame >= 0}
-        held, sticky_ages = sticky_left_band_suspects(shifted_prev_susp,
-                                                      current_item_cells,
-                                                      shifted_ages)
-        suspect_items |= held
-        suspect_items = drop_remembered_suspects(suspect_items,
-                                                 remembered_items)
-        prev_suspect_items = set(suspect_items)
-        prev_fresh_suspects = fresh_suspects
-        prev_item_cells = current_item_cells
+        detected_items, detected_pyramids = {}, set()
+        for cell, values in detected_info.items():
+            if strategy.is_obstacle(values):
+                detected_pyramids.add(cell)
+                continue
+            category = strategy.pickup_type(values)
+            if category:
+                detected_items[cell] = category
+        world.observe({"items": detected_items,
+                       "pyramids": detected_pyramids},
+                      shift=scrolls_since_frame, player=player,
+                      revealed=live_reveal_cells(pending_reveals,
+                                                 frame_clock.now),
+                      preview=preview, occluded=occluded_cells)
+        suspect_items = world.suspect_cells()
+        # Memory is simply the believed tracks vision cannot see right
+        # now - no separate store, no TTL, no ghost-dropping rules.
+        detected_cells_now = item_cells_of(detected_info)
+        remembered_items = {cell: (category, done)
+                            for cell, category in world.believed_items().items()
+                            if cell not in detected_cells_now}
+        if remembered_items:
+            info = merge_remembered_items(info, remembered_items, player)
         total_scrolls += scrolls_since_frame
         scrolls_since_frame = 0
-        remembered_items = remember_confirmed_items(
-            remembered_items, detected_info, player, suspect_items, done)
-        remembered_items = drop_shift_ghosts(remembered_items, detected_info)
-        remembered_items, mem_misses = decay_unseen_left_band(
-            remembered_items, mem_misses, item_cells_of(detected_info),
-            suspect_items, player)
         # Detection-only: logging the merged board painted remembered
         # ghosts as real items and a forensic pass adjudicated the
         # debug_0124 ghost walk as a "real orange rescue" against the
@@ -2405,7 +2066,6 @@ def main():
         event["board"] = compact_state(detected_info, player, remembered_items)
         if suspect_items:
             event["suspect_items"] = sorted(list(cell) for cell in suspect_items)
-        preview = strategy.sixth_column_preview(image, det.board)
         if preview is not None and any(preview):
             event["sixth_column"] = preview
         item_goals = pickup_goals(info, player)
@@ -2429,8 +2089,6 @@ def main():
                                            counters_before=pending_attack_inv,
                                            counters_after=inv_after)
             pending_attack_inv = None
-            remembered_items = remember_revealed_pickup(
-                remembered_items, result, previous_attack_target, done)
             attack_noeffect_streak = (attack_noeffect_streak + 1
                                       if not result["broken"] else 0)
             if not result["broken"] and not should_disable_attacks(
@@ -2712,7 +2370,6 @@ def main():
                 ban_history = shift_cells_left(ban_history)
                 pending_reveals = shift_items_left(pending_reveals)
                 recent_pickups = shift_pickup_log_left(recent_pickups)
-                mem_misses = shift_items_left(mem_misses)
             scrolls_since_frame += dash_shift
             # No reveal window after a dash: it breaks and collects in
             # the same motion, so nothing it touches ever stays on the
@@ -2793,7 +2450,6 @@ def main():
                 ban_history = shift_cells_left(ban_history)
                 pending_reveals = shift_items_left(pending_reveals)
                 recent_pickups = shift_pickup_log_left(recent_pickups)
-                mem_misses = shift_items_left(mem_misses)
                 # The wall commitment survives the scroll: wall_is_stable
                 # carries the scroll count at sighting and adjusts the
                 # expected launch column. Clearing it here made a wall
@@ -2841,7 +2497,6 @@ def main():
                         ban_history = shift_cells_left(ban_history)
                         pending_reveals = shift_items_left(pending_reveals)
                         recent_pickups = shift_pickup_log_left(recent_pickups)
-                        mem_misses = shift_items_left(mem_misses)
                         scrolls_since_frame += 1
                     pickup = item_category(info[checked])
                     if pickup:

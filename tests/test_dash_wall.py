@@ -580,154 +580,6 @@ class WallDashRescueTests(unittest.TestCase):
         self.assertEqual(action[0], "dash")
 
 
-class SuspectAppearanceTests(unittest.TestCase):
-    """Items cannot appear mid-board: they scroll in from the right edge
-    or get revealed by breaking a pyramid. Anything else is animation
-    residue (the +20 confetti painted 6-9 phantom oranges per pickup in
-    run 20260820T183527; two ghosts still leaked past the burst WAIT in
-    run 20260820T184744 events 105/136). Suspects are excluded from the
-    decision for one frame; a real item survives and becomes targetable."""
-
-    def test_mid_board_appearance_is_suspect(self):
-        previous = frozenset({(2, 2)})
-        current = frozenset({(2, 2), (0, 1), (3, 0)})
-        self.assertEqual(runner.suspect_appearances(current, previous, shift=0),
-                         {(0, 1), (3, 0)})
-
-    def test_right_edge_arrival_is_legit(self):
-        # With a scroll in the interval, column 4 is where arrivals
-        # land. (Without one, nothing can enter at all - see
-        # RightEdgeIngestionTests.)
-        previous = frozenset({(1, 4)})
-        current = frozenset({(1, 3), (2, 4)})
-        self.assertEqual(
-            runner.suspect_appearances(current, previous, shift=1,
-                                       confetti_risk=False),
-            set())
-
-    def test_scroll_shift_is_legit(self):
-        previous = frozenset({(1, 3), (3, 2)})
-        current = frozenset({(1, 2), (3, 1), (4, 4)})
-        self.assertEqual(
-            runner.suspect_appearances(current, previous, shift=1,
-                                       confetti_risk=False),
-            set())
-
-    def test_revealed_drop_at_attacked_cell_is_legit(self):
-        previous = frozenset()
-        current = frozenset({(2, 2)})
-        self.assertEqual(
-            runner.suspect_appearances(frozenset({(2, 2)}),
-                                       frozenset({(1, 1)}),
-                                       shift=0, attack_cell=(2, 2)),
-            set())
-
-    def test_first_frame_accepts_everything(self):
-        # No observation yet (previous is None) - nothing to compare
-        # against, so nothing can be flagged.
-        self.assertEqual(
-            runner.suspect_appearances(frozenset({(1, 1), (2, 2)}), None,
-                                       shift=0),
-            set())
-
-    def test_multi_scroll_ingestion_band_scales_without_confetti_risk(self):
-        # Run 20260822T205803 n=6: a real energy entered from the right
-        # during a 3-move scroll batch and landed at (4,2). With 3
-        # scrolls in the interval an item entering at column 4 can
-        # legitimately sit anywhere down to column 2 - but the fixed
-        # `col < 4` band flagged it, the sticky left band then held it,
-        # and the bot's own scrolls pushed it off the board unclaimed.
-        # No dash, no pickup in the interval = no confetti source, so
-        # the scaled band is safe.
-        self.assertEqual(
-            runner.suspect_appearances(frozenset({(4, 2)}), frozenset(),
-                                       shift=3, confetti_risk=False),
-            set())
-
-    def test_dash_confetti_risk_is_local_to_the_dash_rows(self):
-        # Run 20260822T234822 n=20: a real orange entered from the
-        # right DURING the dash and landed at (1,3); the dash ran in
-        # row 4, and dash confetti only exists around the cells it
-        # broke (rows 2-4). Row 1 cannot hold dash confetti, so the
-        # scaled ingestion band applies there and the arrival is
-        # legitimate. The sticky hold then never traps it.
-        self.assertEqual(
-            runner.suspect_appearances(frozenset({(1, 3)}), frozenset(),
-                                       shift=3, confetti_risk=True,
-                                       confetti_rows=(2, 3, 4)),
-            set())
-
-    def test_confetti_risk_keeps_the_strict_band(self):
-        # Same shift, but the interval had a dash (or a pickup): the
-        # confetti can paint anywhere, so the strict band stands - this
-        # is the 20260822T201927 circling bug's guard.
-        self.assertEqual(
-            runner.suspect_appearances(frozenset({(4, 2)}), frozenset(),
-                                       shift=3, confetti_risk=True),
-            {(4, 2)})
-
-    def test_empty_observed_board_does_not_disable_suspicion(self):
-        # Run 20260822T201927 n=37: the board was OBSERVED empty before
-        # the dash (previous = empty set, not None), the dash broke 3
-        # pyramids, and the confetti painted 8 phantom oranges. The old
-        # `if not previous` guard treated the empty set like the first
-        # frame and let every phantom into memory - the bot then circled
-        # its own ghosts while the one real energy scrolled away.
-        previous = frozenset()
-        current = frozenset({(2, 0), (3, 1), (1, 1), (0, 2)})
-        self.assertEqual(
-            runner.suspect_appearances(current, previous, shift=3,
-                                       confetti_risk=True),
-            {(2, 0), (3, 1), (1, 1), (0, 2)})
-
-    def test_post_dash_appearance_is_suspect(self):
-        # Game rule (user, 2026-08-22): a dash breaks AND collects in
-        # the same motion - it never leaves a drop on the board. Only a
-        # garra does. So any fresh appearance after a dash that the
-        # 3-column shift does not explain is confetti, full stop.
-        previous = frozenset({(2, 4)})
-        current = frozenset({(2, 1), (3, 0)})
-        self.assertEqual(
-            runner.suspect_appearances(current, previous, shift=3),
-            {(3, 0)})
-
-    def test_survivor_is_no_longer_suspect_next_frame(self):
-        previous = frozenset({(2, 2), (0, 1)})
-        current = frozenset({(2, 2), (0, 1)})
-        self.assertEqual(runner.suspect_appearances(current, previous, shift=0),
-                         set())
-
-    def test_two_frame_confetti_stays_suspect(self):
-        # Run 20260820T184744 event 136: the confetti starts on the
-        # pickup frame itself and survives into the next one, so a
-        # 1-frame check saw it as a survivor. A cell that was a fresh
-        # suspect last frame and is still visible stays suspect once
-        # more - and only once, so real items unlock on frame three.
-        fresh_last = {(3, 1)}
-        current = frozenset({(3, 1), (2, 4)})
-        combined = runner.combined_suspects(
-            fresh=set(), previous_fresh=fresh_last, current=current)
-        self.assertEqual(combined, {(3, 1)})
-
-    def test_real_item_unlocks_on_frame_three(self):
-        # Frame 3: the cell is no longer in previous_fresh (frame 2's
-        # fresh set was empty for it) so it becomes targetable.
-        combined = runner.combined_suspects(
-            fresh=set(), previous_fresh=set(),
-            current=frozenset({(3, 1)}))
-        self.assertEqual(combined, set())
-
-    def test_wrong_shift_cannot_explain_a_ghost(self):
-        # Run 20260820T184744 event 105: with guessed shifts, a shift-1
-        # mapping of a real item coincidentally landed on the phantom's
-        # cell and the ghost was chased. The board did not scroll between
-        # those frames, and shift=0 must expose it.
-        previous = frozenset({(1, 1)})
-        current = frozenset({(1, 0), (2, 3)})
-        self.assertEqual(runner.suspect_appearances(current, previous, shift=0),
-                         {(1, 0), (2, 3)})
-
-
 class RouteThroughPickupTests(unittest.TestCase):
     """Run 20260820T184744 events 194-196: orange at (2,3), paws at
     (2,2), pyramid at (2,1). Both routes to the orange cost the same, and
@@ -772,56 +624,6 @@ class AttackEconomicsTests(unittest.TestCase):
             info[cell]["pyramid"] = 0.9
         action, reason = strategy.choose(info, dashes_enabled=False)
         self.assertEqual(action[0], "attack")
-
-
-class ClawMemoryTests(unittest.TestCase):
-    """The claw at run 20260820T181916 event 83 was real (user-confirmed)
-    but the detector dropped it for one frame and the bot abandoned it.
-    Claws only move with the scroll, so a recent sighting is re-injected
-    for a few frames to bridge detector gaps."""
-
-    def test_remembered_claw_is_reinjected(self):
-        info = empty_grid()
-        for values in info.values():
-            values["claw"] = 0.0
-        merged = runner.merge_remembered_items(
-            info, {(2, 2): ("claw", 5)}, (0, 0))
-        self.assertGreater(merged[(2, 2)]["claw"], 0.10)
-        self.assertLessEqual(merged[(2, 2)]["item"], 0.06)
-
-    def test_remembered_claw_becomes_a_target_again(self):
-        info = empty_grid()
-        for values in info.values():
-            values["claw"] = 0.0
-        info[(2, 1)]["player"] = 0.2
-        merged = runner.merge_remembered_items(
-            info, {(2, 2): ("claw", 5)}, (2, 1))
-        action, reason = strategy.choose(merged)
-        # The adjacent-item rule may claim it first; what matters is that
-        # the bot steps onto the remembered claw instead of dropping it.
-        self.assertEqual(action, ("move", (2, 2), "right"))
-
-    def test_all_categories_share_one_ttl(self):
-        # Game invariant (user, 2026-08-21): no pickup - claws included -
-        # ever vanishes except by collection or the left edge, so the
-        # old claw-specific 4-frame TTL only recreated the flicker churn
-        # the memory exists to prevent. One unified TTL guards against
-        # our own coordinate errors. (Since 2026-08-22b the LEFT BAND
-        # decays in band_ttl frames instead - fully visible, so unseen
-        # there means ghost - hence the col>=3 cells here.)
-        remembered = {(2, 3): ("claw", 5), (3, 3): ("orange", 5)}
-        pruned = runner.prune_remembered_items(remembered, done=10,
-                                               player=(0, 0))
-        self.assertIn((2, 3), pruned)
-        self.assertIn((3, 3), pruned)
-        self.assertEqual(runner.prune_remembered_items(
-            remembered, done=31, player=(0, 0)), {})
-
-    def test_visited_cell_is_forgotten(self):
-        remembered = {(2, 2): ("claw", 9)}
-        pruned = runner.prune_remembered_items(remembered, done=10,
-                                               player=(2, 2))
-        self.assertEqual(pruned, {})
 
 
 class ScrollAwareRoutingTests(unittest.TestCase):
@@ -1028,73 +830,6 @@ class SuspectHoldTests(unittest.TestCase):
             "explore right", set(), set(), holds=0))
 
 
-class ConfirmedItemMemoryTests(unittest.TestCase):
-    """Run 20260821T192126: eleven confirmed pickups scrolled off the
-    left edge unclaimed. Each flickered for a frame under a pickup
-    animation, re-entered as a fresh suspect, and stayed unconfirmable
-    forever (44 suspect holds in 500 moves). A pickup cannot vanish from
-    the board: it leaves by collection or by the left edge. Confirmed
-    (non-suspect) sightings are remembered, so memory bridges the flicker
-    and the cell never reads as a fresh arrival again."""
-
-    def test_visible_pickups_are_remembered(self):
-        info = empty_grid()
-        info[(2, 1)].update(item=0.09, orange=0.09)
-        remembered = runner.remember_confirmed_items(
-            {}, info, player=(0, 0), suspects=set(), done=7)
-        self.assertEqual(remembered[(2, 1)], ("orange", 7))
-
-    def test_suspect_cells_are_not_remembered(self):
-        info = empty_grid()
-        info[(2, 1)].update(item=0.09, orange=0.09)
-        remembered = runner.remember_confirmed_items(
-            {}, info, player=(0, 0), suspects={(2, 1)}, done=7)
-        self.assertNotIn((2, 1), remembered)
-
-    def test_player_cell_is_not_remembered(self):
-        info = empty_grid()
-        info[(2, 1)].update(item=0.09, orange=0.09, player=0.2)
-        remembered = runner.remember_confirmed_items(
-            {}, info, player=(2, 1), suspects=set(), done=7)
-        self.assertNotIn((2, 1), remembered)
-
-    def test_still_visible_items_refresh_their_timestamp(self):
-        info = empty_grid()
-        info[(2, 1)].update(item=0.09, orange=0.09)
-        remembered = runner.remember_confirmed_items(
-            {(2, 1): ("orange", 2)}, info, player=(0, 0), suspects=set(),
-            done=9)
-        self.assertEqual(remembered[(2, 1)], ("orange", 9))
-
-    def test_revealed_pickup_enters_memory(self):
-        remembered = runner.remember_revealed_pickup(
-            {}, {"revealed": "orange", "broken": True}, (2, 2), done=9)
-        self.assertEqual(remembered[(2, 2)], ("orange", 9))
-
-    def test_empty_reveal_is_not_remembered(self):
-        self.assertEqual(runner.remember_revealed_pickup(
-            {}, {"revealed": None, "broken": True}, (2, 2), done=9), {})
-
-    def test_merge_survives_every_economic_category(self):
-        # Crash in production (run 20260821T195439): memory now stores
-        # economic types, but the merge patch indexed them as if they
-        # were grid color masks - KeyError: 'purple_ticket' on frame 12.
-        # The patch must write the category's underlying color mask and
-        # its discriminator so pickup_type round-trips.
-        for category, expect in (("orange", "orange"),
-                                 ("steps", "steps"),
-                                 ("purple_ticket", "purple_ticket"),
-                                 ("dash_orb", "dash_orb"),
-                                 ("green_ticket", "green_ticket")):
-            with self.subTest(category=category):
-                info = empty_grid()
-                merged = runner.merge_remembered_items(
-                    info, {(2, 1): (category, 5)}, player=(0, 0))
-                values = merged[(2, 1)]
-                self.assertGreater(values["item"], .06)
-                self.assertEqual(strategy.pickup_type(values), expect)
-
-
 class PairLaunchGateTests(unittest.TestCase):
     """Run 20260821T192126 n=117-121: from (0,0) the pair-launch rule
     approved the step down to (1,0) because the claw at (0,2) sat in the
@@ -1134,25 +869,6 @@ class PairLaunchGateTests(unittest.TestCase):
         info[(0, 2)].update(item=0.09, claw=0.15)
         action, reason = strategy.choose(info)
         self.assertNotEqual(action[0], "dash")
-
-
-class RememberedSuspectTests(unittest.TestCase):
-    """Run 20260821T213642 n=51-56: the dash orb at (4,0) sat in memory
-    (confirmed) and in the suspect set (its detection flickered into a
-    'fresh arrival' every other frame) at the same time. Suspects are
-    fed to choose() as ignored targets, so the confirmed orb was never
-    targeted and scrolled off the board. Memory outranks suspicion: a
-    remembered cell cannot be a suspect."""
-
-    def test_remembered_cells_are_dropped_from_suspects(self):
-        self.assertEqual(
-            runner.drop_remembered_suspects(
-                {(4, 0), (1, 3)}, {(4, 0): ("dash_orb", 7)}),
-            {(1, 3)})
-
-    def test_without_memory_suspects_pass_through(self):
-        self.assertEqual(
-            runner.drop_remembered_suspects({(4, 0)}, {}), {(4, 0)})
 
 
 class WallVersusOrangeTests(unittest.TestCase):
@@ -1683,22 +1399,20 @@ class DashEffectEvidenceTests(unittest.TestCase):
             obstacles_before=3, obstacles_after=0))
 
 
-class DashConfettiSourceTests(unittest.TestCase):
-    """Review 2026-08-22 ('suspects' lens): a dash collects everything
-    in its path, but those pickups never entered recent_pickups - only
-    move-pickups did. So the burst zone around the richest pickup
-    event in the game lasted one frame against a two-frame
-    phenomenon."""
-
-    def test_dash_launch_row_is_a_confetti_source(self):
-        rows = runner.confetti_rows_of((4, 1), [], 5)
-        self.assertIn(4, rows)
-
-    def test_dash_path_cells_extend_the_burst_zone(self):
-        log = runner.dash_pickup_log([], (2, 1), frame=7)
-        self.assertTrue(log, "the dash path must log pickup sources")
-        held = runner.burst_holds({(2, 2)}, {(2, 2)}, log, 8)
-        self.assertIn((2, 2), held)
+# ---------------------------------------------------------------------
+# Retired 2026-08-22 with the six-mechanism suspicion stack they pinned
+# (BurstZone, ClawMemory, ConfirmedItemMemory, DashConfettiSource,
+# KnownWorld, LeftBandMemoryDecay, PendingReveal, RememberedSuspect,
+# RightEdgeIngestion, ShiftAwareCarryover, ShiftGhost,
+# StickySuspectFlicker, SuspectAppearance). Every behaviour they
+# protected is now a property of the tracked world model and lives in
+# tests/test_world_model.py: identity across the scroll and across
+# cover (was: shift ghosts, sticky ages, decay misses), origin decided
+# once at birth (was: appearances, carryover, burst holds, reveal
+# whitelists), belief never re-litigated (was: remembered-suspect
+# drops), and standing collects (was: memory pops and contradiction
+# rules).
+# ---------------------------------------------------------------------
 
 
 class PyramidKillsClawTests(unittest.TestCase):
@@ -1771,57 +1485,6 @@ class EarlyAdvanceTieBreakTests(unittest.TestCase):
                                         prefer_direction="right")
         target, obstacle, direction = step
         self.assertEqual(direction, "right")
-
-
-class ShiftAwareCarryoverTests(unittest.TestCase):
-    """Review 2026-08-22 ('suspects' lens): combined_suspects and
-    burst_holds intersect LAST frame's cells with THIS frame's cells,
-    but every sibling stage shift-compensates and these two do not. A
-    scroll moves a confetti cell from (r,3) to (r,2), the intersection
-    misses it, and the two-frame carryover silently evaporates exactly
-    when the bot is moving - so confetti gets believed on its second
-    frame and becomes a phantom target."""
-
-    def test_carryover_follows_the_scroll(self):
-        # (2,3) was fresh-suspect last frame; the world scrolled once,
-        # so it is now at (2,2) and must stay suspect.
-        prev_fresh = {(2, 3)}
-        current = {(2, 2)}
-        self.assertIn(
-            (2, 2),
-            runner.combined_suspects(set(), prev_fresh, current, shift=1))
-
-    def test_burst_zone_follows_the_scroll(self):
-        prev_fresh = {(2, 3)}
-        current = {(2, 2)}
-        # Pickup made at (2,1) last frame; after the scroll its zone
-        # sits at (2,0), still within radius 2 of (2,2).
-        held = runner.burst_holds(prev_fresh, current, [((2, 1), 5)], 6,
-                                  shift=1)
-        self.assertIn((2, 2), held)
-
-
-class RightEdgeIngestionTests(unittest.TestCase):
-    """Review 2026-08-22 ('suspects' lens): column 4 was a blind spot -
-    the ingestion band only ever excluded cells with col < floor, so
-    an appearance AT the right edge was always legitimate and entered
-    memory on a single sighting. But items enter only when the world
-    SCROLLS: with no scroll in the interval, a col-4 appearance cannot
-    be an arrival, and a pickup at col 2 paints confetti out to col 4
-    (radius 2). Legitimacy is 'entered consistently with the measured
-    scroll', not 'far enough right'."""
-
-    def test_col_four_arrival_without_a_scroll_is_suspect(self):
-        self.assertEqual(
-            runner.suspect_appearances(frozenset({(2, 4)}), frozenset(),
-                                       shift=0),
-            {(2, 4)})
-
-    def test_col_four_arrival_after_a_scroll_is_legit(self):
-        self.assertEqual(
-            runner.suspect_appearances(frozenset({(2, 4)}), frozenset(),
-                                       shift=1, confetti_risk=False),
-            set())
 
 
 class FrameClockTests(unittest.TestCase):
@@ -1964,43 +1627,6 @@ class CorridorDashRowTests(unittest.TestCase):
         self.assertFalse(runner.corridor_dash_due(
             action, (3, 84), 86, self._preview(3), True, player=(3, 1),
             left_band_risk=True))
-
-
-class StickySuspectFlickerTests(unittest.TestCase):
-    """Review 2026-08-22 ('suspects' lens, confirmed): sticky drops a
-    cell's age the moment detection misses it for ONE frame - the very
-    confetti-cover flicker the memory decay was rebuilt around. On
-    reappearance the item is a fresh arrival again and the 4-frame
-    clock restarts, so a real item suspected once can be held until it
-    scrolls off. Ages must survive a covered frame like
-    decay_unseen_left_band's clean-miss counting does."""
-
-    @staticmethod
-    def _age(ages, cell):
-        stored = ages.get(cell)
-        return stored[0] if isinstance(stored, tuple) else stored
-
-    def test_age_survives_one_covered_frame(self):
-        ages = {(2, 1): 2}
-        # Frame where the cell is covered (not in current_cells).
-        held, ages = runner.sticky_left_band_suspects({(2, 1)}, set(), ages)
-        self.assertNotIn((2, 1), held)
-        self.assertEqual(self._age(ages, (2, 1)), 2, "age must not reset")
-        # It comes back: the clock resumes and releases at ttl.
-        held, ages = runner.sticky_left_band_suspects({(2, 1)}, {(2, 1)},
-                                                      ages)
-        self.assertEqual(self._age(ages, (2, 1)), 3)
-        held, ages = runner.sticky_left_band_suspects({(2, 1)}, {(2, 1)},
-                                                      ages)
-        self.assertNotIn((2, 1), held, "released at ttl=4")
-
-    def test_two_covered_frames_forget_the_cell(self):
-        # A cell gone for two frames is not the same sighting any
-        # more: confetti that vanished, not an item under cover.
-        ages = {(2, 1): 2}
-        held, ages = runner.sticky_left_band_suspects({(2, 1)}, set(), ages)
-        held, ages = runner.sticky_left_band_suspects({(2, 1)}, set(), ages)
-        self.assertNotIn((2, 1), ages)
 
 
 class IncomingWallAlignmentTests(unittest.TestCase):
@@ -2291,80 +1917,6 @@ class AttackNoEffectTests(unittest.TestCase):
 
     def test_two_consecutive_no_effects_disable(self):
         self.assertTrue(runner.should_disable_attacks(2))
-
-
-class ShiftGhostTests(unittest.TestCase):
-    """Run 20260821T225908 n=13-14 (user-confirmed: ONE claw on screen,
-    two in memory). A scroll tap the game swallowed still counted in our
-    shift accounting, so the memory slid the claw to (3,0) while the
-    live detection re-recorded it at (3,1) - and after grabbing the real
-    one the bot stepped left into the ghost. When a remembered cell is
-    undetected but its RIGHT neighbor holds a live detection of the same
-    category, the left entry is an over-count ghost and dies."""
-
-    def cell(self, **scores):
-        base = {"player": 0.0, "orange": 0.0, "pink": 0.0, "green": 0.0,
-                "item": 0.0, "pyramid": 0.0, "highlight": 1.0, "claw": 0.0}
-        base.update(scores)
-        return base
-
-    def board(self, claw_at):
-        info = {(r, c): self.cell() for r in range(5) for c in range(5)}
-        if claw_at:
-            info[claw_at]["claw"] = 0.2
-        return info
-
-    def test_ghost_twin_left_of_a_live_detection_dies(self):
-        remembered = {(3, 0): ("claw", 5), (3, 1): ("claw", 6)}
-        deduped = runner.drop_shift_ghosts(remembered, self.board((3, 1)))
-        self.assertEqual(deduped, {(3, 1): ("claw", 6)})
-
-    def test_lone_memory_without_a_right_twin_survives(self):
-        remembered = {(3, 0): ("claw", 5)}
-        deduped = runner.drop_shift_ghosts(remembered, self.board(None))
-        self.assertEqual(deduped, remembered)
-
-    def test_different_categories_are_not_twins(self):
-        remembered = {(3, 0): ("orange", 5), (3, 1): ("claw", 6)}
-        deduped = runner.drop_shift_ghosts(remembered, self.board((3, 1)))
-        self.assertEqual(deduped, remembered)
-
-
-class PendingRevealTests(unittest.TestCase):
-    """The reveal window is GARRA-ONLY. A garra-broken pyramid drops
-    its loot at the target cell, and the fall animation can delay the
-    drop's detection a few frames past the break (run 20260821T222310),
-    so that cell stays whitelisted for a TTL and shifts with the scroll.
-    Dashes get NO window: a dash breaks and collects in the same motion
-    and never leaves a drop behind (game rule, user 2026-08-22). The
-    dash-path window we carried for two days only ever admitted pickup
-    confetti (runs 20260821T235432 n=5, 20260822T003047 n=13-16)."""
-
-    def test_dash_leaves_no_drops_behind(self):
-        # The dash reveal machinery must not exist at all: both times
-        # it fired it turned confetti into a remembered orange and sent
-        # the bot backward to collect nothing.
-        self.assertFalse(hasattr(runner, "dash_reveal_cells"))
-
-    def test_reveal_cells_stay_live_for_their_ttl(self):
-        pending = runner.remember_pending_reveals({}, [(1, 1), (1, 0)], done=4)
-        self.assertEqual(runner.live_reveal_cells(pending, done=7),
-                         {(1, 1), (1, 0)})
-        self.assertEqual(runner.live_reveal_cells(pending, done=9), set())
-
-    def test_late_appearance_at_a_reveal_cell_is_not_suspect(self):
-        pending = runner.remember_pending_reveals({}, [(1, 1)], done=4)
-        self.assertEqual(
-            runner.suspect_appearances(
-                frozenset({(1, 1)}), frozenset({(4, 4)}), shift=0,
-                revealed_cells=runner.live_reveal_cells(pending, done=7)),
-            set())
-
-    def test_reveal_cells_shift_with_the_scroll(self):
-        pending = runner.remember_pending_reveals({}, [(1, 1)], done=4)
-        shifted = runner.shift_items_left(pending)
-        self.assertEqual(runner.live_reveal_cells(shifted, done=5), {(1, 0)})
-
 
 
 class WarmupTests(unittest.TestCase):
@@ -2710,50 +2262,6 @@ class ExplorerNeverStepsBackTests(unittest.TestCase):
         self.assertEqual(action, ("move", (4, 0), "left"))
 
 
-class LeftBandMemoryDecayTests(unittest.TestCase):
-    """v1 (time-based TTL 4) was a regression: confetti covers a REAL
-    tracked item for a frame, the item is not 're-seen', the TTL kills
-    it, and its reappearance reads as an unexplained arrival - sticky,
-    ignored, scrolled off (run 20260822T184638, user: 'falló muchos
-    drops'). v2 counts CLEAN MISSES instead: memory dies only after
-    its cell was seen truly EMPTY - no item, no suspect covering it,
-    no player sprite nearby - three times. Ghost cells look clean
-    every frame and die just as fast; covered real items never decay."""
-
-    def test_three_clean_misses_kill_a_left_band_ghost(self):
-        remembered = {(3, 0): ("orange", 10)}
-        misses = {(3, 0): 2}
-        kept, misses = runner.decay_unseen_left_band(
-            remembered, misses, frozenset(), set(), (0, 3))
-        self.assertEqual(kept, {})
-
-    def test_a_covering_suspect_does_not_count_as_a_miss(self):
-        remembered = {(3, 0): ("orange", 10)}
-        kept, misses = runner.decay_unseen_left_band(
-            remembered, {(3, 0): 2}, frozenset(), {(3, 0)}, (0, 3))
-        self.assertIn((3, 0), kept)
-        self.assertEqual(misses.get((3, 0)), 2)
-
-    def test_a_sighting_resets_the_misses(self):
-        remembered = {(3, 0): ("orange", 12)}
-        kept, misses = runner.decay_unseen_left_band(
-            remembered, {(3, 0): 2}, frozenset({(3, 0)}), set(), (0, 3))
-        self.assertIn((3, 0), kept)
-        self.assertEqual(misses.get((3, 0), 0), 0)
-
-    def test_player_adjacency_blinds_detection_no_miss(self):
-        remembered = {(3, 0): ("orange", 10)}
-        kept, misses = runner.decay_unseen_left_band(
-            remembered, {(3, 0): 2}, frozenset(), set(), (3, 1))
-        self.assertIn((3, 0), kept)
-
-    def test_right_band_memory_never_miss_decays(self):
-        remembered = {(3, 4): ("orange", 10)}
-        kept, misses = runner.decay_unseen_left_band(
-            remembered, {(3, 4): 9}, frozenset(), set(), (0, 1))
-        self.assertIn((3, 4), kept)
-
-
 class DashStockGateTests(unittest.TestCase):
     """Second user complaint about pair dashes ('un dash sobre 2 y no
     sobre 3'): run 20260822T183056 spent six freshly bought dashes,
@@ -2816,33 +2324,6 @@ class ExplorerNeverAttacksLeftTests(unittest.TestCase):
                 ("attack", "left"))
             self.assertFalse(action[0] == "attack"
                              and action[1] == (4, 0))
-
-
-class BurstZoneTests(unittest.TestCase):
-    """Run 20260822T160202 n=36-38: the pickup at (0,1) sprayed
-    confetti; the card at (1,0) survived the standard two sightings
-    (the SKIP frame donated one) and walked the bot to an empty cell.
-    Confetti only exists around a fresh pickup, so appearances within
-    2 cells of a pickup made in the last 3 frames need one extra
-    surviving frame before they are believed."""
-
-    def test_fresh_survivor_near_a_pickup_stays_suspect(self):
-        holds = runner.burst_holds(
-            prev_fresh={(1, 0)}, current_cells={(1, 0)},
-            recent_pickups=[((0, 1), 36)], done=37)
-        self.assertEqual(holds, {(1, 0)})
-
-    def test_far_from_any_pickup_is_believed_on_survival(self):
-        holds = runner.burst_holds(
-            prev_fresh={(4, 4)}, current_cells={(4, 4)},
-            recent_pickups=[((0, 1), 36)], done=37)
-        self.assertEqual(holds, set())
-
-    def test_stale_pickup_no_longer_holds(self):
-        holds = runner.burst_holds(
-            prev_fresh={(1, 0)}, current_cells={(1, 0)},
-            recent_pickups=[((0, 1), 30)], done=37)
-        self.assertEqual(holds, set())
 
 
 class PixelScrollTests(unittest.TestCase):
@@ -2969,46 +2450,6 @@ class PointlessGarraTests(unittest.TestCase):
         info = empty_grid()
         info[(1, 1)]["pyramid"] = 0.9
         self.assertFalse(runner.pointless_attack(info, (1, 1)))
-
-
-class KnownWorldTests(unittest.TestCase):
-    """Doctrine 2026-08-22 (user): 'ya deberíamos estar súper
-    confirmados de qué hay y qué no hay' - nothing NEW can exist in
-    columns 0-2 except a garra drop (whitelisted) or something memory
-    already tracks. An unexplained left-band appearance is confetti by
-    definition and is not believed while it stays visible - but only
-    for a TTL: run 20260822T165752 n=12-17 (user force-stop) flagged a
-    REAL orange once during phantom-tap chaos and the un-expiring
-    version blind-sided the bot against an energy sitting in front of
-    it. Confetti never survives 4 settled frames (measured); a real
-    item outlives the TTL and gets released."""
-
-    def test_left_band_suspect_stays_suspect_while_visible(self):
-        held, ages = runner.sticky_left_band_suspects(
-            {(2, 1)}, {(2, 1), (0, 4)}, {})
-        self.assertEqual(held, {(2, 1)})
-        self.assertEqual(ages[(2, 1)][0], 1)
-
-    def test_right_band_suspects_are_not_sticky(self):
-        held, ages = runner.sticky_left_band_suspects(
-            {(2, 4)}, {(2, 4)}, {})
-        self.assertEqual(held, set())
-
-    def test_vanished_confetti_clears(self):
-        # One miss releases the hold but keeps the clock (an item can
-        # be covered by confetti for a frame); the SECOND consecutive
-        # miss forgets the cell.
-        held, ages = runner.sticky_left_band_suspects(
-            {(2, 1)}, {(0, 4)}, {(2, 1): 2})
-        self.assertEqual(held, set())
-        held, ages = runner.sticky_left_band_suspects(
-            {(2, 1)}, {(0, 4)}, ages)
-        self.assertEqual((held, ages), (set(), {}))
-
-    def test_survivor_outlives_the_ttl_and_is_released(self):
-        held, ages = runner.sticky_left_band_suspects(
-            {(2, 1)}, {(2, 1)}, {(2, 1): 3}, ttl=4)
-        self.assertEqual(held, set())
 
 
 class ActionDelayTests(unittest.TestCase):
