@@ -1600,6 +1600,159 @@ class EarlyAdvanceTieBreakTests(unittest.TestCase):
         self.assertEqual(direction, "right")
 
 
+class FormingWallGateAgreementTests(unittest.TestCase):
+    """Review 2026-08-22 (multi-agent, 'conflicts' lens): the
+    forming-wall positioning added earlier today walks to the launch
+    without checking whether the pair-dash rule will actually FIRE
+    there. With low dash stock the 2-real pair is refused on arrival,
+    explore scrolls, and the wall is eaten anyway - the walk taps are
+    pure loss on top of the wall. Positioning and firing must share
+    one predicate."""
+
+    def _forming(self):
+        info = empty_grid()
+        info[(3, 1)]["player"] = 0.2
+        info[(4, 1)]["pyramid"] = 0.9
+        info[(4, 2)]["pyramid"] = 0.9
+        return info, [False, False, False, False, True]
+
+    def test_no_walk_when_the_dash_would_be_refused_on_arrival(self):
+        info, preview = self._forming()
+        action, reason = strategy.choose(info, player=(3, 1),
+                                         preview=preview, dash_stock=4)
+        self.assertNotIn("forming wall", reason)
+
+    def test_walks_when_stock_lets_the_pair_fire(self):
+        info, preview = self._forming()
+        action, reason = strategy.choose(info, player=(3, 1),
+                                         preview=preview, dash_stock=20)
+        self.assertIn("forming wall", reason)
+
+    def test_three_run_positions_regardless_of_stock(self):
+        # A 3-pyramid run always pays (path_pyramids >= 3 fires the
+        # dash at any stock), so the bot must head for the launch -
+        # by the veteran wall hunt or the forming-wall rule, either
+        # label - and must never scroll the run away instead.
+        info, preview = self._forming()
+        info[(4, 3)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, player=(3, 1),
+                                         preview=preview, dash_stock=1)
+        self.assertIsNotNone(action)
+        self.assertNotEqual(tuple(action[1]), (3, 2),
+                            "scrolling right eats the forming wall")
+
+
+class ScreenColumnScrollTests(unittest.TestCase):
+    """Review 2026-08-22 ('physics' lens): shortest_action prices a
+    right step as scrolling by its FRAME column (nxt[1] >= 2), but the
+    world only scrolls when the tap enters SCREEN column >= 2, and
+    screen col = frame col - scrolls already taken. A route that
+    scrolls once, detours left around a pyramid and steps right again
+    into frame col 2 (screen col 1 - free by the code's own doctrine)
+    is charged a phantom second scroll.
+
+    Adjudication (measured, not assumed): the mispricing can only fire
+    on a right step taken AFTER a left step that followed a scroll,
+    and on a 5x5 Manhattan grid that zigzag is never on an optimal
+    route - the router always holds a same-cost zigzag-free twin. The
+    fix (charge by screen column) is therefore physics-correctness
+    with no reachable routing change, and these tests pin that the
+    documented budget behaviours did not move."""
+
+    def test_scroll_accounting_matches_real_taps(self):
+        # Each right tap into screen column 2 scrolls once: reaching
+        # frame col 3 costs exactly two scrolls, no more.
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(2, 3)].update(item=0.16, orange=0.16)
+        self.assertIsNotNone(
+            strategy.shortest_action(info, (2, 1), {(2, 3)},
+                                     protect=[(0, 2)]))
+
+    def test_col_zero_target_still_forbids_every_scroll(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(0, 0)].update(item=0.16, orange=0.16)
+        info[(4, 2)].update(item=0.16, orange=0.16)
+        step = strategy.shortest_action(info, (2, 1), {(4, 2)},
+                                        protect=[(0, 0)])
+        self.assertIsNone(step, "a col-0 stop tolerates no scroll")
+
+    def test_col_zero_to_col_one_right_is_still_free(self):
+        info = empty_grid()
+        info[(2, 0)]["player"] = 0.2
+        info[(2, 1)].update(item=0.16, orange=0.16)
+        step = strategy.shortest_action(info, (2, 0), {(2, 1)},
+                                        protect=[(4, 0)])
+        self.assertIsNotNone(step, "col0->col1 scrolls nothing")
+
+
+class CorridorDashRowTests(unittest.TestCase):
+    """Review 2026-08-22 ('conflicts' lens, confirmed): the corridor
+    override gathers its evidence from the ATTACK TARGET's row but
+    fires ('dash', player) along the PLAYER's row - vertical attacks
+    make those different rows, so it can spend 400 shards dashing an
+    empty lane. It is also the only dash rule that never sees
+    left_band_risk, so it deletes real remembered pickups the
+    strategy-side rules would have protected."""
+
+    def _preview(self, row):
+        return [i == row for i in range(5)]
+
+    def test_vertical_attack_never_triggers_the_corridor_dash(self):
+        action = ("attack", (2, 1), "up")
+        self.assertFalse(runner.corridor_dash_due(
+            action, (2, 84), 86, self._preview(2), True, player=(3, 1)))
+
+    def test_own_row_corridor_still_fires(self):
+        action = ("attack", (3, 2), "right")
+        self.assertTrue(runner.corridor_dash_due(
+            action, (3, 84), 86, self._preview(3), True, player=(3, 1)))
+
+    def test_left_band_pickup_defers_the_corridor_dash(self):
+        action = ("attack", (3, 2), "right")
+        self.assertFalse(runner.corridor_dash_due(
+            action, (3, 84), 86, self._preview(3), True, player=(3, 1),
+            left_band_risk=True))
+
+
+class StickySuspectFlickerTests(unittest.TestCase):
+    """Review 2026-08-22 ('suspects' lens, confirmed): sticky drops a
+    cell's age the moment detection misses it for ONE frame - the very
+    confetti-cover flicker the memory decay was rebuilt around. On
+    reappearance the item is a fresh arrival again and the 4-frame
+    clock restarts, so a real item suspected once can be held until it
+    scrolls off. Ages must survive a covered frame like
+    decay_unseen_left_band's clean-miss counting does."""
+
+    @staticmethod
+    def _age(ages, cell):
+        stored = ages.get(cell)
+        return stored[0] if isinstance(stored, tuple) else stored
+
+    def test_age_survives_one_covered_frame(self):
+        ages = {(2, 1): 2}
+        # Frame where the cell is covered (not in current_cells).
+        held, ages = runner.sticky_left_band_suspects({(2, 1)}, set(), ages)
+        self.assertNotIn((2, 1), held)
+        self.assertEqual(self._age(ages, (2, 1)), 2, "age must not reset")
+        # It comes back: the clock resumes and releases at ttl.
+        held, ages = runner.sticky_left_band_suspects({(2, 1)}, {(2, 1)},
+                                                      ages)
+        self.assertEqual(self._age(ages, (2, 1)), 3)
+        held, ages = runner.sticky_left_band_suspects({(2, 1)}, {(2, 1)},
+                                                      ages)
+        self.assertNotIn((2, 1), held, "released at ttl=4")
+
+    def test_two_covered_frames_forget_the_cell(self):
+        # A cell gone for two frames is not the same sighting any
+        # more: confetti that vanished, not an item under cover.
+        ages = {(2, 1): 2}
+        held, ages = runner.sticky_left_band_suspects({(2, 1)}, set(), ages)
+        held, ages = runner.sticky_left_band_suspects({(2, 1)}, set(), ages)
+        self.assertNotIn((2, 1), ages)
+
+
 class IncomingWallAlignmentTests(unittest.TestCase):
     """User directive 2026-08-22: the sixth-column preview exists
     precisely to anticipate walls - when a wall is coming, position for
@@ -2584,7 +2737,7 @@ class KnownWorldTests(unittest.TestCase):
         held, ages = runner.sticky_left_band_suspects(
             {(2, 1)}, {(2, 1), (0, 4)}, {})
         self.assertEqual(held, {(2, 1)})
-        self.assertEqual(ages, {(2, 1): 1})
+        self.assertEqual(ages[(2, 1)][0], 1)
 
     def test_right_band_suspects_are_not_sticky(self):
         held, ages = runner.sticky_left_band_suspects(
@@ -2592,8 +2745,14 @@ class KnownWorldTests(unittest.TestCase):
         self.assertEqual(held, set())
 
     def test_vanished_confetti_clears(self):
+        # One miss releases the hold but keeps the clock (an item can
+        # be covered by confetti for a frame); the SECOND consecutive
+        # miss forgets the cell.
         held, ages = runner.sticky_left_band_suspects(
             {(2, 1)}, {(0, 4)}, {(2, 1): 2})
+        self.assertEqual(held, set())
+        held, ages = runner.sticky_left_band_suspects(
+            {(2, 1)}, {(0, 4)}, ages)
         self.assertEqual((held, ages), (set(), {}))
 
     def test_survivor_outlives_the_ttl_and_is_released(self):

@@ -91,12 +91,14 @@ def should_hold_for_suspects(reason, item_goals, suspect_items, holds):
 def _left_band_suspects(suspect_cells):
     # A runner-forced dash scrolls three columns and deletes left-band
     # suspects before their one-frame adjudication, exactly like the
-    # strategy-side dash rules it overrides; both overrides defer to them.
+    # strategy-side dash rules it overrides; both overrides defer to
+    # them. Real remembered pickups are guarded separately, by the
+    # left_band_risk both overrides now receive.
     return any(cell[1] <= 2 for cell in suspect_cells)
 
 
 def corridor_dash_due(action, last_attack, done, preview, dashes_enabled, ttl=4,
-                      suspect_cells=()):
+                      suspect_cells=(), player=None, left_band_risk=False):
     """Second garra on the same row with another pyramid incoming: dash.
 
     Run 20260820T025148 events 84-87 spent two garras (400 shards) plus four
@@ -104,14 +106,26 @@ def corridor_dash_due(action, last_attack, done, preview, dashes_enabled, ttl=4,
     dash costs the same 400, breaks up to three, and advances three cells -
     strictly better once the row is a corridor. The sixth-column preview
     provides the 'another one is coming' evidence.
+
+    Two guards added 2026-08-22 (multi-agent review, confirmed):
+    - The evidence row is the ATTACK TARGET's row while the override
+      fires ('dash', player) along the PLAYER's row. Vertical attacks
+      make those differ, so a corridor in the row above could spend
+      400 shards dashing an empty lane. The rows must match.
+    - Every other dash rule defers to left-band pickups; this was the
+      only one that did not, so it deleted real remembered items the
+      strategy had just routed to (a col-1 item survives exactly one
+      scroll; a dash takes three).
     """
     if not dashes_enabled or action is None or action[0] != "attack":
         return False
     if preview is None or last_attack is None:
         return False
-    if _left_band_suspects(suspect_cells):
+    if _left_band_suspects(suspect_cells) or left_band_risk:
         return False
     row = action[1][0]
+    if player is not None and player[0] != row:
+        return False
     return (last_attack[0] == row and done - last_attack[1] <= ttl
             and bool(preview[row]))
 
@@ -743,16 +757,31 @@ def sticky_left_band_suspects(prev_suspects, current_cells, ages, band=2,
     version blind-sided the bot against an energy sitting in front of
     it. Confetti never survives 4 settled frames (measured over the
     2026-08-22 runs); anything that does is real and gets released.
+    The age survives ONE covered frame (review 2026-08-22, 'suspects'
+    lens, confirmed): dropping it on the first detection miss - the
+    very confetti-cover flicker decay_unseen_left_band was rebuilt
+    around - made the reappearance read as a brand-new arrival, so the
+    clock restarted from zero and a real item suspected once could be
+    held until it scrolled off. Two consecutive misses do forget the
+    cell: that is confetti that vanished, not an item under cover.
+    Ages are (age, missed) pairs; plain ints are accepted from older
+    state.
     Returns (held_cells, updated_ages)."""
     held = set()
     new_ages = {}
     for cell in prev_suspects:
-        if cell not in current_cells or cell[1] > band:
+        if cell[1] > band:
             continue
-        age = ages.get(cell, 0) + 1
+        stored = ages.get(cell, 0)
+        age, missed = stored if isinstance(stored, tuple) else (stored, False)
+        if cell not in current_cells:
+            if not missed:
+                new_ages[cell] = (age, True)
+            continue
+        age += 1
         if age < ttl:
             held.add(cell)
-            new_ages[cell] = age
+            new_ages[cell] = (age, False)
     return held, new_ages
 
 
@@ -2408,7 +2437,8 @@ def main():
             action, reason = ("dash", player, "right"), "committed wall dash"
             committed_wall = None
         if corridor_dash_due(action, last_attack, done, preview, dashes_enabled,
-                             suspect_cells=suspect_items):
+                             suspect_cells=suspect_items, player=player,
+                             left_band_risk=left_band_risk):
             action, reason = ("dash", player, "right"), "corridor dash"
         if (dashes_enabled and should_hold_for_wall(wall_now, wall_stable,
                                                     action, reason,

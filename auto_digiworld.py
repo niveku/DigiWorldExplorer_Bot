@@ -180,7 +180,16 @@ def shortest_action(info, player, targets, allow_obstacles=True,
             # rode an empty row past reachable paws).
             free_cost = (0.9 if (values["item"] > .06 or
                                  values.get("claw", 0.0) > .10) else 1)
-            scrolling_right = name == "right" and nxt[1] >= 2
+            # Screen column, not frame column: after k scrolls already
+            # taken on this route the cell at frame col c sits at
+            # screen col c-k, and only a tap into SCREEN column >=2
+            # scrolls (review 2026-08-22, 'physics' lens). Charging by
+            # frame column billed a phantom second scroll to any route
+            # that scrolled once, detoured left around a pyramid and
+            # stepped right again - the budget then pruned legal
+            # one-scroll rescues and the epsilons fired on steps that
+            # move nothing.
+            scrolling_right = name == "right" and nxt[1] - scrolls >= 2
             nscrolls = scrolls + (1 if scrolling_right else 0)
             if nscrolls > scroll_budget:
                 continue
@@ -939,6 +948,15 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
             while start + run_len < 5 and is_obstacle(info[(r, start + run_len)]):
                 run_len += 1
             if run_len < 2:
+                continue
+            # Positioning must share the predicate that will FIRE the
+            # dash on arrival, or the walk is pure loss and explore
+            # eats the wall anyway (review 2026-08-22, 'conflicts'
+            # lens: a 2-real pair under low stock is refused at the
+            # launch, so walking there paid taps for nothing).
+            will_fire = (run_len >= 3
+                         or dash_stock is None or dash_stock >= 12)
+            if not (dashes_enabled and will_fire):
                 continue
             launch = (r, start - 1)
             if tuple(player) == launch:
