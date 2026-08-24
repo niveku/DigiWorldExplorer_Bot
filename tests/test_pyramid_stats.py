@@ -522,3 +522,49 @@ class DelayStretchTests(unittest.TestCase):
     def test_a_frame_with_no_taps_leaves_the_pace_alone(self):
         self.assertAlmostEqual(runner.next_delay_stretch(1.3, refused=False,
                                                          had_taps=False), 1.3)
+
+
+class RefusedMoveDoesNotPinTests(unittest.TestCase):
+    """A refused MOVE means the belief was wrong, not that vision was.
+
+    Run 20260824T0219 n=27-59: vision put the player one row below the
+    truth (the oversized partner sprite spills over the row above), the
+    game refused every tap as illegal, and the pin then re-asserted the
+    same wrong cell with score 1.0 - 20 refusals, 26 waits, 4.54 s per
+    action. The pin exists for taps that cost NO paw by nature (a garra,
+    whose animation drags the sprite about a cell); a claimed move that
+    the game did not charge is the opposite case and must let vision
+    speak.
+    """
+
+    def test_a_garra_still_pins_the_player(self):
+        self.assertTrue(runner.receipt_pins_player(True, 0, False, claimed=0))
+
+    def test_a_refused_move_does_not_pin(self):
+        self.assertFalse(runner.receipt_pins_player(True, 0, False, claimed=1))
+
+    def test_a_charged_move_does_not_pin(self):
+        self.assertFalse(runner.receipt_pins_player(True, 1, False, claimed=1))
+
+    def test_a_dash_is_still_excluded(self):
+        self.assertFalse(runner.receipt_pins_player(True, 0, True, claimed=0))
+
+
+class RefusalDistrustsVisionTests(unittest.TestCase):
+    """A refused move is evidence about the belief, not about the game.
+
+    Same deadlock as above (run 20260824T0219): the memory bridge kept
+    feeding the resolver the very cell the game had just called illegal.
+    """
+
+    def test_a_refused_move_drops_the_memory_bridge(self):
+        self.assertTrue(runner.refusal_distrusts_vision(1, 0))
+
+    def test_a_charged_move_keeps_it(self):
+        self.assertFalse(runner.refusal_distrusts_vision(1, 1))
+
+    def test_a_partial_batch_still_distrusts(self):
+        self.assertTrue(runner.refusal_distrusts_vision(3, 2))
+
+    def test_a_frame_that_claimed_no_move_says_nothing(self):
+        self.assertFalse(runner.refusal_distrusts_vision(0, 0))

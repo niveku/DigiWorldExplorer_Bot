@@ -1069,7 +1069,7 @@ REVERSE_DIRECTION = {"up": "down", "down": "up",
                      "left": "right", "right": "left"}
 
 
-def receipt_pins_player(had_taps, charged, was_dash):
+def receipt_pins_player(had_taps, charged, was_dash, claimed=0):
     """True when the game charged nothing, so nobody moved.
 
     A garra's animation drags the sprite's centre about a cell, and the
@@ -1078,8 +1078,28 @@ def receipt_pins_player(had_taps, charged, was_dash):
     walking between two cells to correct a move that never happened.
     The paw counter is the authority the rest of the loop already runs
     on; a dash is the one motion it does not bill, so it is excluded.
+
+    It pins only taps that cost NO paw by nature. A CLAIMED move the game
+    did not charge says the opposite thing - the tap was illegal from
+    where the player really stands - and pinning the believed cell there
+    re-asserts the error with score 1.0: run 20260824T0219 n=27-59 read
+    the player one row below the truth (the oversized partner sprite
+    spills into the row above), had every tap refused as illegal, and
+    burned 20 refusals and 26 waits at 4.54 s per action without ever
+    letting vision correct it.
     """
-    return bool(had_taps) and not charged and not was_dash
+    return (bool(had_taps) and not charged and not was_dash
+            and not claimed)
+
+
+def refusal_distrusts_vision(claimed, charged):
+    """A claimed move the game refused says the believed cell was wrong.
+
+    The resolver's memory bridge keeps handing back the cell the receipt
+    just contradicted; run 20260824T0219 spent 33 frames tapping from a
+    row the player was not on because nothing ever told the bridge to let
+    go. One frame of pure vision is the whole cost of being wrong here."""
+    return bool(claimed) and charged < claimed
 
 
 def next_blocked_direction(current, had_taps, claimed, charged, belt_shift,
@@ -2184,7 +2204,8 @@ def main():
         # made the pin dead code (run 20260823T155203 n=9 still let the
         # garra animation move the player a row).
         receipt_pin = receipt_pins_player(bool(pending_taps), charged,
-                                          previous_action == "dash")
+                                          previous_action == "dash",
+                                          claimed=claimed)
         if pending_taps:
             event["ledger"] = {"claimed": claimed, "charged": charged,
                                "source": charge_source}
@@ -2221,6 +2242,10 @@ def main():
         delay_stretch = next_delay_stretch(delay_stretch, charged < claimed,
                                            had_taps=bool(pending_taps))
         event["delay_stretch"] = round(delay_stretch, 3)
+        if refusal_distrusts_vision(claimed, charged):
+            # The believed cell just got called illegal: resolve this
+            # frame on pure vision, no memory bridge (see the function).
+            distrust_player = True
         if charged < claimed:
             # The game swallowed taps: it is lagging. Single steps for the
             # next two decisions instead of feeding batches into a freeze.
