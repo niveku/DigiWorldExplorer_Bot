@@ -49,6 +49,12 @@ import step_ledger as ledger
 import world_model as wm
 
 
+def _neighbours(cell):
+    row, col = cell
+    return [(row + dr, col + dc) for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1))
+            if 0 <= row + dr < 5 and 0 <= col + dc < 5]
+
+
 def board_signature(info):
     """What the planner can actually see: walls and pickups, by cell.
 
@@ -364,8 +370,16 @@ class Replay:
             target = tuple(action[1])
             if self.last_decision is not None:
                 prev_sig, prev_from, prev_to = self.last_decision
+                # A cul-de-sac is not indecision: from (0,1) walled by
+                # (0,0) and (0,2) the only legal move IS back down, and
+                # flagging it would ask the planner for a move that does
+                # not exist (run 20260823T144136 n=54). The mistake, if
+                # any, was the step that entered the pocket - which the
+                # frame before is where it gets judged.
+                only_way = [cell for cell in _neighbours(player)
+                            if not strategy.is_obstacle(merged[cell])]
                 if (prev_sig == signature and tuple(player) == prev_to
-                        and target == prev_from):
+                        and target == prev_from and only_way != [target]):
                     self.flag(n, "INDECISION",
                               f"steps back to {prev_from} on an unchanged "
                               f"board (reason: {reason})")

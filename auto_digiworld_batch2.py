@@ -929,7 +929,15 @@ def merge_phantom_obstacles(info, obstacles, done):
         if cell in merged:
             values = dict(merged[cell])
             values["pyramid"] = max(values.get("pyramid", 0.0), .9)
-            values["item"] = 0.0
+            # Every pickup channel, not just "item": choose() builds
+            # orange_items from "orange" and mid_items from "claw", so
+            # zeroing one of the four left the adjacent-pickup rule
+            # walking at a cell the tap gate then refused as a pyramid
+            # (13 wasted frames across the seven runs of 2026-08-23,
+            # three of them the same cell in run 20260823T154134).
+            for channel in ("item", "orange", "pink", "green", "claw"):
+                if channel in values:
+                    values[channel] = 0.0
             merged[cell] = values
     return merged
 
@@ -1034,6 +1042,19 @@ def final_energy(read, loop_reading, retries=ENERGY_FINAL_RETRIES,
 
 REVERSE_DIRECTION = {"up": "down", "down": "up",
                      "left": "right", "right": "left"}
+
+
+def receipt_pins_player(had_taps, charged, was_dash):
+    """True when the game charged nothing, so nobody moved.
+
+    A garra's animation drags the sprite's centre about a cell, and the
+    per-cell locator follows it: run 20260823T154134 n=48-51 attacked
+    (4,1) from (3,1), read the player at (2,1), and spent three frames
+    walking between two cells to correct a move that never happened.
+    The paw counter is the authority the rest of the loop already runs
+    on; a dash is the one motion it does not bill, so it is excluded.
+    """
+    return bool(had_taps) and not charged and not was_dash
 
 
 def next_blocked_direction(current, had_taps, claimed, charged, belt_shift,
@@ -2116,6 +2137,12 @@ def main():
             charged = claimed
             charge_source = "assumed"
         ledger_refused = None
+        # Captured before pending_taps is emptied further down: the
+        # resolver runs after that reset, and reading the list there
+        # made the pin dead code (run 20260823T155203 n=9 still let the
+        # garra animation move the player a row).
+        receipt_pin = receipt_pins_player(bool(pending_taps), charged,
+                                          previous_action == "dash")
         if pending_taps:
             event["ledger"] = {"claimed": claimed, "charged": charged,
                                "source": charge_source}
@@ -2145,6 +2172,10 @@ def main():
             belt_shift, pending_picked, previous_direction)
         if pending_taps:
             pending_picked = False
+        if blocked_direction:
+            # Logged so a back-step in the footage can be told apart from
+            # a veto that fired and was overruled by the cost guard.
+            event["no_back_step"] = blocked_direction
         if charged < claimed:
             # The game swallowed taps: it is lagging. Single steps for the
             # next two decisions instead of feeding batches into a freeze.
@@ -2177,6 +2208,9 @@ def main():
             cross = strategy.player_from_highlights(info, expected=expected_player)
             if cross is not None:
                 player, player_score, player_source = cross, .30, "highlight-cross"
+        if receipt_pin and expected_player is not None:
+            # The receipt outranks the locator: see receipt_pins_player.
+            player, player_score, player_source = expected_player, 1.0, "receipt"
         distrust_player = False
         # The receipt already said whether the tap executed, so there is
         # nothing to infer from where the player is standing and nothing

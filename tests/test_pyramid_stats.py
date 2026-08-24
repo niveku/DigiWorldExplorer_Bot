@@ -257,6 +257,39 @@ class BlockedDirectionTests(unittest.TestCase):
                                           picked=False, direction="up"))
 
 
+class ReceiptPinsPlayerTests(unittest.TestCase):
+    """Nothing charged means nobody moved, and the eyes do not get a vote.
+
+    A garra's animation drags the sprite's centre a cell (run
+    20260823T154134 n=48-51: the attack at (4,1) charged no paw, vision
+    read the player one row up, and the planner spent the next three
+    frames walking back and forth between (2,1) and (3,1)). The paw
+    counter is the authority the whole loop is built on - if it did not
+    move, the player did not move.
+    """
+
+    def test_an_attack_frame_pins_the_player(self):
+        self.assertTrue(runner.receipt_pins_player(had_taps=True, charged=0,
+                                                   was_dash=False))
+
+    def test_a_wholly_refused_frame_pins_the_player(self):
+        self.assertTrue(runner.receipt_pins_player(had_taps=True, charged=0,
+                                                   was_dash=False))
+
+    def test_a_charged_step_does_not_pin(self):
+        self.assertFalse(runner.receipt_pins_player(had_taps=True, charged=1,
+                                                    was_dash=False))
+
+    def test_a_frame_without_a_receipt_does_not_pin(self):
+        self.assertFalse(runner.receipt_pins_player(had_taps=False, charged=0,
+                                                    was_dash=False))
+
+    def test_a_dash_never_pins(self):
+        # The dash moves the player without charging a paw.
+        self.assertFalse(runner.receipt_pins_player(had_taps=True, charged=0,
+                                                    was_dash=True))
+
+
 class PurchaseRecommendationTests(unittest.TestCase):
     """Measured net burn across 13 runs / 2,750 actions: 0.78 steps,
     0.033 garras, 0.027 dashes per action (refunds and pickups already

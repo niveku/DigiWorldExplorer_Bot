@@ -530,6 +530,17 @@ def simulate_tour(player, order):
     return collected, cost, scrolls
 
 
+def dash_path_pyramids(info, row, col):
+    """Obstacles a dash launched from (row, col) would break.
+
+    The dash covers the three cells to the right of the launch. No
+    preview extension: the player is pinned to columns 0-1 and a launch
+    cell shares the player's column, so col + 3 never passes the edge.
+    """
+    return sum(1 for c in range(col + 1, min(5, col + 4))
+               if is_obstacle(info[(row, c)]))
+
+
 def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
            ignored_targets=(), player=None, preview=None, hunt_walls=True,
            suspect_cells=(), dash_stock=None, blocked_direction=None):
@@ -560,7 +571,14 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                                     dashes_enabled, ignored_targets, player,
                                     preview, hunt_walls, suspect_cells,
                                     dash_stock)
-    if detour is None or (detour[0] == "move" and detour[1] == action[1]):
+    if detour is None or detour[1] == action[1]:
+        return action, reason
+    if detour[0] != "move":
+        # A wasted paw is 40 shards; a garra is 200 and a dash 400. The
+        # veto exists to stop cheap waste, so it must never buy an
+        # expensive action to avoid it - on (4,1) walled by (3,2) and
+        # (4,2) the closed board's best answer is a garra at the wall
+        # (run 20260823T151420 n=30).
         return action, reason
     return detour, f"{detour_reason} (no back-step)"
 
@@ -736,20 +754,9 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
     # deletes off-path pickups in the left three columns after the dash, so
     # any such pickup vetoes it and the normal routing takes over.
     if dashes_enabled:
-        def dash_path_pyramids(row, col):
-            # No preview extension here (removed 2026-08-22, dead code
-            # confirmed): it only applied when col + 3 >= 5, i.e. with
-            # the digi standing in column 2+, which the game forbids -
-            # the player is pinned to columns 0-1, and a launch cell
-            # shares the player's column. Wall detection keeps its own
-            # preview extension, which IS reachable: a run of pyramids
-            # can touch the right edge with its launch in column 1.
-            return sum(1 for c in range(col + 1, min(5, col + 4))
-                       if is_obstacle(info[(row, c)]))
-
         path = [(player[0], col)
                 for col in range(player[1] + 1, min(5, player[1] + 4))]
-        path_pyramids = dash_path_pyramids(*player)
+        path_pyramids = dash_path_pyramids(info, *player)
         # A visible wall of three outranks a pair even while its detection
         # is still stabilizing (hunt_walls False): the instant pair dash was
         # firing first and spent the dash on 2 pyramids while a 3-wall sat
@@ -824,7 +831,7 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
                     continue
                 if launch in ignored or is_obstacle(info[launch]):
                     continue
-                if dash_path_pyramids(*launch) < 2:
+                if dash_path_pyramids(info, *launch) < 2:
                     continue
                 launch_path = {(launch[0], col)
                                for col in range(launch[1] + 1,
@@ -836,7 +843,7 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
                                   if is_obstacle(info[cell]))
                 if not (launch_items or right_targets
                         or (launch_real >= 2 and stock_ok)
-                        or dash_path_pyramids(*launch) >= 3):
+                        or dash_path_pyramids(info, *launch) >= 3):
                     continue
                 launch_risk = {cell
                                for cell in (orange_items | mid_items)
@@ -1081,9 +1088,27 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
                 # garra (5 + highlight). Shuffling only delays the 200
                 # shards, and the two paws it burns are not free either.
                 score -= 20
+            elif dash_path_pyramids(info, nxt[0], nxt[1]) >= 2:
+                # Only a row that could actually LAUNCH a pair is worth
+                # a curiosity step, which is the same threshold the
+                # pair-launch rule enforces. Counting scattered
+                # obstacles instead rewarded a row whose single pyramid
+                # was the forward blocker itself: run 20260823T151854
+                # n=13-15 climbed to (0,1) for the pyramid at (0,2),
+                # found the way forward closed by it, and walked back
+                # down two rows to a lane that was free all along.
+                score += 6 * dash_path_pyramids(info, nxt[0], nxt[1])
             else:
-                score += 6 * sum(1 for c in range(2, 5)
-                                 if is_obstacle(info[(nxt[0], c)]))
+                # No pair to hunt there, so the only thing a vertical
+                # step buys is a lane that goes forward; "down"
+                # outbidding "up" by base score alone picked walled rows
+                # on merit (run 20260823T153436 n=3-5: (3,1) walled by
+                # (3,2) stepped down to (4,1) walled by (4,2) and came
+                # straight back; same shape at n=29-30 of
+                # 20260823T151420). Eight points break the tie between
+                # boring lanes and never outbid an item, a wall or a
+                # dash.
+                score += 8 if not is_obstacle(info[(nxt[0], 2)]) else -8
             # Alignment toward an incoming wall beats scrolling from
             # the wrong row: the step that closes distance to the
             # nearest incoming row outbids the plain right (100).

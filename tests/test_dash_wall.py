@@ -97,12 +97,127 @@ class ReverseStepVetoTests(unittest.TestCase):
                                     blocked_direction="left")
         self.assertIsNotNone(action)
 
+    def test_the_detour_never_costs_more_than_the_back_step(self):
+        # (4,1) with pyramids at (3,2) and (4,2): closing the way back
+        # leaves a garra at (4,2) as the best answer. A wasted paw is 40
+        # shards, a garra is 200 - the veto must not "save" the cheap
+        # mistake by buying the expensive one.
+        info = empty_grid()
+        info[(4, 1)]["player"] = 0.5
+        for cell in ((0, 1), (3, 2), (4, 2)):
+            info[cell]["pyramid"] = 0.9
+        action, _ = strategy.choose(info, player=(4, 1),
+                                    blocked_direction="up")
+        self.assertEqual(action[0], "move")
+
     def test_an_unrelated_direction_is_untouched(self):
         info = self._livelock_board((0, 1))
         free, _ = strategy.choose(info, player=(0, 1))
         vetoed, _ = strategy.choose(info, player=(0, 1),
                                     blocked_direction="up")
         self.assertEqual(free, vetoed)
+
+
+class CuriosityNeedsARealPairTests(unittest.TestCase):
+    """The vertical tie-break may only pay for a dash that exists.
+
+    The explorer added +6 per obstacle sitting anywhere in columns 2-4 of
+    the destination row, but a dash needs TWO in the path - the same
+    threshold the pair-launch rule enforces. Run 20260823T151854 n=13-15
+    climbed from (1,1) to (0,1) because row 0 held one pyramid at (0,2),
+    found its way forward blocked by that very pyramid, and walked back
+    down through (1,1) to (2,1), whose (2,2) was free the whole time.
+    Three paws to arrive where a single step down would have put it.
+    """
+
+    def test_a_lone_pyramid_ahead_does_not_buy_the_climb(self):
+        info = empty_grid()
+        info[(1, 1)]["player"] = 0.5
+        for cell in ((0, 2), (1, 2), (2, 0), (4, 3)):
+            info[cell]["pyramid"] = 0.9
+        action, _ = strategy.choose(info, player=(1, 1))
+        self.assertEqual(action[2], "down")
+
+    def test_a_real_pair_ahead_still_buys_the_step(self):
+        info = empty_grid()
+        info[(1, 1)]["player"] = 0.5
+        for cell in ((0, 2), (0, 3), (1, 2)):
+            info[cell]["pyramid"] = 0.9
+        action, _ = strategy.choose(info, player=(1, 1))
+        self.assertEqual(action[2], "up")
+
+
+class VerticalStepPrefersAFreeLaneTests(unittest.TestCase):
+    """Do not step into a row that cannot go forward either.
+
+    With the way right blocked, the explorer picks a vertical step to
+    find a lane - but "down" simply outbid "up" by its base score (12 vs
+    10), with no reference to whether the destination row could advance.
+    Run 20260823T153436 n=3-5 stood on (3,1) walled by (3,2), stepped
+    DOWN to (4,1) walled by (4,2), and came straight back up: two paws
+    to learn what the board already showed. The same shape cost two more
+    paws at n=29-30 of 20260823T151420.
+
+    The correction is a tie-break, not a goal: it moves a boring lane by
+    8 points and never outbids an item, a wall or a dash.
+    """
+
+    def test_the_free_lane_wins_over_the_blocked_one(self):
+        info = empty_grid()
+        info[(3, 1)]["player"] = 0.5
+        for cell in ((3, 2), (4, 2)):
+            info[cell]["pyramid"] = 0.9
+        action, _ = strategy.choose(info, player=(3, 1))
+        self.assertEqual(action[2], "up")
+
+    def test_it_does_not_outbid_a_pickup(self):
+        info = empty_grid()
+        info[(3, 1)]["player"] = 0.5
+        for cell in ((3, 2), (2, 2)):
+            info[cell]["pyramid"] = 0.9
+        info[(4, 1)].update(item=0.10, orange=0.10)
+        action, _ = strategy.choose(info, player=(3, 1))
+        self.assertEqual(action[1], (4, 1))
+
+    def test_a_plain_right_still_beats_any_vertical(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.5
+        action, _ = strategy.choose(info, player=(2, 1))
+        self.assertEqual(action[2], "right")
+
+
+class PhantomObstacleHidesEveryPickupChannelTests(unittest.TestCase):
+    """A cell that reads as an obstacle cannot also read as a pickup.
+
+    merge_phantom_obstacles zeroed "item" and left "orange" (and the
+    other channels) untouched, so a cell merged as a covered pyramid
+    stayed in choose()'s orange_items and the adjacent-pickup rule
+    walked straight at it. The tap gate then refused the move as a
+    pyramid: 13 wasted frames across seven runs on 2026-08-23, three of
+    them the same cell (3,1) in run 20260823T154134.
+    """
+
+    def board(self):
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.5
+        info[(3, 1)].update(item=0.10, orange=0.10)
+        return info
+
+    def test_the_planner_stops_seeing_a_pickup_there(self):
+        info = runner.merge_phantom_obstacles(self.board(), {(3, 1): 9}, 0)
+        action, _ = strategy.choose(info, player=(2, 1))
+        self.assertNotEqual(tuple(action[1]), (3, 1))
+
+    def test_the_tap_gate_and_the_planner_now_agree(self):
+        info = runner.merge_phantom_obstacles(self.board(), {(3, 1): 9}, 0)
+        action, _ = strategy.choose(info, player=(2, 1))
+        if action[0] == "move":
+            self.assertFalse(runner.unsafe_move_tap(info, tuple(action[1])))
+
+    def test_an_expired_obstacle_leaves_the_pickup_alone(self):
+        info = runner.merge_phantom_obstacles(self.board(), {(3, 1): 0}, 5)
+        action, _ = strategy.choose(info, player=(2, 1))
+        self.assertEqual(tuple(action[1]), (3, 1))
 
 
 class IrresistibleDashTests(unittest.TestCase):
