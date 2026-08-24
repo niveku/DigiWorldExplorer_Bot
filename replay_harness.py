@@ -137,6 +137,7 @@ class Replay:
         self.last_decision = None
         self.prev_choice_direction = None
         self.blocked_direction = None
+        self.overrule_streak = 0
         # Runs recorded before the paw ledger existed are audited, not
         # judged: their oscillations belong to code that no longer runs.
         self.audit_recorded = False
@@ -175,6 +176,11 @@ class Replay:
         det = bot.Detection(det.state, det.confidence,
                             self.board_lock.settle(det.board), det.reason)
         info = strategy.cells(img, det.board)
+        paws_now = ledger.sane_reading(
+            self.paw_count, runner.read_inventory_counters(img)["steps"],
+            ledger.move_taps(self.pending_taps))
+        claimed = ledger.move_taps(self.pending_taps)
+        charged = ledger.charged_steps(self.paw_count, paws_now, claimed)
         player, score, source = runner.resolve_player(info, self.expected_player)
         large = strategy.find_large_player(
             img, det.board,
@@ -202,11 +208,6 @@ class Replay:
         # The belt advances on the game's receipt, not on our taps - the
         # same order of authority the runner follows: paws, then pixels,
         # then the taps we sent.
-        paws_now = ledger.sane_reading(
-            self.paw_count, runner.read_inventory_counters(img)["steps"],
-            ledger.move_taps(self.pending_taps))
-        claimed = ledger.move_taps(self.pending_taps)
-        charged = ledger.charged_steps(self.paw_count, paws_now, claimed)
         if charged is None and self.prev_action != "dash":
             charged = ledger.charge_matching_shift(self.pending_taps, measured)
         if charged is None:
@@ -338,8 +339,11 @@ class Replay:
             merged, self.prev_choice_direction,
             ignored_targets=set(suspects), player=player,
             suspect_cells=suspects,
-            blocked_direction=self.blocked_direction)
+            blocked_direction=self.blocked_direction,
+            allow_paid_detour=self.overrule_streak >= 1)
         if action is not None and len(action) > 2:
+            self.overrule_streak = runner.next_overrule_streak(
+                self.overrule_streak, self.blocked_direction, action[2])
             self.prev_choice_direction = action[2]
         if self.debug_n == n:
             print(f"[debug n={n}] player={player} suspects={sorted(suspects)}")

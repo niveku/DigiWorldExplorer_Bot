@@ -584,7 +584,8 @@ def dash_path_pyramids(info, row, col):
 
 def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
            ignored_targets=(), player=None, preview=None, hunt_walls=True,
-           suspect_cells=(), dash_stock=None, blocked_direction=None):
+           suspect_cells=(), dash_stock=None, blocked_direction=None,
+           allow_paid_detour=False):
     """Pick the next action, refusing to undo the step just taken.
 
     blocked_direction is the runner's receipt-backed report that the last
@@ -595,6 +596,8 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     from row 1, dash-pair launch at (1,1) wins from row 0, six paws for
     zero progress; the explorer's own -30 reversal penalty never saw it
     because the two goals live in different branches).
+
+    allow_paid_detour lifts the cost guard below: see the comment there.
 
     The veto is applied to the outcome rather than inside every branch:
     close the cell we came from and ask again. It never strands the
@@ -614,12 +617,20 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
                                     dash_stock)
     if detour is None or detour[1] == action[1]:
         return action, reason
-    if detour[0] != "move":
+    if detour[0] != "move" and not allow_paid_detour:
         # A wasted paw is 40 shards; a garra is 200 and a dash 400. The
         # veto exists to stop cheap waste, so it must never buy an
         # expensive action to avoid it - on (4,1) walled by (3,2) and
         # (4,2) the closed board's best answer is a garra at the wall
         # (run 20260823T151420 n=30).
+        #
+        # Unless the cheap answer is not cheap any more: the caller sets
+        # allow_paid_detour once the same veto has already been overruled,
+        # because a reversal the planner keeps repeating is not one wasted
+        # paw but an unbounded run of them (run 20260824T051703 n=38-40,
+        # a pocket walled by (0,2), (1,2) and (2,1): three paws of
+        # up-down-up and five harness flags, ended only by the board
+        # moving on its own).
         return action, reason
     return detour, f"{detour_reason} (no back-step)"
 

@@ -1092,6 +1092,19 @@ def receipt_pins_player(had_taps, charged, was_dash, claimed=0):
             and not claimed)
 
 
+def next_overrule_streak(streak, blocked_direction, chosen_direction):
+    """How many times in a row the veto has been overruled.
+
+    The cost guard lets the planner keep a cheap reversal rather than buy
+    a garra to avoid it. Once that has happened twice on the same closed
+    board the arithmetic flips: the reversal is no longer one wasted paw
+    but a loop (run 20260824T051703 n=38-40). No veto armed means no
+    evidence either way, so the count stands."""
+    if not blocked_direction:
+        return streak
+    return streak + 1 if chosen_direction == blocked_direction else 0
+
+
 def refusal_distrusts_vision(claimed, charged):
     """A claimed move the game refused says the believed cell was wrong.
 
@@ -1841,6 +1854,7 @@ def main():
     last_move_player_source = None
     last_move_player_score = 0.0
     distrust_player = False
+    overrule_streak = 0
     rejected_streak = 0
     recent_states = []
 
@@ -2239,6 +2253,7 @@ def main():
             # Logged so a back-step in the footage can be told apart from
             # a veto that fired and was overruled by the cost guard.
             event["no_back_step"] = blocked_direction
+            event["overrule_streak"] = overrule_streak
         delay_stretch = next_delay_stretch(delay_stretch, charged < claimed,
                                            had_taps=bool(pending_taps))
         event["delay_stretch"] = round(delay_stretch, 3)
@@ -2585,7 +2600,8 @@ def main():
                                          hunt_walls=wall_stable,
                                          suspect_cells=suspect_items,
                                          dash_stock=dash_stock,
-                                         blocked_direction=blocked_direction)
+                                         blocked_direction=blocked_direction,
+                                         allow_paid_detour=overrule_streak >= 1)
         left_band_risk = any(
             cell[1] <= 2 and strategy.pickup_type(info[cell])
             not in (None, "purple_ticket", "green_ticket", "steps")
@@ -2645,7 +2661,8 @@ def main():
                                              player=player, preview=preview,
                                              hunt_walls=wall_stable,
                                              suspect_cells=suspect_items,
-                                             blocked_direction=blocked_direction)
+                                             blocked_direction=blocked_direction,
+                                             allow_paid_detour=overrule_streak >= 1)
         if action is None:
             # One unreadable frame must not kill a run: rescan a few
             # times before giving up.
@@ -2909,6 +2926,10 @@ def main():
             previous_dash_player = player
             previous_dash_obstacles = consecutive_right_obstacles(info, player)
         previous_direction = direction
+        # A veto the cost guard overruled twice is a loop, not a
+        # saving: the next decision may buy its way out.
+        overrule_streak = next_overrule_streak(overrule_streak,
+                                               blocked_direction, direction)
         previous_reason = reason
         lag_cooldown = max(0, lag_cooldown - 1)
         time.sleep(delay_stretch

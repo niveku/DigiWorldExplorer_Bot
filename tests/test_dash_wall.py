@@ -2853,3 +2853,54 @@ class SideTripGrabTests(unittest.TestCase):
         info[(1, 4)]["item"] = .9
         self.assertFalse(strategy.side_trip_is_wasteful(
             info, (0, 2), (1, 2), {(0, 2), (1, 4)}))
+
+
+class PaidDetourAfterASecondReversalTests(unittest.TestCase):
+    """The cost guard protects the wallet; it must not license a loop.
+
+    Run 20260824T051703 n=38-40 (harness numbering): the player sat in a
+    pocket walled by pyramids at (0,2), (1,2) and (2,1). The veto closed
+    the cell it came from, the only answer on the closed board was a
+    200-shard garra, the cost guard refused it - and the planner returned
+    the reversal again. Three paws, five INDECISION/PING-PONG flags, and
+    the loop only ended because the board moved on its own. A garra that
+    ENDS the loop beats an unbounded run of 40-shard steps; one that
+    merely avoids a single back-step does not.
+    """
+
+    def _pocket(self):
+        info = empty_grid()
+        for cell in ((0, 2), (1, 2), (2, 1)):
+            info[cell]["pyramid"] = .9
+        return info
+
+    def test_the_first_veto_keeps_the_cheap_reversal(self):
+        action, _ = strategy.choose(self._pocket(), None, player=(0, 1),
+                                    blocked_direction="down")
+        self.assertEqual(action, ("move", (1, 1), "down"))
+
+    def test_a_repeated_reversal_buys_the_way_out(self):
+        action, _ = strategy.choose(self._pocket(), None, player=(0, 1),
+                                    blocked_direction="down",
+                                    allow_paid_detour=True)
+        self.assertNotEqual(action[0], "move")
+
+    def test_the_flag_alone_changes_nothing_without_a_veto(self):
+        free, _ = strategy.choose(self._pocket(), None, player=(0, 1))
+        paid, _ = strategy.choose(self._pocket(), None, player=(0, 1),
+                                  allow_paid_detour=True)
+        self.assertEqual(free, paid)
+
+
+class OverruleStreakTests(unittest.TestCase):
+    """One overruled veto is an accident; two are a loop."""
+
+    def test_a_veto_that_holds_resets_the_streak(self):
+        self.assertEqual(runner.next_overrule_streak(2, "down", "right"), 0)
+
+    def test_an_overruled_veto_counts(self):
+        self.assertEqual(runner.next_overrule_streak(0, "down", "down"), 1)
+        self.assertEqual(runner.next_overrule_streak(1, "down", "down"), 2)
+
+    def test_no_veto_armed_says_nothing(self):
+        self.assertEqual(runner.next_overrule_streak(2, None, "down"), 2)
