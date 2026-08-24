@@ -14,6 +14,10 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+# The banner switches the console to UTF-8; without telling Python the
+# same thing its own accented output comes back mangled ("seria" printed
+# as "ser?a" in the run plan).
+$env:PYTHONIOENCODING = 'utf-8'
 $projectRoot = $PSScriptRoot
 $python = Join-Path $projectRoot '.venv\Scripts\python.exe'
 function Show-RobinThorBanner {
@@ -77,7 +81,14 @@ function Confirm-RunSize {
     param([int]$Steps)
     while ($true) {
         Write-Host ''
-        & $python $botScript '--steps' $Steps '--plan-only' '--adb' $Adb '--serial' $Serial
+        # Out-Host, not bare output: inside a function every uncaptured
+        # line a native command writes joins the function's OUTPUT
+        # stream, so the caller's `$runSteps = Confirm-RunSize ...` was
+        # collecting the plan text plus the number into an array. The
+        # plan then never reached the screen and `if ($runSteps -le 0)`
+        # compared strings against 0, which is true often enough that
+        # every answer - s, S, Y, n - printed 'Cancelado.'
+        & $python $botScript '--steps' $Steps '--plan-only' '--adb' $Adb '--serial' $Serial | Out-Host
         if ($LASTEXITCODE -ne 0) {
             Write-Host '  No se pudo leer el inventario (¿el juego está en DigiWorld?).' -ForegroundColor Yellow
         }
