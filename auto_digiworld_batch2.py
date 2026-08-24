@@ -798,6 +798,31 @@ def action_delay(kind, scrolled=False, picked_up=False, rand=random.random):
     return base * (1.0 + rand() * JITTER_FRACTION)
 
 
+MAX_DELAY_STRETCH = 1.6
+DELAY_STRETCH_UP = 0.2
+DELAY_STRETCH_DOWN = 0.05
+
+
+def next_delay_stretch(current, refused, had_taps=True,
+                       cap=MAX_DELAY_STRETCH, up=DELAY_STRETCH_UP,
+                       down=DELAY_STRETCH_DOWN):
+    """Multiplier on every pacing delay, driven by the game's receipt.
+
+    ACTION_DELAYS was measured on one emulator on one afternoon. The same
+    emulator after a cold reboot swallowed 14-19% of taps at that pace
+    (runs 20260824T0139-0157) where it had swallowed 3%, and a blunt x1.4
+    on every delay brought it back to 6% - the constants were right for
+    the machine that day, not for the machine. So the pace answers to the
+    receipt: a swallowed tap stretches it fast, and every frame the game
+    keeps up relaxes it four times slower, back to the measured base.
+    A frame that sent no taps says nothing either way."""
+    if not had_taps:
+        return current
+    if refused:
+        return min(cap, current + up)
+    return max(1.0, current - down)
+
+
 def lag_batch_limit(lag_cooldown, size):
     """Single steps while the lag detector cools down.
 
@@ -1776,6 +1801,7 @@ def main():
     idle_abort = False
     taps_claimed = 0
     taps_charged = 0
+    delay_stretch = 1.0
     blocked_direction = None
     previous_reason = None
     suspect_holds = 0
@@ -2045,9 +2071,14 @@ def main():
         # past it, and consumed at the reconciliation below - a WAIT frame
         # leaves the taps pending and the reference untouched, so the delta
         # still spans exactly the taps it should. 12 ms a frame.
+        raw_paws = read_inventory_counters(image)["steps"]
         paws_now = step_ledger.sane_reading(
-            paw_count, read_inventory_counters(image)["steps"],
-            step_ledger.move_taps(pending_taps))
+            paw_count, raw_paws, step_ledger.move_taps(pending_taps))
+        # The whole receipt hangs off this one number, so the log carries
+        # it raw: run 20260824T015248 n=8-18 refused six taps in a row and
+        # the log could not say whether the game swallowed them or the HUD
+        # counter was simply unreadable that frame.
+        event["paws"] = {"raw": raw_paws, "sane": paws_now, "ref": paw_count}
 
         if stable_board is None:
             stable_board = det.board
@@ -2089,6 +2120,17 @@ def main():
         cur_strip = board_strip(image, det.board)
         measured, board_sliding = measure_scroll_px(prev_strip, cur_strip,
                                                     max_cols=2)
+        # Logged beside the pixel verdict: a "sliding" frame that the
+        # receipt says charged nothing would be pure latency. Measured
+        # over 340 frames it never happened (5 sliding verdicts, all with
+        # a charged step behind them), so the gate that would have skipped
+        # those waits was deleted rather than kept as unpaid complexity.
+        receipt_charged = step_ledger.charged_steps(
+            paw_count, paws_now, step_ledger.move_taps(pending_taps))
+        # Telemetry: without it a wait frame said only "sliding" and the
+        # pixel reading behind the verdict had to be re-derived from PNGs.
+        event["scroll"] = {"measured": measured, "sliding": bool(board_sliding),
+                           "receipt_charged": receipt_charged}
         if should_wait_for_slide(board_sliding, slide_waits):
             # The grid stands still while its CONTENTS slide: this
             # screenshot caught the scroll in flight. Acting on it
@@ -2176,6 +2218,9 @@ def main():
             # Logged so a back-step in the footage can be told apart from
             # a veto that fired and was overruled by the cost guard.
             event["no_back_step"] = blocked_direction
+        delay_stretch = next_delay_stretch(delay_stretch, charged < claimed,
+                                           had_taps=bool(pending_taps))
+        event["delay_stretch"] = round(delay_stretch, 3)
         if charged < claimed:
             # The game swallowed taps: it is lagging. Single steps for the
             # next two decisions instead of feeding batches into a freeze.
@@ -2795,7 +2840,7 @@ def main():
                             or unsafe_move_tap(info, checked, suspect_items,
                                                remembered_items)):
                         break
-                    time.sleep(action_delay(
+                    time.sleep(delay_stretch * action_delay(
                         "move",
                         scrolled=(direction == "right"
                                   and screen_target[1] >= 2)))
@@ -2841,8 +2886,10 @@ def main():
         previous_direction = direction
         previous_reason = reason
         lag_cooldown = max(0, lag_cooldown - 1)
-        time.sleep(action_delay(kind, scrolled=frame_scrolled or kind == "dash",
-                                picked_up=frame_picked))
+        time.sleep(delay_stretch
+                   * action_delay(kind,
+                                  scrolled=frame_scrolled or kind == "dash",
+                                  picked_up=frame_picked))
 
     final = bot.screenshot(args.adb, args.serial)
     final_det = bot.classify(final)

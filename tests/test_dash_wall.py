@@ -2799,3 +2799,57 @@ class PerishableVetoNeedsAWayThereTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SideTripGrabTests(unittest.TestCase):
+    """The free adjacent grab is not free when it has to be walked back.
+
+    User report 2026-08-24: "aun suele dar un paso erroneo hacia atras a
+    veces cuando toma una energia". Log evidence, run 20260823T155501
+    n=51: from (1,1) the bot stepped UP for the orange at (0,1) and came
+    straight back DOWN for the orange at (1,4) - two paws for one 20
+    energy orange, 10 per paw against a run average of 13-22. The grab
+    only stops paying when every other target sits back across the row
+    it left.
+    """
+
+    def test_a_grab_with_no_other_target_never_reverses(self):
+        self.assertFalse(strategy.grab_forces_a_reversal((0, 2), (1, 2), []))
+
+    def test_a_grab_towards_the_other_targets_keeps_going(self):
+        self.assertFalse(strategy.grab_forces_a_reversal((0, 2), (1, 2),
+                                                         [(0, 4)]))
+
+    def test_every_other_target_back_across_the_row_is_a_reversal(self):
+        self.assertTrue(strategy.grab_forces_a_reversal((0, 2), (1, 2),
+                                                        [(1, 4)]))
+
+    def test_a_sideways_grab_costs_no_row(self):
+        self.assertTrue(strategy.grab_forces_a_reversal((1, 1), (1, 2),
+                                                        [(1, 4)]))
+
+    def test_the_planner_skips_the_side_trip_for_a_plain_orange(self):
+        info = empty_grid()
+        info[(0, 2)]["orange"] = .9
+        info[(0, 2)]["item"] = .9
+        info[(1, 4)]["orange"] = .9
+        info[(1, 4)]["item"] = .9
+        action, _ = strategy.choose(info, None, False, False, set(), (1, 2))
+        self.assertNotEqual(action[2], "up")
+
+    def test_a_perishable_orange_buys_no_exemption(self):
+        info = empty_grid()
+        info[(0, 1)]["orange"] = .9
+        info[(0, 1)]["item"] = .9
+        info[(1, 4)]["orange"] = .9
+        info[(1, 4)]["item"] = .9
+        self.assertTrue(strategy.side_trip_is_wasteful(
+            info, (0, 1), (1, 1), {(0, 1), (1, 4)}))
+
+    def test_a_claw_is_always_worth_the_walk_back(self):
+        info = empty_grid()
+        info[(0, 2)]["claw"] = .9
+        info[(1, 4)]["orange"] = .9
+        info[(1, 4)]["item"] = .9
+        self.assertFalse(strategy.side_trip_is_wasteful(
+            info, (0, 2), (1, 2), {(0, 2), (1, 4)}))

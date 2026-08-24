@@ -489,3 +489,36 @@ class AggregateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DelayStretchTests(unittest.TestCase):
+    """Pacing that answers to the device instead of to a constant.
+
+    The emulator that refused 3% of taps in the afternoon refused 14-19%
+    after a cold reboot (runs 20260824T0139-0157) with the same code; a
+    blunt x1.4 on every delay brought it back to 6%. So the right pace is
+    not a constant, it is a feedback loop: stretch after a swallowed tap,
+    relax while the game keeps up.
+    """
+
+    def test_a_refused_tap_stretches_the_pace(self):
+        self.assertAlmostEqual(runner.next_delay_stretch(1.0, refused=True),
+                               1.2)
+
+    def test_a_clean_frame_relaxes_it_slowly(self):
+        self.assertAlmostEqual(runner.next_delay_stretch(1.2, refused=False),
+                               1.15)
+
+    def test_it_never_goes_below_the_measured_base(self):
+        self.assertAlmostEqual(runner.next_delay_stretch(1.0, refused=False),
+                               1.0)
+
+    def test_repeated_refusals_saturate(self):
+        stretch = 1.0
+        for _ in range(10):
+            stretch = runner.next_delay_stretch(stretch, refused=True)
+        self.assertAlmostEqual(stretch, runner.MAX_DELAY_STRETCH)
+
+    def test_a_frame_with_no_taps_leaves_the_pace_alone(self):
+        self.assertAlmostEqual(runner.next_delay_stretch(1.3, refused=False,
+                                                         had_taps=False), 1.3)

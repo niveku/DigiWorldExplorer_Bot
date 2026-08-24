@@ -282,6 +282,47 @@ def find_large_player(image, board, min_pixels=120, item_cells=()):
     return (row, col), score
 
 
+def grab_forces_a_reversal(cell, player, targets):
+    """Does taking this adjacent pickup put every other target behind us?
+
+    A vertical grab costs one paw and, when nothing else is left on that
+    side of the player's row, one more to walk back: two paws for a
+    20-energy orange is 10 per paw against a run average of 13-22 (user
+    report 2026-08-24; run 20260823T155501 n=51 went up for (0,1) and
+    straight back down for (1,4)). A grab on the way costs nothing extra,
+    and a sideways grab never advances any row, so it always has to be
+    walked back if the targets are elsewhere.
+    """
+    others = [tuple(other) for other in targets if tuple(other) != tuple(cell)]
+    if not others:
+        return False
+    step = cell[0] - player[0]
+    return not any((other[0] - player[0]) * step > 0 for other in others)
+
+
+def is_adjacent(cell, player):
+    """One orthogonal step away."""
+    return abs(cell[0] - player[0]) + abs(cell[1] - player[1]) == 1
+
+
+def side_trip_is_wasteful(info, cell, player, targets):
+    """A one-step grab that has to be walked back for 20 energy.
+
+    Guards both adjacent-grab loops: the second one keys on the generic
+    item mask, so an orange whose mask crosses .06 reaches it too and the
+    first loop's skip would just be undone one branch later.
+
+    The erosion band buys no exemption. Every reversal the user reported
+    grabbed a COLUMN-1 orange and walked straight back (runs
+    20260823T150728 n=35, 154134 n=60, 155203 n=31, 155501 n=51), and
+    rescuing 20 energy for two paws is the losing side of the same
+    arithmetic the dash veto already states: "a 20-energy orange is not a
+    rescue". Claws, orbs and paw cards are worth five to ten steps and
+    never reach this guard."""
+    return (pickup_type(info[cell]) == "orange"
+            and grab_forces_a_reversal(cell, player, targets))
+
+
 def pickup_type(values):
     """Classify a pickup cell into its economic type, or None.
 
@@ -672,6 +713,14 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
         cell = (player[0] + dr, player[1] + dc)
         if (0 <= cell[0] < 5 and 0 <= cell[1] < 5
                 and cell in (orange_items | mid_items | other_items)):
+            # A plain orange out of the erosion band is the one pickup
+            # that cannot pay for a round trip: 20 energy for the two
+            # paws a side trip costs. Claws, dash orbs and paw cards are
+            # worth five to ten steps each and always justify it, and
+            # anything in columns 0-1 is about to fall off the board.
+            if side_trip_is_wasteful(info, cell, player,
+                                     orange_items | mid_items | other_items):
+                continue
             return ("move", cell, direction), f"adjacent item={cell}"
 
     # A visible wall of three pyramids is irresistible while dashes remain:
@@ -744,6 +793,9 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
         if not (0 <= cell[0] < 5 and 0 <= cell[1] < 5):
             continue
         if cell in other_items or cell in claw_items:
+            if side_trip_is_wasteful(info, cell, player,
+                                     orange_items | mid_items | other_items):
+                continue
             return ("move", cell, direction), f"adjacent item={cell}"
 
     # Two pyramids inside the 3-cell dash path cost the same 400 shards as
@@ -873,6 +925,17 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
         tour_mids = prune_low_value_mids(player, orange_items, mid_items,
                                          mid_types, info=info)
     tour_items = orange_items | tour_mids
+    # The tour re-decides what the adjacent-grab guard just skipped, so
+    # the same arithmetic has to reach it: an adjacent plain orange that
+    # every other stop sits back across is a two-paw round trip for 20
+    # energy, below what the rightward step it displaces earns (11.7
+    # energy per right-only frame against 6.9 per vertical-only frame,
+    # 710 frames of runs 20260823T15* + 20260824T0*). It drops out of the
+    # plan and comes back into it the moment the belt puts it on the way.
+    tour_items = {cell for cell in tour_items
+                  if not (is_adjacent(cell, player)
+                          and side_trip_is_wasteful(info, cell, player,
+                                                    tour_items))}
     if tour_items:
         order = plan_tour(player, tour_items)
         if order:
