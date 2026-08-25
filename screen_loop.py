@@ -351,6 +351,13 @@ class LoopRunner:
         # one.
         if spec is not None and spec.counts_cycle and self.session_active:
             self.cycles += 1
+        if spec is not None and spec.starts_session:
+            # The session clock bounds ONE run, so it restarts every time
+            # the screen that opens a run comes back. Setting it once and
+            # leaving it turned the guard into a global cap: the live
+            # dungeon loop of 2026-08-25 died at 5:01 with 13 clean
+            # cycles behind it and nothing wrong on screen.
+            self._session_started_at = now
         self._state = state_name
         self._state_since = now
         self._taps_on_state = 0

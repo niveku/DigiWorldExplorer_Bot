@@ -129,15 +129,25 @@ class CliTests(unittest.TestCase):
         adb.assert_not_called()
 
     def test_a_run_writes_its_events(self):
+        # The run folder is named "<stamp>_<loop>", and the stamp itself
+        # contains an underscore, so anything looser than an exact suffix
+        # match reaches other loops' folders: the first version of this
+        # cleanup globbed "*_trials" and tried to delete the live
+        # "*_sp_trials" log of a run that was going on at the time.
+        def mine():
+            return {path for path in Path("outputs").glob("*_trials")
+                    if path.name.split("Z_", 1)[-1] == "trials"}
+
+        before = mine()
         self.learn()
         self.drive(list(self.ROUND_TRIP),
                    ["run", "--loop", "trials", "--cycles", "1", "--poll", "0"])
-        logs = sorted(Path("outputs").glob("*_trials/events.jsonl"))
-        self.assertTrue(logs)
-        text = logs[-1].read_text(encoding="utf-8")
-        for path in logs:
-            path.unlink()
-            path.parent.rmdir()
+        created = sorted(mine() - before)
+        self.assertEqual(len(created), 1)
+        log = created[0] / "events.jsonl"
+        text = log.read_text(encoding="utf-8")
+        log.unlink()
+        created[0].rmdir()
         self.assertIn("challenge", text)
         self.assertIn("tap_xy", text)
 

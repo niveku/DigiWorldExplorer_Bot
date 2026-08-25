@@ -203,6 +203,28 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(loop.cycles, 0)
         self.assertEqual(loop.decide(0.5, "challenge").kind, "tap")
 
+    def test_the_session_clock_restarts_with_every_run(self):
+        # Regression: the live dungeon loop stopped at 5:01 with 13 clean
+        # cycles behind it because the session clock was set on the first
+        # run and never again, turning a per-run guard into a global cap.
+        loop = runner(session_timeout=10.0)
+        now = 0.0
+        for _ in range(6):
+            loop.decide(now, "challenge")
+            loop.decide(now + .5, "challenge")
+            loop.decide(now + 3.0, None, changed=True)
+            now += 8.0
+        decision = loop.decide(now, "challenge")
+        self.assertNotEqual(decision.reason, "timeout de sesion")
+        self.assertGreaterEqual(loop.cycles, 5)
+
+    def test_a_run_that_never_comes_back_still_times_out(self):
+        loop = runner(session_timeout=10.0)
+        loop.decide(0.0, "challenge")
+        loop.decide(0.5, "challenge")
+        decision = loop.decide(30.0, None, changed=True)
+        self.assertEqual(decision.reason, "timeout de sesion")
+
     def test_counts_completed_cycles_and_stops_on_the_budget(self):
         loop = runner(max_cycles=1)
         loop.decide(0.0, "challenge")        # the offer
