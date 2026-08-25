@@ -335,25 +335,41 @@ def growth_guide_overlay(image):
     """Recognize the 'Growth Guide' panel; report whether the stage failed.
 
     The panel (user capture 2026-08-21) has a light-gray title bar around
-    15-20% of the frame height and red-framed advice sections below it;
-    when it pops because the stage ended, a big red 'Stage Failed'
-    headline sits in the top band. On the fixture: 75 gray title rows
-    (floor 2% of height), red-frame density 0.0022 (floor 0.001), red
-    headline density 0.0101 (floor 0.003); nine board fixtures score
-    at most a fifth of each floor. One numpy pass, no OCR."""
+    15-20% of the frame height and a dark gray body below it; when it
+    pops because the stage ended, a big red 'Stage Failed' headline sits
+    above it. One numpy pass, no OCR.
+
+    The first version also demanded a density of saturated red
+    (`r>150 & g<60 & b<70`) from the section frames, measured at 0.0022
+    on the fixture with a 0.001 floor. A live capture on 2026-08-25 -
+    the same panel, plainly visible on screen - scored 0.00097 and the
+    bot walked straight past it: a floor set from ONE capture with a 2.2x
+    margin is not a measurement, it is a coincidence. That term is gone.
+    What replaced it are the two signals that separate the panel from
+    every board fixture by more than an order of magnitude:
+
+        signal            panel (2 captures)   15 board fixtures
+        gray title rows   69 and 75            0 in all of them
+        dark panel body   .327 and .446        <= .011
+
+    The 'Stage Failed' headline moved to a RELATIVE red test over the top
+    22% of the frame (the absolute one clipped the anti-aliased glow):
+    .0233 and .0290 on the two captures against <= .0023 on every board.
+    """
     a = np.asarray(image.convert("RGB")).astype(int)
     height, width = a.shape[:2]
     r, g, b = a[..., 0], a[..., 1], a[..., 2]
     gray = ((np.abs(r - g) < 18) & (np.abs(g - b) < 18)
             & (r > 120) & (r < 190))
     title_rows = gray[int(height * .10):int(height * .30)].mean(axis=1)
-    red_frames = ((r > 150) & (g < 60) & (b < 70))[int(height * .20):
-                                                   int(height * .85)]
+    body = ((np.abs(r - g) < 26) & (np.abs(g - b) < 26)
+            & (r > 25) & (r < 95))[int(height * .25):int(height * .82)]
     if (int((title_rows > .15).sum()) < int(height * .02)
-            or red_frames.mean() < .001):
+            or body.mean() < .10):
         return None
-    headline = ((r > 190) & (g < 70) & (b < 80))[:int(height * .13)]
-    return {"stage_failed": bool(headline.mean() > .003)}
+    headline = ((r > 170) & (r > g * 1.8)
+                & (r > b * 1.8))[:int(height * .22)]
+    return {"stage_failed": bool(headline.mean() > .008)}
 
 
 # A cell tap may wander this fraction of the cell away from its centre.

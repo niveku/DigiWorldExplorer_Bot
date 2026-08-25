@@ -512,14 +512,29 @@ class GrowthGuideOverlayTests(unittest.TestCase):
     is dismissing and future flows can react to a failed stage."""
 
     def test_recognizes_the_stage_failed_panel(self):
+        for name in ("growth_guide_stage_failed.png",
+                     "growth_guide_stage_failed_live.png"):
+            with self.subTest(fixture=name):
+                overlay = runner.growth_guide_overlay(
+                    Image.open(FIXTURES / name))
+                self.assertIsNotNone(overlay)
+                self.assertTrue(overlay["stage_failed"])
+
+    def test_the_live_capture_that_the_first_thresholds_missed(self):
+        # 2026-08-25, emulator-5554: the panel was on screen and the
+        # red-frame density scored .00097 against a .001 floor derived
+        # from a single earlier capture. The detector walked past it.
+        # This fixture is the regression.
         overlay = runner.growth_guide_overlay(
-            Image.open(FIXTURES / "growth_guide_stage_failed.png"))
-        self.assertIsNotNone(overlay)
-        self.assertTrue(overlay["stage_failed"])
+            Image.open(FIXTURES / "growth_guide_stage_failed_live.png"))
+        self.assertEqual(overlay, {"stage_failed": True})
 
     def test_ordinary_boards_are_not_the_panel(self):
         for name in ("claw_board.png", "chest_ready.png", "chest_claimed.png",
-                     "fm_at_1_1.png", "phantom_blob_cards.png"):
+                     "chest_reset.png", "fm_at_0_1.png", "fm_at_1_1.png",
+                     "fm_at_3_1.png", "hud_29_74_32.png",
+                     "pickup_green_ticket.png", "pickup_purple_ticket.png",
+                     "phantom_blob_cards.png"):
             with self.subTest(fixture=name):
                 self.assertIsNone(runner.growth_guide_overlay(
                     Image.open(FIXTURES / name)))
