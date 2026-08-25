@@ -513,7 +513,8 @@ class GrowthGuideOverlayTests(unittest.TestCase):
 
     def test_recognizes_the_stage_failed_panel(self):
         for name in ("growth_guide_stage_failed.png",
-                     "growth_guide_stage_failed_live.png"):
+                     "growth_guide_stage_failed_live.png",
+                     "growth_guide_stage_failed_home.png"):
             with self.subTest(fixture=name):
                 overlay = runner.growth_guide_overlay(
                     Image.open(FIXTURES / name))
