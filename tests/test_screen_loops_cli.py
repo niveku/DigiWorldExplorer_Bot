@@ -128,6 +128,16 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         adb.assert_not_called()
 
+    def test_adopt_session_closes_the_leftover_dialog_once(self):
+        # The relaunch case: the previous process was killed on a reward
+        # panel, so the screen that would open a run is behind it.
+        self.learn()
+        code, adb = self.drive([REWARD(7), REWARD(8), REWARD(9)],
+                               ["run", "--loop", "trials", "--poll", "0",
+                                "--adopt-session", "--max-frames", "3"])
+        self.assertEqual(code, 0)
+        self.assertTrue(adb.called)
+
     def test_a_run_writes_its_events(self):
         # The run folder is named "<stamp>_<loop>", and the stamp itself
         # contains an underscore, so anything looser than an exact suffix

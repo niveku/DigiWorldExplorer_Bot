@@ -163,6 +163,34 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(decision.kind, "wait")
         self.assertEqual(decision.reason, "sin sesion propia")
 
+    def test_adopts_one_leftover_run_when_asked_to(self):
+        # Regression: relaunching while the game sat on the reward screen
+        # deadlocked on "sin sesion propia" forever, because the screen
+        # that starts a session is behind the one nobody may close.
+        loop = runner(adopt_session=True)
+        self.assertEqual(loop.decide(1.0, "reward").reason,
+                         "asentando la pantalla")
+        self.assertEqual(loop.decide(1.5, "reward").kind, "tap")
+
+    def test_the_adoption_is_spent_after_the_first_run(self):
+        loop = runner(adopt_session=True)
+        loop.decide(1.0, "reward")
+        loop.decide(1.5, "reward")           # adopted
+        loop.decide(2.0, None, changed=True)
+        loop.decide(3.0, "challenge")        # our own run starts
+        loop.decide(3.5, "challenge")
+        loop.decide(4.0, None, changed=True)
+        loop.session_active = False          # the run ended elsewhere
+        loop.decide(5.0, "reward")
+        decision = loop.decide(5.5, "reward")
+        self.assertEqual((decision.kind, decision.reason),
+                         ("wait", "sin sesion propia"))
+
+    def test_without_the_flag_a_leftover_screen_is_still_untouchable(self):
+        loop = runner()
+        self.assertEqual(loop.decide(1.0, "reward").reason, "sin sesion propia")
+        self.assertEqual(loop.decide(1.5, "reward").reason, "sin sesion propia")
+
     def test_acts_on_the_reward_once_the_session_is_ours(self):
         loop = runner()
         loop.decide(0.0, "challenge")

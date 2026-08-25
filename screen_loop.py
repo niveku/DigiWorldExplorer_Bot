@@ -192,6 +192,14 @@ class LoopPolicy:
     ineffective_taps_stop: int = 6
     backoff_factor: float = 1.5
     backoff_cap: float = 4.0
+    # Adopt a run that was already on screen when the loop started. Off by
+    # default, and deliberately limited to the FIRST session: relaunching
+    # while the game sits on a `requires_session` screen (a reward panel
+    # left over from the previous process) otherwise deadlocks forever on
+    # "sin sesion propia", because the screen that would start a session is
+    # behind the one nobody is allowed to close. Adopting once unblocks
+    # that and leaves the rule standing for every later run.
+    adopt_session: bool = False
 
 
 @dataclass
@@ -223,6 +231,7 @@ class LoopRunner:
         self._tap_pending_proof = False
         self._session_started_at = None
         self._last_change_at = None
+        self._session_ever = False
 
     # -- observation -----------------------------------------------------
     def classify(self, grid):
@@ -267,6 +276,7 @@ class LoopRunner:
                                 state_name, detail={"cycles": self.cycles})
             if not self.session_active:
                 self.session_active = True
+                self._session_ever = True
                 self._session_started_at = now
 
         if self.session_active and self._session_started_at is not None \
@@ -289,7 +299,14 @@ class LoopRunner:
         if spec.requires_session and not self.session_active:
             # The Android original's rule, and it is a good one: never act
             # on a screen that some other part of the game put there.
-            return Decision("wait", "sin sesion propia", state_name)
+            if not (self.policy.adopt_session and not self._session_ever):
+                return Decision("wait", "sin sesion propia", state_name)
+            # First frames of the run and the leftover screen is the only
+            # thing between us and the loop: adopt it once, say so, and
+            # never again.
+            self.session_active = True
+            self._session_ever = True
+            self._session_started_at = now
 
         if spec.action == "wait":
             return Decision("wait", "esperando a que el juego avance",

@@ -28,6 +28,30 @@ dispersión. La zona que anima (la batalla, la recompensa girando) pesa
 casi nada; el marco, el panel y los botones deciden. El umbral sale de las
 propias capturas.
 
+## Cómo se lanza
+
+Doble clic en **`LOOP.cmd`** — el equivalente de `START.cmd`, pero para los
+loops. Son dos entradas distintas a propósito: el Explorador pregunta
+cuántas acciones y cotiza el inventario antes de arrancar; un loop
+pregunta cuál perfil y cuántas vueltas. Meterlos en un mismo `START.cmd`
+añadiría una pregunta de modo a cada arranque del Explorador, que es el
+que más se usa. El banner sí lo comparten (`NivekuBanner.ps1`).
+
+`LOOP.cmd` hace, en este orden:
+
+1. lista los perfiles que hay en `screen_profiles/` y te deja elegir;
+2. corre **siempre la simulación primero** (15 frames, no toca nada);
+3. sólo si dices que sí, pregunta cuántas vueltas y arranca el loop activo.
+
+Enter en «¿Cuántas vueltas?» lo deja **sin límite** — se para con Ctrl+C,
+o solo, por cualquiera de las reglas de seguridad de abajo.
+
+Desde consola, si prefieres saltarte el menú:
+
+```powershell
+.\LOOP.cmd -Loop sp_trials -Active -Cycles 20
+```
+
 ## Receta
 
 ```bash
@@ -67,6 +91,14 @@ estados mejor separados, nunca ejecutando `run` a ver qué pasa.
 2. **La sesión es nuestra o no se toca.** Una pantalla marcada
    `--needs-session` sólo se toca si este loop abrió la vuelta. Sin eso,
    una recompensa que dejó abierta el jugador recibe taps ajenos.
+   La excepción es `--adopt-session`, y está acotada a **una sola vez, la
+   primera**: si el proceso anterior murió a mitad de vuelta, el juego se
+   queda en la pantalla de recompensa, y la pantalla que abriría una
+   sesión está *detrás* de la que nadie tiene permiso de cerrar. Sin la
+   excepción, un relanzamiento se queda clavado en «sin sesion propia»
+   para siempre (pasó el 2026-08-25 y hubo que dar el tap a mano).
+   Adoptada la primera, la regla vuelve a estar entera. `LOOP.cmd` lo
+   pregunta antes de arrancar en activo.
 3. **Ningún tap se cree a sí mismo.** El estado avanza cuando la pantalla
    reconocida *deja* de reconocerse. Un tap que no cambió ni la pantalla
    ni el frame se cuenta como tap perdido: 3 seguidos estiran el intervalo

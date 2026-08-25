@@ -157,6 +157,9 @@ def _load(args):
     if args.cycles is not None:
         policy = policy or screen_loop.LoopPolicy()
         policy.max_cycles = args.cycles
+    if getattr(args, "adopt_session", False):
+        policy = policy or screen_loop.LoopPolicy()
+        policy.adopt_session = True
     return screen_loop.LoopRunner(profiles, states, policy)
 
 
@@ -268,6 +271,10 @@ def build_parser():
         command.add_argument("--cycles", type=int, default=None)
         command.add_argument("--poll", type=float, default=1.0)
         command.add_argument("--dry-run", action="store_true")
+        command.add_argument("--adopt-session", action="store_true",
+                             help="adoptar UNA vuelta ya en pantalla al "
+                                  "arrancar (destraba un relanzamiento "
+                                  "sobre una pantalla de recompensa)")
         command.add_argument("--max-frames", type=int, default=None,
                              help="parar despues de N frames (pruebas)")
         command.set_defaults(func=function)

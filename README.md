@@ -131,9 +131,12 @@ Con items visibles el controlador planifica como máximo dos acciones hasta el s
 | `CHECK.cmd` | Verificar ADB y cuadrícula sin enviar entradas |
 | `START.cmd` | Iniciar el modo bot tranquilo con branding |
 | `START_DEBUG.cmd` | Run de desarrollo con estado por escaneo e imágenes de diagnóstico |
+| `LOOP.cmd` | Loops de pantalla repetible (dungeon, defensa, invocación) — ver `SCREEN_LOOPS.md` |
 | `Setup.ps1` | Verificar Python y preparar el entorno local |
 | `Check-Setup.ps1` | Ejecutar el modo de diagnóstico seguro |
 | `Start-Bot.ps1` | Preguntar opciones de inicio y lanzar el run |
+| `Start-Loop.ps1` | Elegir perfil de loop, simular y luego ejecutarlo |
+| `NivekuBanner.ps1` | El banner que comparten los dos lanzadores |
 | `digiworld_bot.py` | ADB, screenshots, detección de cuadrícula y taps |
 | `auto_digiworld.py` | Detección de jugador, items y obstáculos |
 | `auto_digiworld_batch2.py` | Planificación adaptativa y control de seguridad |
