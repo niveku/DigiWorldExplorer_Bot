@@ -87,3 +87,33 @@ Nada de esto sabe aún cómo se ven Attack Type Trials ni CREST: los
 perfiles se aprenden de capturas que hay que tomar en el emulador. Hasta
 que existan, `watch` es lo único que se debe correr, y el propio `watch`
 está para eso.
+
+## Medición: 5,13 h del dungeon VS. SP-Type 89 (2026-08-25)
+
+Primera corrida larga real, y el resultado importa más que la mecánica.
+
+| | |
+| --- | --- |
+| duración | 5,13 h (terminó porque el proceso fue matado, no por una parada del loop) |
+| vueltas | 715, a 25,8 s cada una |
+| intentos | 716 · **702 derrotas · 1 victoria** |
+| taps | 1.421, todos en las pantallas reconocidas |
+| bits | 3.521,2K → 3.528,0K (**+6,8K**) |
+| EXP de Tamer | 19.673,1K → 19.682,5K (**+9,4K**) |
+
+**Corrección de una atribución equivocada.** A mitad de la sesión reporté
+que cada derrota daba +753,7K bits y +870,5K de EXP. Era falso: esos
+números eran la renta pasiva de Binary Road acumulada durante los ~24
+minutos entre las dos capturas que comparé, no el premio del dungeon. El
+error es exactamente el que la regla de `otherBonuses` del calculador
+describe — un delta medido se atribuyó a la causa que estaba mirando en
+ese momento, sin aislar la variable. Cinco horas de bucle lo desmienten:
++6,8K bits en 715 intentos.
+
+Y como durante las batallas del dungeon la renta pasiva no corre, el
+bucle probablemente **costó** más de lo que rindió.
+
+**Conclusión operativa**: repetir un stage que se pierde 702 de 703 veces
+no es farmeo. Un loop de dungeon sólo tiene sentido sobre un nivel que la
+cuenta gane de forma fiable, o sobre Network Defense, donde el valor está
+en los enemigos derrotados por vuelta y no en el desenlace.
