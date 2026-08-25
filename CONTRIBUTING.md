@@ -60,6 +60,26 @@ Las corridas limpias que cubren un caso nuevo se agregan al corpus de
 - Commits en formato convencional (`fix(runner): ...`), cuerpo explicando la
   evidencia. Nunca `--no-verify`.
 
+## Ramas: solo `main` se publica
+
+Los experimentos se quedan en la máquina. En GitHub la visibilidad es del
+repositorio entero — si el repo es público, cualquier rama que empujes lo es
+también, y lo empujado sigue siendo accesible por su SHA aunque después
+borres la rama. Así que el trabajo en curso vive en ramas locales y solo
+`main` sube al fork.
+
+El repositorio ya está configurado para que un `git push origin` distraído
+no publique la rama en la que estés parado:
+
+```bash
+git config --local remote.origin.push refs/heads/main:refs/heads/main
+```
+
+Esa línea es configuración **local**: un clon nuevo no la hereda, hay que
+volver a ejecutarla. Empujar una rama a propósito sigue siendo posible
+(`git push origin mi-rama`) — el objetivo es que sea una decisión, no un
+accidente.
+
 ## Qué no hacer
 
 - No borrar ni reescribir el historial de git: la trazabilidad respecto al
@@ -68,3 +88,4 @@ Las corridas limpias que cubren un caso nuevo se agregan al corpus de
   PNG).
 - No agregar un `LICENSE`: ver `NOTICE.md`.
 - No redistribuir el proyecto fuera de GitHub.
+- No empujar ramas de experimentos al fork público: ver la sección de ramas.
