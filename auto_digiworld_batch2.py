@@ -19,6 +19,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 import auto_digiworld as strategy
 import digiworld_bot as bot
+import overlays
+import safe_tap
 import step_ledger
 import world_model
 
@@ -354,14 +356,61 @@ def growth_guide_overlay(image):
     return {"stage_failed": bool(headline.mean() > .003)}
 
 
-def dismiss_tap_due(unreliable):
-    """Tap outside a suspected popup on the 2nd and 4th unreliable strike.
+# A cell tap may wander this fraction of the cell away from its centre.
+# The point stays inside the SAME cell, so nothing about the target
+# changes - only the pixel. 20% of a ~110px cell is +-22px, well clear of
+# the border even when the board estimate is a few pixels off.
+TAP_SAFE_FRACTION = .20
 
-    Run 20260821T173052: the Stage Failed "Growth Guide" panel covered the
-    board and the run died after five unreliable-board waits with the
-    panel still open. One tap outside its frame closes it (user
-    confirmed), so two attempts fit before the 5-strike stop."""
-    return unreliable in (2, 4)
+
+def cell_tap_point(board, cell, jitter=None):
+    """Where to tap for `cell`: its centre, moved inside its own area."""
+    x, y = bot.cell_center(board, *cell)
+    if jitter is None:
+        return x, y
+    x0, y0, x1, y1 = board
+    rx = abs(x1 - x0) / 5 * TAP_SAFE_FRACTION
+    ry = abs(y1 - y0) / 5 * TAP_SAFE_FRACTION
+    return jitter.point(("cell", tuple(cell)), x, y, rx, ry)
+
+
+def button_tap_point(point, jitter=None, radius=(10, 6)):
+    """Where to tap a HUD button whose centre was located by vision."""
+    if jitter is None or point is None:
+        return point
+    return jitter.point(("button", point), point[0], point[1], *radius)
+
+
+# The two independently safe places to tap a centred dialog away. The
+# first is this bot's inert left margin (DISMISS_TAP_XY); the second is
+# the strip below the panel and above the world/home button, which is the
+# spot the Android companion uses. An attempt that changed nothing tries
+# the other one instead of repeating itself.
+DISMISS_POINTS = ((DISMISS_TAP_XY[0] / 720, DISMISS_TAP_XY[1] / 1280),
+                  (.50, .865))
+
+
+def build_overlay_arbiter(strikes):
+    """The covers this bot knows, in the order they outrank each other.
+
+    `strikes` is a callable returning the current unreliable-board strike
+    count: an unrecognized cover is only *suspected*, so it may not own
+    the frame until the board has failed to read twice.
+    """
+    def growth_guide(image, det=None):
+        return growth_guide_overlay(image)
+
+    def suspected_cover(image, det=None):
+        return {"strikes": strikes()} if strikes() >= 2 else None
+
+    return overlays.OverlayArbiter([
+        overlays.OverlayKind("growth_guide", priority=9, detect=growth_guide,
+                             points=DISMISS_POINTS, cooldown=0.0,
+                             max_attempts=4),
+        overlays.OverlayKind("suspected_cover", priority=1,
+                             detect=suspected_cover, points=DISMISS_POINTS,
+                             cooldown=0.0, max_attempts=2),
+    ])
 
 
 def out_of_steps(inventory, rejected_streak, threshold=2):
@@ -1696,6 +1745,21 @@ def safe_followup_moves(info, player, first_target, direction, count, goals=None
         cell = info[checked_cell]
         if strategy.is_obstacle(cell):
             break
+        # This is where the Android planner's corridorClear would go, and
+        # the reason it does not sit here: a batched tap IS dispatched
+        # blind, so it must stay harmless when the game swallows the
+        # previous one. Their planner taps absolute cells, so a swallowed
+        # tap slides the whole chain onto cells nobody validated, and
+        # they answer that with a free corridor plus one column of
+        # margin. The belt makes the same guarantee exact instead of
+        # approximate: the screen cell tapped at step k holds, after j
+        # swallowed scrolls, the world cell `checked_cell - j`, and every
+        # one of those is a cell an earlier iteration already validated
+        # (j = 0 is the caller's own first target). The corridor is
+        # correct by construction, so the extra margin could only refuse
+        # batches that are provably safe. test_corridor_margin.py pins
+        # the property, because it lives in this offset arithmetic and
+        # nothing else would notice if a future edit lost it.
         if goals:
             distance = min(abs(checked_cell[0]-g[0]) + abs(checked_cell[1]-g[1])
                            for g in goals)
@@ -1842,6 +1906,11 @@ def main():
     board_lock = StableBoard()
     unreliable = 0
     player_unreliable = 0
+    # One owner per frame: while a cover is recognized, it decides, and
+    # the explorer waits. The strike count is what promotes an
+    # unrecognized cover from "suspected" to "owner".
+    tap_jitter = safe_tap.TapJitter()
+    overlay_arbiter = build_overlay_arbiter(lambda: unreliable)
     overlay_waits = 0
     overlay_evidence_saved = 0
     phantom_obstacles = {}
@@ -2029,21 +2098,37 @@ def main():
         if det.state != "digiworld" or not det.board or det.confidence < args.min_confidence:
             unreliable += 1
             event["action"] = f"WAIT: unreliable board ({unreliable}/5)"
-            # A recognized Growth Guide panel is dismissed on every strike
-            # and logged with its stage_failed flag; an unrecognized cover
-            # still gets the blind outside-tap on strikes 2 and 4.
-            panel = growth_guide_overlay(image)
-            if panel is not None:
-                event["overlay"] = dict(panel, kind="growth_guide")
-            if panel is not None or dismiss_tap_due(unreliable):
+            # The arbiter owns the frame while a cover is on it: a
+            # recognized Growth Guide panel outranks a merely suspected
+            # popup, each attempt moves to the other known-safe point,
+            # and the cover is only released when it stops being seen.
+            # (Its cooldown is expressed in frames here, and both covers
+            # are configured to allow one attempt per frame.)
+            decision = overlay_arbiter.observe(frame_clock.now, image, det,
+                                               image.size)
+            if decision.owner is not None:
+                event["overlay"] = dict(decision.evidence,
+                                        kind=decision.owner,
+                                        attempt=decision.attempt)
+            if decision.kind == "stop":
+                event["action"] = f"STOP: {decision.reason}"
+                wait_frames += log_frame(log, event)
+                print(f"Cubierta sin cerrar: {decision.reason}.")
+                show_run_summary(done, args.steps, started_at, collected,
+                                 energy_start, read_energy_counter(image),
+                                 "33")
+                return 2
+            if decision.kind == "dismiss":
+                x, y = safe_tap.point(decision.point[0], decision.point[1],
+                                      6, 6, bounds=image.size)
                 bot.adb(args.adb, args.serial, "shell", "input", "tap",
-                        str(DISMISS_TAP_XY[0]), str(DISMISS_TAP_XY[1]))
-                event["dismiss_tap"] = list(DISMISS_TAP_XY)
+                        str(x), str(y))
+                event["dismiss_tap"] = [x, y]
                 if args.verbose:
-                    label = ("Panel Growth Guide detectado - cerrando"
-                             if panel is not None else
-                             "Popup sospechado - tap fuera del panel")
-                    if panel is not None and panel.get("stage_failed"):
+                    label = ("Popup sospechado - tap fuera del panel"
+                             if decision.owner == "suspected_cover" else
+                             "Panel Growth Guide detectado - cerrando")
+                    if decision.evidence.get("stage_failed"):
                         label = ("Stage Failed + Growth Guide - cerrando "
                                  "para continuar")
                     progress(done, args.steps, label, "33")
@@ -2744,9 +2829,10 @@ def main():
             pending_dash = {"path": dash_path,
                             "energy_before": read_energy_counter(image, dash_dump)}
             pending_dash["inventory_before"] = read_drop_counters(image)
+            dash_xy = button_tap_point(control, tap_jitter)
             bot.adb(args.adb, args.serial, "shell", "input", "tap",
-                    str(control[0]), str(control[1]))
-            sent.append({"type": "dash", "adb_xy": list(control)})
+                    str(dash_xy[0]), str(dash_xy[1]))
+            sent.append({"type": "dash", "adb_xy": list(dash_xy)})
             if dash_stock is not None:
                 dash_stock = max(0, dash_stock - 1)
             expected_player = None
@@ -2824,7 +2910,7 @@ def main():
                              "replanificando", "33")
                 time.sleep(RESCAN_DELAY)
                 continue
-            x, y = bot.cell_center(det.board, *target)
+            x, y = cell_tap_point(det.board, target, tap_jitter)
             if kind == "attack":
                 pending_attack_inv = read_drop_counters(image)
                 last_attack = (target[0], done)
@@ -2886,7 +2972,8 @@ def main():
                         "move",
                         scrolled=(direction == "right"
                                   and screen_target[1] >= 2)))
-                    x2, y2 = bot.cell_center(det.board, *screen_target)
+                    x2, y2 = cell_tap_point(det.board, screen_target,
+                                            tap_jitter)
                     bot.adb(args.adb, args.serial, "shell", "input", "tap", str(x2), str(y2))
                     sent.append({"type": "move", "target_cell": list(screen_target),
                                  "direction": direction,

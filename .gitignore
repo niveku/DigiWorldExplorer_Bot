@@ -33,3 +33,8 @@ docs/*
 !docs/review-*.md
 # Trazabilidad del fork: qué cambió respecto al repositorio original.
 !docs/UPSTREAM.md
+
+# Screen-loop calibration: the captures are screenshots of a device and
+# can be heavy, so only the learned profiles (screen_profiles/*.json) are
+# tracked.
+screen_profiles/captures/
