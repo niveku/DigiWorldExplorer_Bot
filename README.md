@@ -2,11 +2,11 @@
 
 # ⚡ DigiWorldExplorer_Bot ⚡
 
-![Version](https://img.shields.io/badge/version-0.2.0-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue)
+![Version](https://img.shields.io/badge/version-0.2.0-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Tests](https://img.shields.io/badge/tests-520-green)
 
 ### 🦖 Exploración automatizada de DigiWorld para Digimon UP
 
-**✨ RobinTh0r Guild Edition · Exclusive for Germon Members ✨**
+**✨ Fork de [Niveku](https://github.com/niveku) · base de [RobinTh0r](https://github.com/RobinTh0r/DigiWorldExplorer_Bot) ✨**
 
 `Local` · `Determinista` · `Solo ADB` · `Sin IA en la nube` · `Safety first`
 
@@ -15,8 +15,17 @@
 > [!WARNING]
 > Este proyecto privado de fans no está vinculado a los desarrolladores de Digimon UP. La automatización del juego puede violar sus reglas. Uso exclusivamente bajo tu propia responsabilidad y sin garantía.
 
+> [!IMPORTANT]
+> **Este repositorio es un fork.** La base — detección de la cuadrícula por ADB,
+> exploración, launchers de Windows, empaquetado — es de
+> [RobinTh0r](https://github.com/RobinTh0r/DigiWorldExplorer_Bot), que la publicó en
+> julio de 2026. Encima van 111 commits míos: el recibo de paticas, el modelo del
+> mundo, el harness de replay y 520 tests.
+> Detalle en [`docs/UPSTREAM.md`](docs/UPSTREAM.md); autoría y estado de licencia
+> — el original **no declara licencia** — en [`NOTICE.md`](NOTICE.md).
+
 > [!NOTE]
-> 🔗 Proyecto hermano: [DigiWorldExplorer_Android_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Android_Bot)
+> 🔗 Proyecto hermano del autor original: [DigiWorldExplorer_Android_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Android_Bot)
 > es el port nativo a Android – corre directo en el dispositivo sin PC, BlueStacks ni ADB.
 
 ## 🌟 ¿Qué hace el bot?
@@ -78,9 +87,19 @@ Si falta Python, `INSTALL.cmd` pregunta si puede instalar **Python 3.12 vía `wi
 
 ## 🎮 Inicio interactivo
 
-`START.cmd` pregunta primero el número de acciones y después, brevemente, si quieres usar ajustes experimentales. El valor por defecto es `N`: el bot arranca de inmediato con el intervalo seguro de `0,50 segundos` y sin imágenes de debug. Solo con `S` se preguntan además el intervalo y las imágenes de diagnóstico. Al terminar un run puede lanzarse otro directamente; la secuencia de preguntas vuelve a empezar por el número de acciones.
+`START.cmd` pregunta cuántas acciones debe ejecutar el bot y luego **cotiza el run
+antes de tocar nada**: lee el HUD y dice cuántas paticas, garras y dashes cuesta lo
+que pediste, cuánto tienes y si alcanza. Se puede teclear otro número ahí mismo y
+vuelve a cotizar; `s` arranca, `n` cancela. Al terminar puede lanzarse otro run.
 
-El intervalo mínimo está limitado a `0,35 segundos` por seguridad. Con `Ctrl+C` el bot se detiene de inmediato en cualquier momento. En modo normal aparece aproximadamente cada 2 % una actualización compacta con progreso, tiempo transcurrido y tiempo restante estimado. Al final se muestran el tiempo total, la energía inicial, la final, la diferencia real, y la energía por minuto y proyectada por hora. Además queda visible el conteo interno de items detectados y recogidos a propósito. Si el contador del HUD no puede leerse con certeza, se indica explícitamente **no legible con certeza**.
+Los tiempos entre acciones ya no se preguntan: los fija el propio bot según lo que el
+juego anima, y se estiran solos cuando el aparato se traga taps. Con `Ctrl+C` se
+detiene de inmediato. En modo normal aparece cada 2 % una actualización compacta con
+progreso, tiempo transcurrido y restante. Al final se muestran el tiempo total, la
+energía inicial y final, la diferencia real, la energía por minuto y proyectada por
+hora, y una línea de eficiencia: taps cobrados contra reclamados, esperas, segundos
+por acción y energía por patica. Si el contador del HUD no puede leerse con certeza,
+se indica explícitamente **no legible con certeza**.
 
 ### 🔧 Modo debug
 
@@ -118,7 +137,11 @@ Con items visibles el controlador planifica como máximo dos acciones hasta el s
 | `digiworld_bot.py` | ADB, screenshots, detección de cuadrícula y taps |
 | `auto_digiworld.py` | Detección de jugador, items y obstáculos |
 | `auto_digiworld_batch2.py` | Planificación adaptativa y control de seguridad |
-| `tests/test_core.py` | Tests de regresión offline sin entradas al juego |
+| `step_ledger.py` | El recibo del juego: qué taps cobró y cuánto avanzó la banda |
+| `world_model.py` | Pistas con identidad: qué se cree, qué se sospecha y por qué |
+| `replay_harness.py` | Convierte corridas guardadas en tests de regresión con invariantes |
+| `analyze_breaks.py` | Análisis offline de los logs de corridas |
+| `tests/` | 520 tests offline, con fixtures de capturas reales |
 | `requirements.txt` | Dependencias mínimas de Python |
 
 ## 📦 ¿Por qué no un paquete portable gigante?
@@ -136,7 +159,7 @@ Tras una instalación exitosa:
 
 ```powershell
 .\.venv\Scripts\python.exe -m py_compile digiworld_bot.py auto_digiworld.py auto_digiworld_batch2.py
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
 Estos tests no envían entradas ADB.
@@ -156,9 +179,23 @@ Estos tests no envían entradas ADB.
 La versión actual está en `VERSION` y se muestra en el banner de la terminal y con
 `python auto_digiworld_batch2.py --version`.
 
-### Unreleased
+### Unreleased (fork de Niveku)
 
-- Interfaz de usuario completa en español (runner, launchers PowerShell y esta README).
+- 🧾 **Recibo de paticas**: el contador del HUD es la autoridad sobre qué taps cobró
+  el juego; la banda transportadora avanza con el recibo, no con la fe en los taps.
+- 🌍 **Modelo del mundo**: las celdas son pistas clasificadas por su origen, no
+  juicios rehechos cada frame.
+- 🔁 **Harness de replay**: cada corrida guardada es un test de punta a punta con
+  invariantes (GHOST, PLAYER-LAW, STARVATION, BLIND-TOUR, PING-PONG, INDECISION).
+- 💰 **Economía medida**: tour planificado sobre todos los pickups, precios reales
+  (paso 40, garra 200, dash 400) y presupuestos de scroll para lo perecedero.
+- ⏱️ **Ritmo adaptativo**: las esperas responden al aparato — un tap tragado las
+  estira, un frame limpio las relaja.
+- 💸 El lanzador cotiza el run antes de empezar y ya no cancela por error.
+- 🧪 520 tests offline.
+- 🗣️ Interfaz de usuario completa en español (runner, launchers PowerShell y esta README).
+
+Diario completo de defectos y evidencia en [`docs/`](docs/).
 
 ### v0.2.0 – 29.07.2026
 
@@ -193,15 +230,16 @@ En cada versión nueva se actualizan en conjunto:
 
 | Proyecto | Plataforma | Repo |
 | --- | --- | --- |
-| DigiWorldExplorer_Bot (este repo) | Windows + BlueStacks, ADB | – |
+| DigiWorldExplorer_Bot (este fork) | Windows + BlueStacks, ADB | – |
+| DigiWorldExplorer_Bot (original) | Windows + BlueStacks, ADB | [RobinTh0r/DigiWorldExplorer_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Bot) |
 | DigiWorldExplorer Android Bot | Android, nativo, sin ADB | [RobinTh0r/DigiWorldExplorer_Android_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Android_Bot) |
 
 ---
 <div align="center">
 
-## ⚒️ RobinTh0r × Agumon 🦖
+## ⚒️ Niveku × Gatomon 🦖
 
-**✨ Built for the guild · Exclusive for Germon Members ✨**
+**✨ Fork mantenido por [Niveku](https://github.com/niveku) · base original de [RobinTh0r](https://github.com/RobinTh0r) ✨**
 
 *Explore smart. Stop safe. Collect everything.*
 

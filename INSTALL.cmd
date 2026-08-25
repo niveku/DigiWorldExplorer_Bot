@@ -1,6 +1,6 @@
-@echo off
+﻿@echo off
 setlocal
-title RobinTh0r - DigiWorldExplorer_Bot Installer
+title Niveku - DigiWorldExplorer_Bot Installer
 color 0E
 cd /d "%~dp0"
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0Setup.ps1"

@@ -1,6 +1,6 @@
-@echo off
+﻿@echo off
 setlocal
-title RobinTh0r - DigiWorldExplorer_Bot CHECK
+title Niveku - DigiWorldExplorer_Bot CHECK
 color 0E
 cd /d "%~dp0"
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0Check-Setup.ps1"

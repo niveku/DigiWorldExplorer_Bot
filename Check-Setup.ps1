@@ -7,22 +7,26 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
-function Show-RobinThorBanner {
+function Show-NivekuBanner {
     try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new() } catch {}
 
     $logo = @(
-        '██████╗  ██████╗ ██████╗ ██╗███╗   ██╗████████╗██╗  ██╗ ██████╗ ██████╗ '
-        '██╔══██╗██╔═══██╗██╔══██╗██║████╗  ██║╚══██╔══╝██║  ██║██╔═══██╗██╔══██╗'
-        '██████╔╝██║   ██║██████╔╝██║██╔██╗ ██║   ██║   ███████║██║   ██║██████╔╝'
-        '██╔══██╗██║   ██║██╔══██╗██║██║╚██╗██║   ██║   ██╔══██║██║   ██║██╔══██╗'
-        '██║  ██║╚██████╔╝██████╔╝██║██║ ╚████║   ██║   ██║  ██║╚██████╔╝██║  ██║'
-        '╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝'
+        '███╗   ██╗ ██╗ ██╗   ██╗ ███████╗ ██╗  ██╗ ██╗   ██╗'
+        '████╗  ██║ ██║ ██║   ██║ ██╔════╝ ██║ ██╔╝ ██║   ██║'
+        '██╔██╗ ██║ ██║ ██║   ██║ █████╗   █████╔╝  ██║   ██║'
+        '██║╚██╗██║ ██║ ╚██╗ ██╔╝ ██╔══╝   ██╔═██╗  ██║   ██║'
+        '██║ ╚████║ ██║  ╚████╔╝  ███████╗ ██║  ██╗ ╚██████╔╝'
+        '╚═╝  ╚═══╝ ╚═╝   ╚═══╝   ╚══════╝ ╚═╝  ╚═╝  ╚═════╝ '
     )
     $versionPath = Join-Path $PSScriptRoot 'VERSION'
     $version = if (Test-Path -LiteralPath $versionPath) { (Get-Content -LiteralPath $versionPath -Raw).Trim() } else { 'dev' }
     $subtitle = "[ Digimon UP - DigiWorldExplorer_Bot v$version ]"
-    $guildLine = '✨ EXCLUSIVE FOR GERMON MEMBERS ✨'
-    $contentWidth = ($logo | ForEach-Object Length | Measure-Object -Maximum).Maximum
+    $guildLine = '✨ Fork de Niveku · base de RobinTh0r ✨'
+    # The box is as wide as its widest LINE, not as its widest logo
+    # row: a subtitle or credit line longer than the art used to run
+    # straight through the right border.
+    $contentWidth = (@($logo) + @($subtitle, $guildLine) |
+        ForEach-Object Length | Measure-Object -Maximum).Maximum
 
     function Center-BannerText([string]$Text) {
         $left = [Math]::Max(0, [Math]::Floor(($contentWidth - $Text.Length) / 2))
@@ -42,7 +46,7 @@ function Show-RobinThorBanner {
     Write-Host ('╚' + ('═' * ($contentWidth + 2)) + '╝') -ForegroundColor Yellow
     Write-Host ''
 }
-Show-RobinThorBanner
+Show-NivekuBanner
 $python = Join-Path $projectRoot '.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python)) {
     throw 'Falta el entorno local de Python. Ejecuta primero INSTALL.cmd.'

@@ -1,0 +1,70 @@
+# Cómo se trabaja en este repositorio
+
+Antes que nada, lee [`NOTICE.md`](NOTICE.md): este es un fork de un proyecto
+sin licencia, y eso condiciona qué se puede hacer con el código.
+
+## Reglas duras
+
+**1. Test rojo primero.** Ningún cambio de comportamiento entra sin un test
+que falle antes y pase después. Los tests están para prevenir errores, no
+para documentar los que ya se arreglaron a mano.
+
+```bash
+PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -m unittest discover -s tests
+```
+
+Son ~520 tests y tardan unos 4 minutos; el replay del corpus es la parte
+lenta y es justo la que más vale.
+
+**2. La evidencia manda sobre la teoría.** Un arreglo se justifica con una
+corrida real, un log o un PNG — no con un razonamiento plausible. Si la
+medición dice que el arreglo no sirve, el arreglo se borra, aunque la idea
+fuera bonita. Hay varios ejemplos de eso en `docs/review-*.md`.
+
+**3. Los hallazgos se arreglan, no se posponen.** Cualquier defecto que
+aparezca en una revisión se soluciona antes de seguir. Si de verdad está
+bloqueado, va a un lugar durable — cuerpo del PR o `docs/review-*.md` — con
+motivo, plan y evidencia del bloqueo. «Es menor» o «funciona igual» no
+cuentan como bloqueo.
+
+**4. Causa raíz antes que síntoma.** Ante un fallo: leer el error completo,
+reproducirlo, mirar qué cambió, instrumentar si hace falta. Nada de probar
+arreglos a ver cuál pega. Si tres intentos fallan, el problema es de diseño
+y hay que discutirlo, no intentar un cuarto.
+
+## Corridas en vivo
+
+Los cambios de planificación se validan corriendo el bot de verdad, en
+episodios cortos (20–80 acciones), y pasando la corrida por el harness:
+
+```bash
+.venv/Scripts/python.exe auto_digiworld_batch2.py --steps 60 --progress-percent 100
+.venv/Scripts/python.exe replay_harness.py runs/<corrida>
+```
+
+El harness debe cerrar en **0 violaciones**. Si aparece una, es un defecto
+real: los invariantes (GHOST, PLAYER-LAW, STARVATION, BLIND-TOUR, PING-PONG,
+INDECISION, BACKSTEP) están escritos a partir de fallos observados.
+
+Las corridas limpias que cubren un caso nuevo se agregan al corpus de
+`tests/test_replay.py`, que es como un defecto arreglado se queda arreglado.
+
+## Estilo
+
+- Código, comentarios, commits y documentación en el idioma que ya usa el
+  archivo: el código y los comentarios en inglés, la interfaz de usuario y
+  los documentos en español.
+- Los comentarios explican **por qué**, con la corrida que lo probó
+  (`run 20260823T155501 n=51`). Un comentario que solo repite lo que hace la
+  línea siguiente sobra.
+- Commits en formato convencional (`fix(runner): ...`), cuerpo explicando la
+  evidencia. Nunca `--no-verify`.
+
+## Qué no hacer
+
+- No borrar ni reescribir el historial de git: la trazabilidad respecto al
+  proyecto original depende de que `upstream/main` siga siendo ancestro.
+- No subir `runs/` ni `outputs/` (están en `.gitignore`; son gigabytes de
+  PNG).
+- No agregar un `LICENSE`: ver `NOTICE.md`.
+- No redistribuir el proyecto fuera de GitHub.

@@ -31,3 +31,5 @@ CHANGELOG.md
 # excluded DIRECTORY, hence docs/* rather than docs/.
 docs/*
 !docs/review-*.md
+# Trazabilidad del fork: qué cambió respecto al repositorio original.
+!docs/UPSTREAM.md
