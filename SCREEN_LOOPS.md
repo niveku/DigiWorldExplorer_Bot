@@ -60,19 +60,19 @@ Desde consola, sin ninguna pregunta:
 
 ```bash
 # 1. Abre la pantalla en el juego y captúrala varias veces
-python screen_loops.py capture --loop attack_trials --state challenge --count 6
-python screen_loops.py capture --loop attack_trials --state reward --count 6
+python screen_loops.py capture --loop dungeon --state challenge --count 6
+python screen_loops.py capture --loop dungeon --state reward --count 6
 
 # 2. Aprende el perfil. El tap va en píxeles de la captura (o en 0..1)
-python screen_loops.py learn --loop attack_trials \
+python screen_loops.py learn --loop dungeon \
     --tap challenge=460,1000 --tap reward=360,845 \
     --start challenge --cycle challenge --needs-session reward
 
 # 3. SIMULACIÓN: reconoce y explica, no toca nada
-python screen_loops.py watch --loop attack_trials --max-frames 60
+python screen_loops.py watch --loop dungeon --max-frames 60
 
 # 4. Sólo cuando el paso 3 se ve bien
-python screen_loops.py run --loop attack_trials --cycles 5
+python screen_loops.py run --loop dungeon --cycles 5
 ```
 
 `learn` imprime la **separación** entre pantallas en múltiplos del umbral.
@@ -85,7 +85,7 @@ estados mejor separados, nunca ejecutando `run` a ver qué pasa.
 | Loop | Estados y banderas |
 | --- | --- |
 | **Lost Sector Tower** | `offer` (`--start`, `--cycle`, tap en *Subjugate*) y `reward` (`--needs-session`, tap en *Tap to close*). El panel de recompensa sale **al ganar**; al perder el juego vuelve solo al diálogo, sin panel. La batalla no necesita estado: es «pantalla desconocida» y el loop espera. |
-| **Attack Type Trials / CREST** | `challenge` (`--start`, `--cycle`, tap en *Attempt*), `reward` (`--needs-session`, tap para cerrar). La batalla no necesita estado: es "pantalla desconocida" y el loop espera. |
+| **Dungeon (Attack / Defense / SP Type)** | `challenge` (`--start`, `--cycle`, tap en *Attempt*), `reward` y `failed` (`--needs-session`, tap para cerrar), `battle` como estado de espera. El juego rota el tipo que ofrece, y los tres usan el mismo diálogo con otro título, otro jefe y otro fondo: por eso el perfil se llama `dungeon` y se aprende con capturas de **cada** tipo que aparezca. |
 | **Network Defense (rendirse en el jefe)** | `start` (`--start`, `--cycle`, tap en *Attempt*), `final_boss` (`--needs-session`, tap en *Give up*), y si hace falta `battle` como estado de espera. |
 | **Summon (tickets / Crest)** | `summon` (`--start`, `--cycle`, tap en el botón amarillo), `confirm` (`--needs-session`, confirmar), `unaffordable` (`--stop`) — la pantalla con el coste en rojo termina el loop. |
 
@@ -157,6 +157,40 @@ Y el rechazo de una pantalla ajena tenía su propio agujero: el panel
 animaba su cronómetro, así que la parada por inactividad nunca saltaba y
 el loop esperaba en «sin sesion propia» indefinidamente. Ahora el rechazo
 está acotado (`refused_max`, 12 frames) y termina nombrando la solución.
+
+## El dungeon rota de tipo, y el perfil tenía un solo tipo (2026-08-26)
+
+El perfil se llamaba `sp_trials` y se aprendió con el diálogo de **SP
+Type**. Semanas después el juego ofrecía **Defense Type** y el loop no
+reconoció nada: se quedó esperando hasta la parada por inactividad, que
+es de dónde salió la impresión de que «demoraba mucho».
+
+Medido contra la captura de esa pantalla: `challenge` daba **1,20x** el
+umbral. Se quedó a un 20% — no es que el diálogo sea otro, es que el
+título, el jefe y el fondo del banner cambian con el tipo, y el perfil
+no había visto más que uno. Añadidas 6 capturas de Defense Type al mismo
+estado, la dispersión crece justo en esas celdas y la distancia cae a
+**0,43x**. Las capturas viejas de SP Type siguen dentro (peor caso 0,46x),
+así que el perfil ahora cubre los dos tipos, no uno a costa del otro.
+
+Por eso el perfil se llama **`dungeon`** y no `sp_trials`: el nombre de
+un tipo describe la rotación de un día, no la pantalla. Cuando aparezca
+**Attack Type**, se añade igual y se reaprende — no hace falta un perfil
+nuevo:
+
+```bash
+python screen_loops.py capture --loop dungeon --state challenge --count 6
+python screen_loops.py learn --loop dungeon \
+    --tap challenge=0.649,0.787 --tap reward=0.5,0.816 --tap failed=0.028,0.5 \
+    --start challenge --cycle challenge \
+    --needs-session reward --needs-session failed
+```
+
+**Regla general que deja esto**: un perfil sólo conoce las variantes que
+ha visto. Si una pantalla cambia con el día, la semana o el evento,
+el arreglo no es bajar el umbral — eso acerca las pantallas entre sí y
+termina en un tap en el diálogo equivocado — sino añadir capturas de la
+variante nueva al **mismo** estado.
 
 ## Medición: 5,13 h del dungeon VS. SP-Type 89 (2026-08-25)
 

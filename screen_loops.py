@@ -16,15 +16,15 @@ Typical session for a dungeon that repeats:
 
     # 3. Turn the captures into a profile set. Taps are given in pixels
     #    of the capture (or as 0..1 fractions).
-    python screen_loops.py learn --name attack_trials \\
+    python screen_loops.py learn --name dungeon \\
         --tap challenge=460,1000 --tap reward=360,845 \\
         --start challenge --cycle challenge --needs-session reward
 
     # 4. Watch it recognize screens WITHOUT touching anything:
-    python screen_loops.py watch --loop attack_trials
+    python screen_loops.py watch --loop dungeon
 
     # 5. Only when step 4 looks right:
-    python screen_loops.py run --loop attack_trials --cycles 5
+    python screen_loops.py run --loop dungeon --cycles 5
 
 `watch` is not an afterthought: a loop that taps a screen it misread is
 how a bot spends tickets on the wrong dialog, so the dry run is the
