@@ -76,10 +76,11 @@ Por debajo de `1.00x` dos pantallas se pueden confundir: eso es un
 problema de calibración y hay que resolverlo con más capturas o con
 estados mejor separados, nunca ejecutando `run` a ver qué pasa.
 
-### Los tres loops, en términos de esta configuración
+### Los modos, en términos de esta configuración
 
 | Loop | Estados y banderas |
 | --- | --- |
+| **Lost Sector Tower** | `offer` (`--start`, `--cycle`, tap en *Subjugate*), y nada más. Es el más simple de los tres: al perder no hay panel de recompensa ni de derrota — el juego vuelve solo al mismo diálogo. Sin estado `--needs-session`, así que tampoco existe el problema de adopción al relanzar. |
 | **Attack Type Trials / CREST** | `challenge` (`--start`, `--cycle`, tap en *Attempt*), `reward` (`--needs-session`, tap para cerrar). La batalla no necesita estado: es "pantalla desconocida" y el loop espera. |
 | **Network Defense (rendirse en el jefe)** | `start` (`--start`, `--cycle`, tap en *Attempt*), `final_boss` (`--needs-session`, tap en *Give up*), y si hace falta `battle` como estado de espera. |
 | **Summon (tickets / Crest)** | `summon` (`--start`, `--cycle`, tap en el botón amarillo), `confirm` (`--needs-session`, confirmar), `unaffordable` (`--stop`) — la pantalla con el coste en rojo termina el loop. |
@@ -115,10 +116,21 @@ estados mejor separados, nunca ejecutando `run` a ver qué pasa.
 
 ## Lo que todavía no está medido
 
-Nada de esto sabe aún cómo se ven Attack Type Trials ni CREST: los
-perfiles se aprenden de capturas que hay que tomar en el emulador. Hasta
-que existan, `watch` es lo único que se debe correr, y el propio `watch`
-está para eso.
+**Network Defense** y **Summon** siguen sin perfil: sus capturas no
+existen. Hasta que existan, `watch` es lo único que se debe correr
+sobre ellos, y el propio `watch` está para eso.
+
+## Medición: Lost Sector Tower 69 (2026-08-26)
+
+Perfil aprendido de 6 capturas del diálogo, umbral 0,0200, tap en
+(0,500 · 0,786). Tres vueltas de verificación: **3 taps, 3 vueltas,
+~18 s por vuelta**, un solo tap por vuelta y ningún tap perdido.
+
+La forma del ciclo se midió muestreando cada 0,5 s tras un tap manual:
+diálogo → *Now Loading* (~1,5 s) → batalla (~8 s, con su propio
+*Give Up* y un cronómetro de 00:35) → *Now Loading* → el mismo
+diálogo. La derrota no abre panel; por eso el perfil tiene un único
+estado y todo lo demás es «pantalla desconocida», que es esperar.
 
 ## Medición: 5,13 h del dungeon VS. SP-Type 89 (2026-08-25)
 
