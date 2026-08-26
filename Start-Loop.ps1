@@ -1,12 +1,11 @@
 [CmdletBinding()]
 param(
     [string]$Loop = '',
+    # Everything below is for the rare case. The plain double-click path
+    # asks exactly one question, and it is the only one the bot needs.
     [int]$Cycles = 0,
-    # Adopt a run that is already on screen when the loop starts. Needed
-    # only after a launch that was killed on a reward panel; see the
-    # prompt below and `adopt_session` in screen_loop.py.
     [switch]$AdoptSession,
-    [switch]$Active,
+    [switch]$Yes,
     [string]$Adb = 'auto',
     [string]$Serial = 'auto'
 )
@@ -21,8 +20,6 @@ $profilesDir = Join-Path $projectRoot 'screen_profiles'
 
 . (Join-Path $PSScriptRoot 'NivekuBanner.ps1')
 Show-NivekuBanner
-Write-Host '  Loops de pantalla repetible (dungeon, defensa, invocacion)' -ForegroundColor Cyan
-Write-Host ''
 
 if (-not (Test-Path -LiteralPath $python)) {
     throw 'Falta el entorno local de Python. Ejecuta primero INSTALL.cmd.'
@@ -35,7 +32,7 @@ function Select-Loop {
     $available = @(Get-ChildItem -LiteralPath $profilesDir -Filter '*.json' -File -ErrorAction SilentlyContinue |
         ForEach-Object { $_.BaseName })
     if (-not $available) {
-        throw "No hay perfiles en $profilesDir. Enseña uno primero (ver SCREEN_LOOPS.md)."
+        throw "No hay perfiles en $profilesDir. Ensena uno primero (ver SCREEN_LOOPS.md)."
     }
     if ($Preset) {
         if ($available -notcontains $Preset) {
@@ -44,12 +41,11 @@ function Select-Loop {
         return $Preset
     }
     if ($available.Count -eq 1) { return $available[0] }
-    Write-Host 'Loops disponibles:'
     for ($i = 0; $i -lt $available.Count; $i++) {
         Write-Host ("  [{0}] {1}" -f ($i + 1), $available[$i])
     }
     while ($true) {
-        $answer = Read-Host "¿Cuál? [1-$($available.Count)]"
+        $answer = Read-Host "Loop [1-$($available.Count)]"
         $parsed = 0
         if ([int]::TryParse($answer, [ref]$parsed) -and $parsed -ge 1 -and $parsed -le $available.Count) {
             return $available[$parsed - 1]
@@ -57,83 +53,53 @@ function Select-Loop {
     }
 }
 
-function Read-Cycles {
-    $parsed = 0
-    while ($true) {
-        $answer = Read-Host '¿Cuántas vueltas? [Enter = sin límite]'
-        if ([string]::IsNullOrWhiteSpace($answer)) { return 0 }
-        if ([int]::TryParse($answer, [ref]$parsed) -and $parsed -gt 0) { return $parsed }
-        Write-Host '  Un entero positivo, o Enter para dejarlo abierto.' -ForegroundColor Yellow
-    }
-}
-
-$loopName = Select-Loop -Preset $Loop
-$runCycles = $Cycles
-$adopt = [bool]$AdoptSession
-$dryRun = -not $Active
-
-do {
-    if (-not $Active) {
-        Write-Host ''
-        Write-Host 'SIMULACION primero: reconoce las pantallas y dice qué haría, sin tocar nada.' -ForegroundColor Cyan
-        Write-Host 'Es la forma soportada de descubrir que un perfil lee mal ANTES de gastar entradas.' -ForegroundColor DarkGray
-    }
-    if ($runCycles -le 0 -and -not $dryRun) { $runCycles = Read-Cycles }
-
-    $arguments = @(
-        $loopScript, '--adb', $Adb, '--serial', $Serial,
-        $(if ($dryRun) { 'watch' } else { 'run' }),
-        '--loop', $loopName
-    )
-    if ($runCycles -gt 0 -and -not $dryRun) { $arguments += @('--cycles', $runCycles) }
-    if ($adopt -and -not $dryRun) { $arguments += '--adopt-session' }
-    if ($dryRun) { $arguments += @('--max-frames', '15') }
-
-    Write-Host ''
-    if ($dryRun) {
-        Write-Host "● SIMULANDO '$loopName' (15 frames) ..." -ForegroundColor Cyan
+function Invoke-Loop {
+    param([string]$Name, [switch]$Simulate, [switch]$Adopt)
+    $arguments = @($loopScript, '--adb', $Adb, '--serial', $Serial)
+    if ($Simulate) {
+        $arguments += @('watch', '--loop', $Name, '--max-frames', '12')
     } else {
-        $budget = if ($runCycles -gt 0) { "$runCycles vueltas" } else { 'sin límite' }
-        Write-Host "● LOOP '$loopName' EN MARCHA ...  ($budget)" -ForegroundColor Green
-        Write-Host '  Ctrl+C para parar.' -ForegroundColor DarkGray
+        $arguments += @('run', '--loop', $Name)
+        if ($Cycles -gt 0) { $arguments += @('--cycles', $Cycles) }
+        if ($Adopt) { $arguments += '--adopt-session' }
     }
     Set-Location -LiteralPath $projectRoot
     & $python @arguments
-    $lastStatus = $LASTEXITCODE
+    return $LASTEXITCODE
+}
 
-    if ($dryRun) {
-        Write-Host ''
-        Write-Host 'Si cada pantalla salió con el nombre correcto, puedes arrancar de verdad.' -ForegroundColor DarkGray
-        $answer = Read-Host '¿Arrancar el loop ACTIVO? [s/N]'
-        if ($answer -notmatch '^(s|si|sí|y|yes)$') {
-            Write-Host 'Cancelado.' -ForegroundColor Yellow
-            break
-        }
-        # A leftover reward panel is the one thing that deadlocks a fresh
-        # launch, and it is not rare: any run killed mid-cycle leaves one.
-        # Asking here beats watching "sin sesion propia" scroll forever.
-        Write-Host ''
-        Write-Host '¿El juego está AHORA en una pantalla de recompensa/derrota de una vuelta anterior?' -ForegroundColor DarkGray
-        Write-Host 'Si respondes sí, el loop cerrará esa pantalla UNA vez; después vuelve a no tocar' -ForegroundColor DarkGray
-        Write-Host 'nada que no haya abierto él mismo.' -ForegroundColor DarkGray
-        $leftover = Read-Host '¿Adoptar esa vuelta? [s/N]'
-        if ($leftover -match '^(s|si|sí|y|yes)$') { $adopt = $true }
-        $dryRun = $false
-        $again = $true
-        continue
-    }
+$loopName = Select-Loop -Preset $Loop
 
-    if ($lastStatus -eq 0) {
-        Write-Host 'Loop finalizado.' -ForegroundColor Green
-    } elseif ($lastStatus -eq 130) {
-        Write-Host 'Interrumpido.' -ForegroundColor Yellow
-    } else {
-        Write-Host "Loop finalizado con exit code $lastStatus." -ForegroundColor Yellow
-    }
+# The dry run is not optional and is not a question: it is how a bad
+# profile is caught before it spends entries, and it costs ~12 seconds.
+Write-Host ''
+Write-Host "Comprobando que '$loopName' reconoce lo que hay en pantalla..." -ForegroundColor Cyan
+Invoke-Loop -Name $loopName -Simulate | Out-Null
+
+if (-not $Yes) {
     Write-Host ''
-    $againAnswer = Read-Host '¿Otra tanda? [s/N]'
-    $again = $againAnswer -match '^(s|si|sí|y|yes)$'
-    if ($again) { $runCycles = 0; $adopt = $false }
-} while ($again)
+    $answer = Read-Host 'Arrancar [S/n]'
+    if ($answer -match '^(n|no)$') {
+        Write-Host 'Cancelado.' -ForegroundColor Yellow
+        exit 0
+    }
+}
 
-exit $lastStatus
+Write-Host ''
+Write-Host "LOOP '$loopName' EN MARCHA. Ctrl+C para parar." -ForegroundColor Green
+$status = Invoke-Loop -Name $loopName -Adopt:$AdoptSession
+
+# The one situation the operator cannot guess at: a panel left open by the
+# previous process blocks the loop, and the fix is a flag. Offer it here
+# instead of asking about it upfront on every single launch.
+if ($status -eq 3 -and -not $AdoptSession) {
+    Write-Host ''
+    Write-Host 'El juego quedo en una pantalla que este loop no abrio.' -ForegroundColor Yellow
+    $answer = Read-Host 'Cerrarla una vez y seguir [S/n]'
+    if ($answer -notmatch '^(n|no)$') {
+        Write-Host ''
+        $status = Invoke-Loop -Name $loopName -Adopt
+    }
+}
+
+exit $status

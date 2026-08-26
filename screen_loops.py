@@ -230,7 +230,9 @@ def run(args):
             if decision.kind == "stop":
                 print(f"\nFIN: {decision.reason}. Vueltas completadas: "
                       f"{loop.cycles}, taps enviados: {loop.taps_sent}.")
-                return 0
+                # Distinct code so the launcher can offer the one fix that
+                # applies, instead of asking about it on every launch.
+                return 3 if decision.detail.get("needs_adopt") else 0
             time.sleep(args.poll)
         print(f"\nLimite de {args.max_frames} frames alcanzado. Vueltas: "
               f"{loop.cycles}, taps: {loop.taps_sent}.")

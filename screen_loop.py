@@ -200,6 +200,10 @@ class LoopPolicy:
     # behind the one nobody is allowed to close. Adopting once unblocks
     # that and leaves the rule standing for every later run.
     adopt_session: bool = False
+    # How many consecutive frames a `requires_session` screen may be
+    # refused before the loop gives up on it. Without this a leftover
+    # panel that animates stalls the loop silently and forever.
+    refused_max: int = 12
 
 
 # Named because the CLI has to recognize it: in a dry run no tap is ever
@@ -238,6 +242,7 @@ class LoopRunner:
         self._session_started_at = None
         self._last_change_at = None
         self._session_ever = False
+        self._refused_frames = 0
 
     # -- observation -----------------------------------------------------
     def classify(self, grid):
@@ -306,6 +311,17 @@ class LoopRunner:
             # The Android original's rule, and it is a good one: never act
             # on a screen that some other part of the game put there.
             if not (self.policy.adopt_session and not self._session_ever):
+                # A refused screen that animates (a reward panel with a
+                # running timer) never trips the inactivity stop, so the
+                # loop would wait on it forever. Bound it and say what
+                # the operator has to do about it.
+                self._refused_frames += 1
+                if self._refused_frames >= self.policy.refused_max:
+                    return Decision(
+                        "stop",
+                        f"'{state_name}' la abrio otra cosa, no este loop; "
+                        f"relanza con --adopt-session para cerrarla una vez",
+                        state_name, detail={"needs_adopt": True})
                 return Decision("wait", "sin sesion propia", state_name)
             # First frames of the run and the leftover screen is the only
             # thing between us and the loop: adopt it once, say so, and
@@ -385,6 +401,7 @@ class LoopRunner:
         self._state_since = now
         self._taps_on_state = 0
         self._last_tap_at = None
+        self._refused_frames = 0
 
     def note_ineffective_tap(self):
         """Called when a tap left both the screen and the frame unchanged."""

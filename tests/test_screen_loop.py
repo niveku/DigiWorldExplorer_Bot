@@ -191,6 +191,21 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(loop.decide(1.0, "reward").reason, "sin sesion propia")
         self.assertEqual(loop.decide(1.5, "reward").reason, "sin sesion propia")
 
+    def test_a_refused_screen_stops_the_loop_instead_of_waiting_forever(self):
+        # 2026-08-26: Lost Sector's victory panel animates its own timer,
+        # so the inactivity stop never fired and the loop sat on "sin
+        # sesion propia" until it was killed by hand. The refusal now
+        # carries its own bound and names the flag that resolves it.
+        loop = runner()
+        decision = None
+        for frame in range(20):
+            decision = loop.decide(float(frame), "reward")
+            if decision.kind == "stop":
+                break
+        self.assertEqual(decision.kind, "stop")
+        self.assertTrue(decision.detail.get("needs_adopt"))
+        self.assertIn("--adopt-session", decision.reason)
+
     def test_acts_on_the_reward_once_the_session_is_ours(self):
         loop = runner()
         loop.decide(0.0, "challenge")

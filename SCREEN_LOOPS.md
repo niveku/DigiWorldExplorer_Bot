@@ -30,26 +30,30 @@ propias capturas.
 
 ## Cómo se lanza
 
-Doble clic en **`LOOP.cmd`** — el equivalente de `START.cmd`, pero para los
-loops. Son dos entradas distintas a propósito: el Explorador pregunta
-cuántas acciones y cotiza el inventario antes de arrancar; un loop
-pregunta cuál perfil y cuántas vueltas. Meterlos en un mismo `START.cmd`
-añadiría una pregunta de modo a cada arranque del Explorador, que es el
-que más se usa. El banner sí lo comparten (`NivekuBanner.ps1`).
+Doble clic en **`LOOP.cmd`**. Pregunta el loop (sólo si hay más de uno),
+comprueba durante ~12 s que reconoce lo que hay en pantalla, y pregunta
+**una** cosa: `Arrancar [S/n]`. Enter arranca, sin límite de vueltas, y se
+para con Ctrl+C o por cualquiera de las reglas de seguridad de abajo.
 
-`LOOP.cmd` hace, en este orden:
+Son dos entradas distintas a propósito: el Explorador pregunta cuántas
+acciones y cotiza el inventario antes de arrancar; un loop no necesita
+nada de eso. Meterlos en un mismo `START.cmd` añadiría una pregunta de
+modo a cada arranque del Explorador, que es el que más se usa. El banner
+sí lo comparten (`NivekuBanner.ps1`).
 
-1. lista los perfiles que hay en `screen_profiles/` y te deja elegir;
-2. corre **siempre la simulación primero** (15 frames, no toca nada);
-3. sólo si dices que sí, pregunta cuántas vueltas y arranca el loop activo.
+Lo que antes se preguntaba siempre y ahora no se pregunta nunca:
 
-Enter en «¿Cuántas vueltas?» lo deja **sin límite** — se para con Ctrl+C,
-o solo, por cualquiera de las reglas de seguridad de abajo.
+- **cuántas vueltas** — por defecto sin límite; `-Cycles N` si hace falta;
+- **si adoptar una pantalla colgada** — el loop lo detecta solo. Una
+  pantalla `--needs-session` que no abrimos nosotros se rechaza 12 frames
+  y entonces el loop **para** diciendo qué pasó; `LOOP.cmd` ofrece
+  cerrarla ahí, que es el único momento en que la pregunta significa algo.
 
-Desde consola, si prefieres saltarte el menú:
+Desde consola, sin ninguna pregunta:
 
 ```powershell
-.\LOOP.cmd -Loop sp_trials -Active -Cycles 20
+.\LOOP.cmd -Loop lost_sector -Yes
+.\LOOP.cmd -Loop lost_sector -Yes -Cycles 50
 ```
 
 ## Receta
@@ -80,7 +84,7 @@ estados mejor separados, nunca ejecutando `run` a ver qué pasa.
 
 | Loop | Estados y banderas |
 | --- | --- |
-| **Lost Sector Tower** | `offer` (`--start`, `--cycle`, tap en *Subjugate*), y nada más. Es el más simple de los tres: al perder no hay panel de recompensa ni de derrota — el juego vuelve solo al mismo diálogo. Sin estado `--needs-session`, así que tampoco existe el problema de adopción al relanzar. |
+| **Lost Sector Tower** | `offer` (`--start`, `--cycle`, tap en *Subjugate*) y `reward` (`--needs-session`, tap en *Tap to close*). El panel de recompensa sale **al ganar**; al perder el juego vuelve solo al diálogo, sin panel. La batalla no necesita estado: es «pantalla desconocida» y el loop espera. |
 | **Attack Type Trials / CREST** | `challenge` (`--start`, `--cycle`, tap en *Attempt*), `reward` (`--needs-session`, tap para cerrar). La batalla no necesita estado: es "pantalla desconocida" y el loop espera. |
 | **Network Defense (rendirse en el jefe)** | `start` (`--start`, `--cycle`, tap en *Attempt*), `final_boss` (`--needs-session`, tap en *Give up*), y si hace falta `battle` como estado de espera. |
 | **Summon (tickets / Crest)** | `summon` (`--start`, `--cycle`, tap en el botón amarillo), `confirm` (`--needs-session`, confirmar), `unaffordable` (`--stop`) — la pantalla con el coste en rojo termina el loop. |
@@ -98,8 +102,9 @@ estados mejor separados, nunca ejecutando `run` a ver qué pasa.
    sesión está *detrás* de la que nadie tiene permiso de cerrar. Sin la
    excepción, un relanzamiento se queda clavado en «sin sesion propia»
    para siempre (pasó el 2026-08-25 y hubo que dar el tap a mano).
-   Adoptada la primera, la regla vuelve a estar entera. `LOOP.cmd` lo
-   pregunta antes de arrancar en activo.
+   Adoptada la primera, la regla vuelve a estar entera. El rechazo está
+   acotado a `refused_max` frames (12): pasados ésos el loop **para** y
+   nombra la solución, y `LOOP.cmd` ofrece cerrarla ahí — no antes.
 3. **Ningún tap se cree a sí mismo.** El estado avanza cuando la pantalla
    reconocida *deja* de reconocerse. Un tap que no cambió ni la pantalla
    ni el frame se cuenta como tap perdido: 3 seguidos estiran el intervalo
@@ -122,15 +127,26 @@ sobre ellos, y el propio `watch` está para eso.
 
 ## Medición: Lost Sector Tower 69 (2026-08-26)
 
-Perfil aprendido de 6 capturas del diálogo, umbral 0,0200, tap en
-(0,500 · 0,786). Tres vueltas de verificación: **3 taps, 3 vueltas,
-~18 s por vuelta**, un solo tap por vuelta y ningún tap perdido.
+Ciclo medido muestreando cada 0,5 s tras un tap manual: diálogo →
+*Now Loading* (~1,5 s) → batalla (~8 s, con su propio *Give Up* y un
+cronómetro de 00:35) → *Now Loading* → el mismo diálogo. Verificado con
+vueltas reales: **~18 s por vuelta, un tap por vuelta, ningún tap
+perdido**. Separación `offer` vs `reward`: 6,47x.
 
-La forma del ciclo se midió muestreando cada 0,5 s tras un tap manual:
-diálogo → *Now Loading* (~1,5 s) → batalla (~8 s, con su propio
-*Give Up* y un cronómetro de 00:35) → *Now Loading* → el mismo
-diálogo. La derrota no abre panel; por eso el perfil tiene un único
-estado y todo lo demás es «pantalla desconocida», que es esperar.
+**Corrección de la primera versión de este perfil.** Se aprendió con un
+solo estado y esta nota decía que Lost Sector «no tiene panel de
+recompensa». Salía de cinco vueltas seguidas, y las cinco se perdieron:
+la muestra no contenía el caso. El panel existe y sale al ganar, con
+siete cartas y un *Tap to close*. Es el mismo error que la regla del
+residual del calculador describe — una conclusión sacada de una muestra
+que nunca pudo contener el contraejemplo — y aquí la refutó la primera
+victoria. La consecuencia importa: si la cuenta gana el nivel 69, este
+loop **sí** rinde, al revés de lo que se concluyó con SP-89.
+
+Y el rechazo de una pantalla ajena tenía su propio agujero: el panel
+animaba su cronómetro, así que la parada por inactividad nunca saltaba y
+el loop esperaba en «sin sesion propia» indefinidamente. Ahora el rechazo
+está acotado (`refused_max`, 12 frames) y termina nombrando la solución.
 
 ## Medición: 5,13 h del dungeon VS. SP-Type 89 (2026-08-25)
 
