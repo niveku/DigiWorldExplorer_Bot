@@ -102,6 +102,22 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         adb.assert_not_called()
 
+    def test_an_unknown_screen_that_stops_the_loop_is_kept_as_an_image(self):
+        # 2026-08-26: a run died on "sin progreso visible" after 10 clean
+        # cycles and nobody could say what was on screen, because the game
+        # had moved on by the time anyone looked. The frame is the whole
+        # diagnosis, so the loop now writes it next to its own log.
+        self.learn()
+        frozen = BATTLE(9)
+        code, _ = self.drive([CHALLENGE(4), CHALLENGE(5)] + [frozen] * 20,
+                             ["run", "--loop", "trials", "--poll", "0"])
+        self.assertEqual(code, 0)
+        shots = sorted(Path("outputs").glob("*_trials/pantalla_desconocida.png"))
+        self.assertTrue(shots)
+        self.addCleanup(shots[-1].unlink)
+        with Image.open(shots[-1]) as saved:
+            self.assertEqual(saved.size, frozen.size)
+
     def test_run_taps_inside_the_declared_safe_radius(self):
         self.learn()
         code, adb = self.drive(list(self.ROUND_TRIP),

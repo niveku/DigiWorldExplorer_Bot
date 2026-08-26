@@ -230,6 +230,18 @@ def run(args):
             if decision.kind == "stop":
                 print(f"\nFIN: {decision.reason}. Vueltas completadas: "
                       f"{loop.cycles}, taps enviados: {loop.taps_sent}.")
+                # A loop that stops on a screen it does not know leaves no
+                # trace of what that screen was, and the game has moved on
+                # by the time anyone looks. Keep the frame: it is the whole
+                # diagnosis, and it turns "ya no hizo nada" into one image.
+                if decision.state is None:
+                    shot = log_dir / "pantalla_desconocida.png"
+                    image.save(shot)
+                    print(f"Pantalla no reconocida guardada en {shot}\n"
+                          f"Si es una pantalla del juego que el loop deberia "
+                          f"manejar, ensenala:\n"
+                          f"  python screen_loops.py capture --loop "
+                          f"{args.loop} --state <nombre> --count 6")
                 # Distinct code so the launcher can offer the one fix that
                 # applies, instead of asking about it on every launch.
                 return 3 if decision.detail.get("needs_adopt") else 0

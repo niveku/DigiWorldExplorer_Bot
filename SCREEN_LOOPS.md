@@ -110,9 +110,13 @@ estados mejor separados, nunca ejecutando `run` a ver qué pasa.
    ni el frame se cuenta como tap perdido: 3 seguidos estiran el intervalo
    ×1.5, 6 paran el loop. Es la ley del recibo de paticas aplicada a
    menús.
-4. **Silencio = parada.** Si el hash del frame no se mueve durante
-   `--inactivity` segundos, el loop se apaga (pantalla de derrota, diálogo
-   no clasificado, juego colgado).
+4. **Silencio = parada, y la pantalla se guarda.** Si el hash del frame
+   no se mueve durante `--inactivity` segundos, el loop se apaga. Si
+   ademas la pantalla no estaba reconocida, el frame se escribe en
+   `outputs/<stamp>_<loop>/pantalla_desconocida.png`. El juego ya habra
+   avanzado cuando alguien vaya a mirar, asi que la foto es el
+   diagnóstico entero (2026-08-26: una corrida murió con 10 vueltas
+   limpias detrás y no quedó forma de saber qué la paró).
 5. **Presupuesto explícito.** `--cycles N` para en la pantalla que
    *ofrece* la siguiente vuelta, nunca a mitad de una: media vuelta cuesta
    el ticket y no devuelve nada.
@@ -142,6 +146,12 @@ residual del calculador describe — una conclusión sacada de una muestra
 que nunca pudo contener el contraejemplo — y aquí la refutó la primera
 victoria. La consecuencia importa: si la cuenta gana el nivel 69, este
 loop **sí** rinde, al revés de lo que se concluyó con SP-89.
+
+El nivel del piso **no** afecta al reconocimiento: a Lv.71, con otro
+jefe y otro número, `offer` da distancia 0,0033 contra un umbral de
+0,0200 — 0,17x. El número y el sprite ocupan pocas celdas de la rejilla
+y la ponderación por dispersión las descuenta. Corrida larga de
+verificación: 43 min, 126 taps, sin un solo fallo de reconocimiento.
 
 Y el rechazo de una pantalla ajena tenía su propio agujero: el panel
 animaba su cronómetro, así que la parada por inactividad nunca saltaba y
