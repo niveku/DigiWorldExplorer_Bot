@@ -182,6 +182,11 @@ def run(args):
     started = time.monotonic()
     mode = "SIMULACION (no toca nada)" if args.dry_run else "ACTIVO"
     print(f"Loop '{args.loop}' - {mode}. Ctrl+C para parar.")
+    if args.dry_run:
+        print("  La simulacion NO envia el tap, asi que la pantalla no puede")
+        print("  avanzar: se queda en la misma y termina en el tope de taps.")
+        print("  Eso es lo normal. Lo que hay que mirar es el NOMBRE de cada")
+        print("  pantalla y el punto del tap, no que el loop progrese.")
     frames = 0
     try:
         while args.max_frames is None or frames < args.max_frames:
@@ -213,6 +218,15 @@ def run(args):
             print(f"  t={now:7.1f}s  {str(decision.state):>16}  "
                   f"{decision.kind:<6} {decision.reason}"
                   + (f"  -> {event['tap_xy']}" if "tap_xy" in event else ""))
+            # Nothing further can be learned once the cap is hit in a dry
+            # run: without a real tap the screen stays put, so every later
+            # frame repeats this line and hides the useful ones above it.
+            if args.dry_run and decision.reason == screen_loop.TAP_CAP_REASON:
+                print(f"\nFIN de la simulacion: la pantalla '{decision.state}' "
+                      f"ya recibio sus taps simulados y no puede cambiar sola.\n"
+                      f"Si el nombre y el punto de arriba son correctos, "
+                      f"arranca el loop activo.")
+                return 0
             if decision.kind == "stop":
                 print(f"\nFIN: {decision.reason}. Vueltas completadas: "
                       f"{loop.cycles}, taps enviados: {loop.taps_sent}.")

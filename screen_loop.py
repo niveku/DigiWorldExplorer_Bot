@@ -202,6 +202,12 @@ class LoopPolicy:
     adopt_session: bool = False
 
 
+# Named because the CLI has to recognize it: in a dry run no tap is ever
+# sent, so the screen cannot advance and this reason repeats until the
+# frame budget runs out. That looks like a broken profile and is not one.
+TAP_CAP_REASON = "tope de taps en esta pantalla"
+
+
 @dataclass
 class Decision:
     kind: str                            # "tap" | "wait" | "stop"
@@ -313,7 +319,7 @@ class LoopRunner:
                             state_name)
 
         if self._taps_on_state >= spec.taps_max:
-            return Decision("wait", "tope de taps en esta pantalla",
+            return Decision("wait", TAP_CAP_REASON,
                             state_name,
                             detail={"taps": self._taps_on_state})
 
