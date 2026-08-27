@@ -1,4 +1,5 @@
 import itertools
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -102,17 +103,18 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         adb.assert_not_called()
 
-    def test_an_unknown_screen_that_stops_the_loop_is_kept_as_an_image(self):
-        # 2026-08-26: a run died on "sin progreso visible" after 10 clean
-        # cycles and nobody could say what was on screen, because the game
-        # had moved on by the time anyone looked. The frame is the whole
-        # diagnosis, so the loop now writes it next to its own log.
+    def test_the_screen_that_stopped_the_loop_is_kept_as_an_image(self):
+        # 2026-08-26: two runs died on "sin progreso visible" with clean
+        # cycles behind them and nobody could say what was on screen,
+        # because the game had moved on by the time anyone looked. The
+        # second one froze on a screen that still scored as `battle`, so
+        # saving the frame only for unrecognized screens was not enough.
         self.learn()
         frozen = BATTLE(9)
         code, _ = self.drive([CHALLENGE(4), CHALLENGE(5)] + [frozen] * 20,
                              ["run", "--loop", "trials", "--poll", "0"])
         self.assertEqual(code, 0)
-        shots = sorted(Path("outputs").glob("*_trials/pantalla_desconocida.png"))
+        shots = sorted(Path("outputs").glob("*_trials/frame_al_parar.png"))
         self.assertTrue(shots)
         self.addCleanup(shots[-1].unlink)
         with Image.open(shots[-1]) as saved:
@@ -172,8 +174,9 @@ class CliTests(unittest.TestCase):
         self.assertEqual(len(created), 1)
         log = created[0] / "events.jsonl"
         text = log.read_text(encoding="utf-8")
-        log.unlink()
-        created[0].rmdir()
+        # A stopped run also leaves frame_al_parar.png, so the directory
+        # is cleared rather than assumed to hold exactly one file.
+        shutil.rmtree(created[0])
         self.assertIn("challenge", text)
         self.assertIn("tap_xy", text)
 

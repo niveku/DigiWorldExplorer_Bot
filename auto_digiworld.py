@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import heapq
 import itertools
 import json
@@ -305,6 +306,53 @@ def is_adjacent(cell, player):
     return abs(cell[0] - player[0]) + abs(cell[1] - player[1]) == 1
 
 
+def first_stop(reason):
+    """The first stop of the plan a reason describes, or None.
+
+    The reason string is the plan's public form - the runner logs it and
+    the tests assert on it - so reading the commitment back out of it
+    keeps one source of truth instead of a second return value threaded
+    through every caller of choose().
+    """
+    if reason and reason.startswith("adjacent item="):
+        # The grab is one step, so it normally clears itself. It has to be
+        # readable anyway: a tap the game swallows leaves the bot standing
+        # beside the same orange with no commitment, and the guard would
+        # walk it away on the very next frame.
+        body = reason.split("=", 1)[1]
+    elif reason and "targets=[" in reason:
+        body = "[" + reason.split("targets=[", 1)[1].rsplit("]", 1)[0] + "]"
+    else:
+        return None
+    try:
+        stops = ast.literal_eval(body)
+    except (ValueError, SyntaxError):
+        return None
+    if isinstance(stops, tuple) and stops and not isinstance(stops[0], tuple):
+        return stops
+    return tuple(stops[0]) if stops else None
+
+
+def already_walking_to(cell, committed):
+    """Arriving beside a target must not be what un-chooses it.
+
+    The side-trip guard below only judges an ADJACENT cell. So a target
+    two steps away survives planning, is chosen as the first stop, and is
+    walked toward - and the arrival step is precisely what makes it
+    adjacent, which is what prunes it. The paw is spent either way;
+    dropping the target now buys nothing and usually costs a reversal on
+    top. Twenty of the forty plan shrinks across the two runs of
+    2026-08-26 are this one shape, e.g. player (2,1) -> (1,1) chasing
+    (1,2), dropped on arrival.
+
+    The exemption covers exactly the cell the previous frame committed
+    to, so the guard's arithmetic is untouched for every other target:
+    what changes is only that a verdict already acted on is not reversed
+    by the act itself.
+    """
+    return committed is not None and tuple(cell) == tuple(committed)
+
+
 def side_trip_is_wasteful(info, cell, player, targets):
     """A one-step grab that has to be walked back for 20 energy.
 
@@ -585,7 +633,7 @@ def dash_path_pyramids(info, row, col):
 def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
            ignored_targets=(), player=None, preview=None, hunt_walls=True,
            suspect_cells=(), dash_stock=None, blocked_direction=None,
-           allow_paid_detour=False):
+           allow_paid_detour=False, committed_target=None):
     """Pick the next action, refusing to undo the step just taken.
 
     blocked_direction is the runner's receipt-backed report that the last
@@ -605,7 +653,8 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     """
     action, reason = _choose(info, previous_direction, attacks_enabled,
                              dashes_enabled, ignored_targets, player, preview,
-                             hunt_walls, suspect_cells, dash_stock)
+                             hunt_walls, suspect_cells, dash_stock,
+                             committed_target)
     if (blocked_direction is None or action is None
             or action[0] != "move" or action[2] != blocked_direction):
         return action, reason
@@ -614,7 +663,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     detour, detour_reason = _choose(closed, previous_direction, attacks_enabled,
                                     dashes_enabled, ignored_targets, player,
                                     preview, hunt_walls, suspect_cells,
-                                    dash_stock)
+                                    dash_stock, committed_target)
     if detour is None or detour[1] == action[1]:
         return action, reason
     if detour[0] != "move" and not allow_paid_detour:
@@ -637,7 +686,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
 
 def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
             ignored_targets=(), player=None, preview=None, hunt_walls=True,
-            suspect_cells=(), dash_stock=None):
+            suspect_cells=(), dash_stock=None, committed_target=None):
     # A caller that already resolved the player (dead reckoning, large-sprite
     # locator) passes it in; per-cell scores stay authoritative otherwise.
     if player is None:
@@ -729,8 +778,10 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
             # paws a side trip costs. Claws, dash orbs and paw cards are
             # worth five to ten steps each and always justify it, and
             # anything in columns 0-1 is about to fall off the board.
-            if side_trip_is_wasteful(info, cell, player,
-                                     orange_items | mid_items | other_items):
+            if (not already_walking_to(cell, committed_target)
+                    and side_trip_is_wasteful(
+                        info, cell, player,
+                        orange_items | mid_items | other_items)):
                 continue
             return ("move", cell, direction), f"adjacent item={cell}"
 
@@ -804,8 +855,10 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
         if not (0 <= cell[0] < 5 and 0 <= cell[1] < 5):
             continue
         if cell in other_items or cell in claw_items:
-            if side_trip_is_wasteful(info, cell, player,
-                                     orange_items | mid_items | other_items):
+            if (not already_walking_to(cell, committed_target)
+                    and side_trip_is_wasteful(
+                        info, cell, player,
+                        orange_items | mid_items | other_items)):
                 continue
             return ("move", cell, direction), f"adjacent item={cell}"
 
@@ -944,7 +997,8 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
     # 710 frames of runs 20260823T15* + 20260824T0*). It drops out of the
     # plan and comes back into it the moment the belt puts it on the way.
     tour_items = {cell for cell in tour_items
-                  if not (is_adjacent(cell, player)
+                  if already_walking_to(cell, committed_target)
+                  or not (is_adjacent(cell, player)
                           and side_trip_is_wasteful(info, cell, player,
                                                     tour_items))}
     if tour_items:

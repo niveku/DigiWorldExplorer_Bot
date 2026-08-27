@@ -118,6 +118,10 @@ class Replay:
         self.board_lock = runner.StableBoard()
         self.expected_player = None
         self.prev_action = None
+        # Threaded for the same reason prev_choice_direction is:
+        # leaving it out would audit a different function than
+        # the runner runs.
+        self.committed_target = None
         self.prev_attack_target = None
         self.prev_dash_player = None
         self.last_player = None
@@ -167,6 +171,9 @@ class Replay:
             self.ghost_streaks = runner.shift_items_left(self.ghost_streaks)
             self.unseen_streaks = runner.shift_items_left(self.unseen_streaks)
             self.unseen_last_n = runner.shift_items_left(self.unseen_last_n)
+            if self.committed_target is not None:
+                row, col = self.committed_target
+                self.committed_target = (row, col - 1) if col else None
 
     def process_frame(self, n, path):
         img = Image.open(path).convert("RGB")
@@ -340,11 +347,13 @@ class Replay:
             ignored_targets=set(suspects), player=player,
             suspect_cells=suspects,
             blocked_direction=self.blocked_direction,
-            allow_paid_detour=self.overrule_streak >= 1)
+            allow_paid_detour=self.overrule_streak >= 1,
+            committed_target=self.committed_target)
         if action is not None and len(action) > 2:
             self.overrule_streak = runner.next_overrule_streak(
                 self.overrule_streak, self.blocked_direction, action[2])
             self.prev_choice_direction = action[2]
+        self.committed_target = strategy.first_stop(reason)
         if self.debug_n == n:
             print(f"[debug n={n}] player={player} suspects={sorted(suspects)}")
             print(f"  remembered={self.remembered}")

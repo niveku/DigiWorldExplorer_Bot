@@ -230,16 +230,17 @@ def run(args):
             if decision.kind == "stop":
                 print(f"\nFIN: {decision.reason}. Vueltas completadas: "
                       f"{loop.cycles}, taps enviados: {loop.taps_sent}.")
-                # A loop that stops on a screen it does not know leaves no
-                # trace of what that screen was, and the game has moved on
-                # by the time anyone looks. Keep the frame: it is the whole
-                # diagnosis, and it turns "ya no hizo nada" into one image.
+                # Whatever ended the run, the game has moved on by the time
+                # anyone looks, so the frame is the whole diagnosis. Saving
+                # it only for unrecognized screens was too narrow: the run
+                # of 2026-08-26 froze on a popup that scored as `battle`
+                # after 104 clean cycles, and there was nothing to look at.
+                shot = log_dir / "frame_al_parar.png"
+                image.save(shot)
+                print(f"Frame de la parada guardado en {shot}")
                 if decision.state is None:
-                    shot = log_dir / "pantalla_desconocida.png"
-                    image.save(shot)
-                    print(f"Pantalla no reconocida guardada en {shot}\n"
-                          f"Si es una pantalla del juego que el loop deberia "
-                          f"manejar, ensenala:\n"
+                    print(f"No estaba reconocida. Si es una pantalla que el "
+                          f"loop deberia manejar, ensenala:\n"
                           f"  python screen_loops.py capture --loop "
                           f"{args.loop} --state <nombre> --count 6")
                 # Distinct code so the launcher can offer the one fix that
