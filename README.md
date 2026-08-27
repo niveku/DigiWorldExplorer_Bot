@@ -2,7 +2,7 @@
 
 # ⚡ DigiWorldExplorer_Bot ⚡
 
-![Version](https://img.shields.io/badge/version-0.2.0-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Tests](https://img.shields.io/badge/tests-520-green)
+![Version](https://img.shields.io/badge/version-0.2.0-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Tests](https://img.shields.io/badge/tests-603-green)
 
 ### 🦖 Exploración automatizada de DigiWorld para Digimon UP
 
@@ -19,8 +19,8 @@
 > **Este repositorio es un fork.** La base — detección de la cuadrícula por ADB,
 > exploración, launchers de Windows, empaquetado — es de
 > [RobinTh0r](https://github.com/RobinTh0r/DigiWorldExplorer_Bot), que la publicó en
-> julio de 2026. Encima van 111 commits míos: el recibo de paticas, el modelo del
-> mundo, el harness de replay y 520 tests.
+> julio de 2026. Encima van 127 commits míos: el recibo de paticas, el modelo del
+> mundo, el harness de replay y 603 tests.
 > Detalle en [`docs/UPSTREAM.md`](docs/UPSTREAM.md); autoría y estado de licencia
 > — el original **no declara licencia** — en [`NOTICE.md`](NOTICE.md).
 
@@ -90,7 +90,7 @@ Si falta Python, `INSTALL.cmd` pregunta si puede instalar **Python 3.12 vía `wi
 `START.cmd` pregunta cuántas acciones debe ejecutar el bot y luego **cotiza el run
 antes de tocar nada**: lee el HUD y dice cuántas paticas, garras y dashes cuesta lo
 que pediste, cuánto tienes y si alcanza. Se puede teclear otro número ahí mismo y
-vuelve a cotizar; `s` arranca, `n` cancela. Al terminar puede lanzarse otro run.
+vuelve a cotizar; Enter o `s` arranca, `n` cancela. Al terminar puede lanzarse otro run.
 
 Los tiempos entre acciones ya no se preguntan: los fija el propio bot según lo que el
 juego anima, y se estiran solos cuando el aparato se traga taps. Con `Ctrl+C` se
@@ -104,6 +104,26 @@ se indica explícitamente **no legible con certeza**.
 ### 🔧 Modo debug
 
 `START_DEBUG.cmd` activa las imágenes de diagnóstico y muestra en cada escaneo o replanificación una línea de estado compacta, por ejemplo `10/100: ¡Energía a la vista! Recalculando ruta`. Los datos de máquina completos siguen en `runs/<id-del-run>/events.jsonl`.
+
+## 🔁 Loops de pantalla
+
+Repetir un dungeon no es explorar: no hay tablero ni pasos, sólo una secuencia
+corta de pantallas — oferta, batalla, recompensa, oferta otra vez. `LOOP.cmd` es
+la entrada para eso, separada de `START.cmd` a propósito.
+
+Doble clic en **`LOOP.cmd`**: elige el perfil (sólo pregunta si hay más de uno),
+comprueba durante ~12 s que reconoce lo que hay en pantalla, y pregunta **una**
+cosa — `Arrancar [S/n]`. Sin límite de vueltas; `Ctrl+C` para parar.
+
+```powershell
+.\LOOP.cmd -Loop lost_sector -Yes            # sin preguntas
+.\LOOP.cmd -Loop dungeon -Yes -Cycles 50     # acotado
+```
+
+Perfiles incluidos: `lost_sector` y `dungeon` (cubre Attack, Defense y SP Type,
+que el juego rota). Ninguno trae constantes de píxeles: un loop se **aprende** de
+capturas tomadas en tu propio BlueStacks. Cómo enseñar uno nuevo, las reglas de
+seguridad y las mediciones están en [`SCREEN_LOOPS.md`](SCREEN_LOOPS.md).
 
 ## 🧠 Flujo de decisión
 
@@ -144,7 +164,12 @@ Con items visibles el controlador planifica como máximo dos acciones hasta el s
 | `world_model.py` | Pistas con identidad: qué se cree, qué se sospecha y por qué |
 | `replay_harness.py` | Convierte corridas guardadas en tests de regresión con invariantes |
 | `analyze_breaks.py` | Análisis offline de los logs de corridas |
-| `tests/` | 520 tests offline, con fixtures de capturas reales |
+| `screen_loop.py` | Motor de los loops: reconocer pantalla, decidir, contar vueltas |
+| `screen_loops.py` | CLI de los loops: capturar, aprender, simular, ejecutar |
+| `safe_tap.py` | Variación acotada del punto y el ritmo de cada tap |
+| `overlays.py` | Quién manda en el frame cuando algo tapa el tablero |
+| `SCREEN_LOOPS.md` | Cómo se enseña, se lanza y se acota un loop |
+| `tests/` | 603 tests offline, con fixtures de capturas reales |
 | `requirements.txt` | Dependencias mínimas de Python |
 
 ## 📦 ¿Por qué no un paquete portable gigante?
@@ -195,7 +220,13 @@ La versión actual está en `VERSION` y se muestra en el banner de la terminal y
 - ⏱️ **Ritmo adaptativo**: las esperas responden al aparato — un tap tragado las
   estira, un frame limpio las relaja.
 - 💸 El lanzador cotiza el run antes de empezar y ya no cancela por error.
-- 🧪 520 tests offline.
+- 🔁 **Loops de pantalla** (`LOOP.cmd`): motor genérico para las pantallas que
+  se repiten, con perfiles aprendidos de capturas propias. Una pantalla que otro
+  proceso dejó abierta no se toca; el frame que detiene un loop se guarda.
+- 🎯 **Compromiso de objetivo**: llegar al lado de un item ya no es lo que lo
+  descarta. Medido sobre 857 frames: 20 de los 40 encogimientos de plan eran esa
+  forma, y el A/B sobre las mismas grabaciones cambia 51 decisiones.
+- 🧪 603 tests offline.
 - 🗣️ Interfaz de usuario completa en español (runner, launchers PowerShell y esta README).
 
 Diario completo de defectos y evidencia en [`docs/`](docs/).

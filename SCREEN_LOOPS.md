@@ -58,22 +58,29 @@ Desde consola, sin ninguna pregunta:
 
 ## Receta
 
-```bash
-# 1. Abre la pantalla en el juego y captúrala varias veces
-python screen_loops.py capture --loop dungeon --state challenge --count 6
-python screen_loops.py capture --loop dungeon --state reward --count 6
+`mi_loop` es un nombre de ejemplo: elige el tuyo. **No reutilices
+`dungeon` ni `lost_sector`** — existen ya, y `learn` los sobrescribe.
 
-# 2. Aprende el perfil. El tap va en píxeles de la captura (o en 0..1)
-python screen_loops.py learn --loop dungeon \
+```bash
+# 1. Abre la pantalla en el juego y capturala varias veces
+python screen_loops.py capture --loop mi_loop --state challenge --count 6
+python screen_loops.py capture --loop mi_loop --state reward --count 6
+
+# 2. Aprende el perfil. El tap va en pixeles de la captura (o en 0..1)
+python screen_loops.py learn --loop mi_loop \
     --tap challenge=460,1000 --tap reward=360,845 \
     --start challenge --cycle challenge --needs-session reward
 
-# 3. SIMULACIÓN: reconoce y explica, no toca nada
-python screen_loops.py watch --loop dungeon --max-frames 60
+# 3. SIMULACION: reconoce y explica, no toca nada
+python screen_loops.py watch --loop mi_loop --max-frames 60
 
-# 4. Sólo cuando el paso 3 se ve bien
-python screen_loops.py run --loop dungeon --cycles 5
+# 4. Solo cuando el paso 3 se ve bien
+python screen_loops.py run --loop mi_loop --cycles 5
 ```
+
+Anadir una variante a un perfil que ya existe es el mismo paso 1 con su
+nombre y su estado, y despues `learn` otra vez: las capturas se acumulan
+en la carpeta del estado. Asi entro Defense Type en `dungeon`.
 
 `learn` imprime la **separación** entre pantallas en múltiplos del umbral.
 Por debajo de `1.00x` dos pantallas se pueden confundir: eso es un

@@ -6,25 +6,28 @@ and to the person calibrating it. Nothing here carries hand-written pixel
 constants: a loop is taught from captures of the screens it has to
 recognize, on the machine and resolution it will run on.
 
-Typical session for a dungeon that repeats:
+Typical session for a dungeon that repeats. `mi_loop` is a placeholder:
+`dungeon` and `lost_sector` are real shipped profiles and `learn`
+overwrites whatever name it is given, so teaching a new loop under one of
+those names destroys it.
 
     # 1. Open the challenge dialog in the game, then:
-    python screen_loops.py capture --state challenge --count 4
+    python screen_loops.py capture --loop mi_loop --state challenge --count 4
 
     # 2. Let a run finish and open the reward screen, then:
-    python screen_loops.py capture --state reward --count 4
+    python screen_loops.py capture --loop mi_loop --state reward --count 4
 
     # 3. Turn the captures into a profile set. Taps are given in pixels
     #    of the capture (or as 0..1 fractions).
-    python screen_loops.py learn --name dungeon \\
+    python screen_loops.py learn --loop mi_loop \\
         --tap challenge=460,1000 --tap reward=360,845 \\
         --start challenge --cycle challenge --needs-session reward
 
     # 4. Watch it recognize screens WITHOUT touching anything:
-    python screen_loops.py watch --loop dungeon
+    python screen_loops.py watch --loop mi_loop
 
     # 5. Only when step 4 looks right:
-    python screen_loops.py run --loop dungeon --cycles 5
+    python screen_loops.py run --loop mi_loop --cycles 5
 
 `watch` is not an afterthought: a loop that taps a screen it misread is
 how a bot spends tickets on the wrong dialog, so the dry run is the
