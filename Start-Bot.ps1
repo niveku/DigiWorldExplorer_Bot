@@ -1,12 +1,11 @@
 ﻿[CmdletBinding()]
 param(
     [int]$Steps = 0,
-    # Diagnostic PNGs are ON by default: they are the only forensic
-    # record of a run, and the whole regression suite (replay_harness.py,
-    # tests/test_replay.py) is built from them. A misbehaving run without
-    # them cannot be diagnosed or turned into a corpus case. ~57 MB per
-    # 200 actions - use -NoDebugShots if disk is tight.
-    [switch]$NoDebugShots,
+    # Off by default (user directive 2026-08-27). A normal run writes
+    # nothing to disk: no screenshots, no diagnostics, no events log.
+    # -DebugMode turns the whole lot on, which is what START_DEBUG.cmd
+    # passes, and is what the replay harness needs to build a case from.
+    # Budget about 57 MB per 200 actions when it is on.
     [switch]$DebugMode,
     [string]$Adb = 'auto',
     [string]$Serial = 'auto'
@@ -111,15 +110,16 @@ do {
         '--serial', $Serial,
         '--out', $runsDir
     )
-    if (-not $NoDebugShots) { $arguments += '--debug-screenshots' }
-    if ($DebugMode) { $arguments += '--verbose' }
+    if ($DebugMode) { $arguments += @('--debug', '--verbose') }
     else { $arguments += @('--progress-percent', '2') }
 
     Write-Host ''
     if ($DebugMode) {
-        Write-Host "DEBUG EN MARCHA - estado en cada escaneo y replanificación" -ForegroundColor Cyan
+        Write-Host "🔬 DEBUG EN MARCHA  ($runSteps acciones)" -ForegroundColor Cyan
+        Write-Host "   Estado en cada escaneo, y capturas en $runsDir" -ForegroundColor DarkGray
     } else {
-        Write-Host "● BOT EN MARCHA ...  ($runSteps acciones)" -ForegroundColor Green
+        Write-Host "🎮 BOT EN MARCHA  ($runSteps acciones)" -ForegroundColor Green
+        Write-Host '   No se guarda nada en disco. Usa START_DEBUG.cmd si quieres capturas.' -ForegroundColor DarkGray
     }
     & $python @arguments
     $lastStatus = $LASTEXITCODE

@@ -1463,14 +1463,37 @@ def idle_exhausted(streak, limit=MAX_IDLE_FRAMES):
     return streak >= limit
 
 
+def keep_evidence(run_dir, name, image):
+    """Save a diagnostic image, or nothing at all when debug is off.
+
+    A normal run leaves the disk untouched (user directive 2026-08-27):
+    no screenshots, no log, no run directory. Everything a run used to
+    drop by default now waits for --debug, and the call sites ask this
+    one function instead of each testing the flag and catching OSError.
+
+    Returns the path written, or None - which is what the event carries,
+    so a log read afterwards says plainly that no evidence was kept.
+    """
+    if run_dir is None:
+        return None
+    try:
+        path = run_dir / name
+        image.save(path)
+        return str(path)
+    except OSError:
+        return None
+
+
 def log_frame(log, event):
     """Write the frame and report whether it produced no action at all.
 
     A frame whose only action is a WAIT string bought nothing but time;
     counting them here keeps the 11 wait sites from each needing their
-    own bookkeeping.
+    own bookkeeping. With debug off there is no log to write to, and the
+    counting still has to happen.
     """
-    bot.log_event(log, event)
+    if log is not None:
+        bot.log_event(log, event)
     action = event.get("action")
     return 1 if isinstance(action, str) and action.startswith("WAIT") else 0
 
@@ -1811,7 +1834,13 @@ def main():
     p.add_argument("--jitter", type=float, default=None,
                    help="ignored: pacing is internal per action type")
     p.add_argument("--batch-size", type=int, default=2, choices=(1, 2, 3))
-    p.add_argument("--debug-screenshots", action="store_true")
+    # One switch for everything a run leaves on disk. A normal run is
+    # silent: no run directory, no screenshots, no events log. The
+    # old name is still accepted so existing launch commands work.
+    p.add_argument("--debug", "--debug-screenshots", action="store_true",
+                   dest="debug",
+                   help="keep the run directory: screenshots, "
+                        "diagnostics and events.jsonl")
     p.add_argument("--plan-only", action="store_true",
                    help="read the HUD, print what --steps would cost, and "
                         "exit without tapping anything")
@@ -1849,10 +1878,15 @@ def main():
             return 10
         return 0
 
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
-    run_dir = args.out / run_id
-    run_dir.mkdir(parents=True, exist_ok=False)
-    log = run_dir / "events.jsonl"
+    # Nothing is written unless the run was asked to keep evidence.
+    # run_dir and log stay None otherwise, and every write site is built
+    # to take that: see keep_evidence() and log_frame().
+    run_dir = log = None
+    if args.debug:
+        run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
+        run_dir = args.out / run_id
+        run_dir.mkdir(parents=True, exist_ok=False)
+        log = run_dir / "events.jsonl"
     if args.verbose:
         progress(0, args.steps, "Debug iniciado - primer escaneo", "32")
     done = 0
@@ -2066,12 +2100,8 @@ def main():
                         # is wrong in a way no locator is correcting; stop
                         # with evidence instead of burning the step budget.
                         event["action"] = "STOP: moves repeatedly rejected"
-                        try:
-                            evidence_path = run_dir / "rejected_moves_evidence.png"
-                            image.save(evidence_path)
-                            event["evidence"] = str(evidence_path)
-                        except OSError:
-                            pass
+                        event["evidence"] = keep_evidence(
+                            run_dir, "rejected_moves_evidence.png", image)
                         wait_frames += log_frame(log, event)
                         show_run_summary(done, args.steps, started_at, collected,
                                          energy_start, read_energy_counter(image), "33")
@@ -2085,24 +2115,17 @@ def main():
                 # each toast marks a suboptimal move worth diagnosing
                 # (user request 2026-08-22).
                 if overlay_waits == 1:
-                    try:
-                        evidence_path = (run_dir /
-                                         f"overlay_evidence_{done:04d}.png")
-                        bot.diagnostic(image, det).save(evidence_path)
-                        event["evidence"] = str(evidence_path)
+                    event["evidence"] = keep_evidence(
+                        run_dir, f"overlay_evidence_{done:04d}.png",
+                        bot.diagnostic(image, det))
+                    if event["evidence"]:
                         overlay_evidence_saved += 1
-                    except OSError:
-                        pass
                 if overlay_waits >= 15:
                     # A persistent overlay (e.g. an unclaimed milestone popup)
                     # would otherwise hang the run silently forever.
                     event["action"] = "STOP: persistent overlay"
-                    try:
-                        evidence_path = run_dir / "overlay_stop_evidence.png"
-                        image.save(evidence_path)
-                        event["evidence"] = str(evidence_path)
-                    except OSError:
-                        pass
+                    event["evidence"] = keep_evidence(
+                        run_dir, "overlay_stop_evidence.png", image)
                     wait_frames += log_frame(log, event)
                     show_run_summary(done, args.steps, started_at, collected,
                                      energy_start, read_energy_counter(image), "33")
@@ -2174,7 +2197,9 @@ def main():
                                  energy_start, read_energy_counter(image), "33")
                 return 7
         if energy_start is None:
-            current_read = read_energy_counter(image, run_dir / "energy_roi_start.png")
+            current_read = read_energy_counter(
+                image,
+                run_dir / "energy_roi_start.png" if run_dir else None)
             energy_start = confirmed_energy(last_energy_read, current_read)
             last_energy_read = current_read
             if args.verbose and energy_start is not None:
@@ -2448,12 +2473,9 @@ def main():
             if args.verbose: progress(done, args.steps, "Posición del jugador insegura - nuevo escaneo", "33")
             if player_unreliable >= 5:
                 event["action"] = "STOP: five consecutive unreliable player frames"
-                try:
-                    evidence_path = run_dir / "player_stop_evidence.png"
-                    bot.diagnostic(image, det).save(evidence_path)
-                    event["evidence"] = str(evidence_path)
-                except OSError:
-                    pass
+                event["evidence"] = keep_evidence(
+                    run_dir, "player_stop_evidence.png",
+                    bot.diagnostic(image, det))
                 wait_frames += log_frame(log, event)
                 show_run_summary(done, args.steps, started_at, collected, energy_start, read_energy_counter(image), "33")
                 return 3
@@ -2611,18 +2633,15 @@ def main():
                 }
                 # A no-effect attack with garras in stock means we attacked a
                 # phantom pyramid; keep the frame so it can be diagnosed.
-                try:
-                    evidence_path = run_dir / f"phantom_attack_{done:04d}.png"
-                    bot.diagnostic(image, det).save(evidence_path)
-                    event["attack_state"]["evidence"] = str(evidence_path)
-                except OSError:
-                    pass
+                event["attack_state"]["evidence"] = keep_evidence(
+                    run_dir, f"phantom_attack_{done:04d}.png",
+                    bot.diagnostic(image, det))
             previous_attack_target = None
         if previous_action == "dash" and previous_dash_player is not None:
             dash_inv_before = (pending_dash or {}).get("inventory_before")
             if pending_dash is not None:
                 after_dump = (run_dir / f"energy_roi_dash_{done:04d}_after.png"
-                              if args.debug_screenshots else None)
+                              if run_dir else None)
                 energy_after = read_energy_counter(image, after_dump)
                 energy_before = pending_dash["energy_before"]
                 event["dash_result"] = {
@@ -2821,7 +2840,7 @@ def main():
                          min(effective_batch_size - 1, args.steps - done - 1))
             planned.extend(p[0] for p in safe_followup_moves(
                 info, player, target, direction, remaining, item_goals))
-        if args.debug_screenshots:
+        if args.debug:
             debug = bot.diagnostic(image, det)
             draw = ImageDraw.Draw(debug)
             x0, y0, x1, y1 = det.board
@@ -2839,9 +2858,8 @@ def main():
                 cx, cy = bot.cell_center(det.board, *cell)
                 draw.text((cx-5, cy-8), str(number), fill=(255,255,255))
             safe_stamp = stamp.replace(":", "").replace("+", "_")
-            debug_path = run_dir / f"debug_{done:04d}_{safe_stamp}.png"
-            debug.save(debug_path)
-            event["debug"] = str(debug_path)
+            event["debug"] = keep_evidence(
+                run_dir, f"debug_{done:04d}_{safe_stamp}.png", debug)
 
         if kind == "dash":
             control = bot.dash_button(image)
@@ -2855,7 +2873,7 @@ def main():
             dash_path = dash_path_report(info, player)
             event["dash_path"] = dash_path
             dash_dump = (run_dir / f"energy_roi_dash_{done:04d}_before.png"
-                         if args.debug_screenshots else None)
+                         if run_dir else None)
             pending_dash = {"path": dash_path,
                             "energy_before": read_energy_counter(image, dash_dump)}
             pending_dash["inventory_before"] = read_drop_counters(image)
@@ -3056,15 +3074,16 @@ def main():
 
     final = bot.screenshot(args.adb, args.serial)
     final_det = bot.classify(final)
-    final.save(run_dir / "final.png")
-    bot.diagnostic(final, final_det).save(
-        run_dir / "final_diagnostic.png")
+    keep_evidence(run_dir, "final.png", final)
+    keep_evidence(run_dir, "final_diagnostic.png",
+                  bot.diagnostic(final, final_det))
     event = {"time_utc": datetime.now(timezone.utc).isoformat(), "status": "complete",
-             "steps": done, "run_dir": str(run_dir),
+             "steps": done, "run_dir": str(run_dir) if run_dir else None,
              "detection": bot.asdict(final_det)}
     energy_end, energy_end_source = final_energy(
-        lambda: read_energy_counter(bot.screenshot(args.adb, args.serial),
-                                    run_dir / "energy_roi_end.png"),
+        lambda: read_energy_counter(
+            bot.screenshot(args.adb, args.serial),
+            run_dir / "energy_roi_end.png" if run_dir else None),
         last_loop_energy)
     event["inventory_hud"] = {"start": inventory_start,
                               "end": read_drop_counters(final)}

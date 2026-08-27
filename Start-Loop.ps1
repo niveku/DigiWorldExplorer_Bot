@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$Loop = '',
     # Everything below is for the rare case. The plain double-click path
@@ -6,6 +6,9 @@ param(
     [int]$Cycles = 0,
     [switch]$AdoptSession,
     [switch]$Yes,
+    # Off by default (user directive 2026-08-27): a loop writes nothing
+    # unless asked. LOOP_DEBUG.cmd is what turns it on.
+    [switch]$DebugMode,
     [string]$Adb = 'auto',
     [string]$Serial = 'auto'
 )
@@ -62,6 +65,7 @@ function Invoke-Loop {
         $arguments += @('run', '--loop', $Name)
         if ($Cycles -gt 0) { $arguments += @('--cycles', $Cycles) }
         if ($Adopt) { $arguments += '--adopt-session' }
+        if ($DebugMode) { $arguments += '--debug' }
     }
     Set-Location -LiteralPath $projectRoot
     & $python @arguments
@@ -73,7 +77,7 @@ $loopName = Select-Loop -Preset $Loop
 # The dry run is not optional and is not a question: it is how a bad
 # profile is caught before it spends entries, and it costs ~12 seconds.
 Write-Host ''
-Write-Host "Comprobando que '$loopName' reconoce lo que hay en pantalla..." -ForegroundColor Cyan
+Write-Host "🔎 Comprobando que '$loopName' reconoce lo que hay en pantalla..." -ForegroundColor Cyan
 Invoke-Loop -Name $loopName -Simulate | Out-Null
 
 if (-not $Yes) {
@@ -86,7 +90,13 @@ if (-not $Yes) {
 }
 
 Write-Host ''
-Write-Host "LOOP '$loopName' EN MARCHA. Ctrl+C para parar." -ForegroundColor Green
+if ($DebugMode) {
+    Write-Host "🔬 LOOP '$loopName' EN MARCHA (debug). Ctrl+C para parar." -ForegroundColor Cyan
+    Write-Host '   Se guarda el registro de cada frame en outputs\.' -ForegroundColor DarkGray
+} else {
+    Write-Host "🔁 LOOP '$loopName' EN MARCHA. Ctrl+C para parar." -ForegroundColor Green
+    Write-Host '   No se guarda nada en disco. Usa LOOP_DEBUG.cmd si quieres el registro.' -ForegroundColor DarkGray
+}
 $status = Invoke-Loop -Name $loopName -Adopt:$AdoptSession
 
 # The one situation the operator cannot guess at: a panel left open by the

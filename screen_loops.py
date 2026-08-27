@@ -178,9 +178,14 @@ def run(args):
         return 2
     adb_path, serial = _device(args)
     jitter = safe_tap.TapJitter()
-    log_dir = Path("outputs") / f"{_stamp()}_{args.loop}"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log = (log_dir / "events.jsonl").open("a", encoding="utf-8")
+    # A loop is silent unless asked otherwise (user directive
+    # 2026-08-27): no folder, no log, no frame kept. --debug turns the
+    # lot on, and it is what LOOP.cmd's debug answer passes.
+    log_dir = log = None
+    if args.debug:
+        log_dir = Path("outputs") / f"{_stamp()}_{args.loop}"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log = (log_dir / "events.jsonl").open("a", encoding="utf-8")
     previous_hash = None
     started = time.monotonic()
     mode = "SIMULACION (no toca nada)" if args.dry_run else "ACTIVO"
@@ -216,8 +221,9 @@ def run(args):
                 if not args.dry_run:
                     bot.adb(adb_path, serial, "shell", "input", "tap",
                             str(x), str(y))
-            log.write(json.dumps(event) + "\n")
-            log.flush()
+            if log is not None:
+                log.write(json.dumps(event) + "\n")
+                log.flush()
             print(f"  t={now:7.1f}s  {str(decision.state):>16}  "
                   f"{decision.kind:<6} {decision.reason}"
                   + (f"  -> {event['tap_xy']}" if "tap_xy" in event else ""))
@@ -238,10 +244,14 @@ def run(args):
                 # it only for unrecognized screens was too narrow: the run
                 # of 2026-08-26 froze on a popup that scored as `battle`
                 # after 104 clean cycles, and there was nothing to look at.
-                shot = log_dir / "frame_al_parar.png"
-                image.save(shot)
-                print(f"Frame de la parada guardado en {shot}")
-                if decision.state is None:
+                if log_dir is not None:
+                    shot = log_dir / "frame_al_parar.png"
+                    image.save(shot)
+                    print(f"Frame de la parada guardado en {shot}")
+                elif decision.state is None:
+                    print("Relanza con --debug para guardar la pantalla que "
+                          "lo paro: sin eso no queda nada que mirar.")
+                if decision.state is None and log_dir is not None:
                     print(f"No estaba reconocida. Si es una pantalla que el "
                           f"loop deberia manejar, ensenala:\n"
                           f"  python screen_loops.py capture --loop "
@@ -257,8 +267,9 @@ def run(args):
         print(f"\nInterrumpido. Vueltas: {loop.cycles}, taps: {loop.taps_sent}.")
         return 130
     finally:
-        log.close()
-        print(f"Registro: {log_dir / 'events.jsonl'}")
+        if log is not None:
+            log.close()
+            print(f"Registro: {log_dir / 'events.jsonl'}")
 
 
 def build_parser():
@@ -303,6 +314,9 @@ def build_parser():
         command.add_argument("--cycles", type=int, default=None)
         command.add_argument("--poll", type=float, default=1.0)
         command.add_argument("--dry-run", action="store_true")
+        command.add_argument("--debug", action="store_true",
+                             help="guardar carpeta con el registro de cada "
+                                  "frame y la pantalla que detenga el loop")
         command.add_argument("--adopt-session", action="store_true",
                              help="adoptar UNA vuelta ya en pantalla al "
                                   "arrancar (destraba un relanzamiento "

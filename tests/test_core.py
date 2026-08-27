@@ -1,4 +1,6 @@
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import auto_digiworld as strategy
@@ -386,6 +388,38 @@ class CompactStateLogTests(unittest.TestCase):
         self.assertEqual(state["items"], {"0,3": "orange"})
         self.assertEqual(state["pyramids"], [[0, 2]])
         self.assertEqual(state["remembered"], {"3,3": "steps"})
+
+
+class SilentByDefaultTests(unittest.TestCase):
+    """User directive 2026-08-27: a run leaves nothing on disk unless it
+    was asked to. Debug screenshots used to be ON in the normal launcher
+    (`if (-not $NoDebugShots)`), so every ordinary run wrote hundreds of
+    PNGs and an events log nobody had asked for."""
+
+    def test_no_run_directory_means_no_image_is_written(self):
+        class Exploding:
+            def save(self, path):
+                raise AssertionError(f"no debio escribir {path}")
+
+        self.assertIsNone(runner.keep_evidence(None, "x.png", Exploding()))
+
+    def test_a_run_directory_gets_the_image_and_reports_the_path(self):
+        saved = []
+
+        class Recording:
+            def save(self, path):
+                saved.append(path)
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = runner.keep_evidence(Path(folder), "x.png", Recording())
+        self.assertEqual(len(saved), 1)
+        self.assertTrue(path.endswith("x.png"))
+
+    def test_frames_are_still_counted_with_no_log_to_write_to(self):
+        # The WAIT tally drives the efficiency report, so it has to keep
+        # working when there is nothing to write the frame into.
+        self.assertEqual(runner.log_frame(None, {"action": "WAIT: x"}), 1)
+        self.assertEqual(runner.log_frame(None, {"action": "move"}), 0)
 
 
 if __name__ == "__main__":

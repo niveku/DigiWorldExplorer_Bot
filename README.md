@@ -2,7 +2,7 @@
 
 # ⚡ DigiWorldExplorer_Bot ⚡
 
-![Version](https://img.shields.io/badge/version-0.2.0-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Tests](https://img.shields.io/badge/tests-603-green)
+![Version](https://img.shields.io/badge/version-0.3.0-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Tests](https://img.shields.io/badge/tests-607-green)
 
 ### 🦖 Exploración automatizada de DigiWorld para Digimon UP
 
@@ -20,7 +20,7 @@
 > exploración, launchers de Windows, empaquetado — es de
 > [RobinTh0r](https://github.com/RobinTh0r/DigiWorldExplorer_Bot), que la publicó en
 > julio de 2026. Encima van 127 commits míos: el recibo de paticas, el modelo del
-> mundo, el harness de replay y 603 tests.
+> mundo, el harness de replay y 607 tests.
 > Detalle en [`docs/UPSTREAM.md`](docs/UPSTREAM.md); autoría y estado de licencia
 > — el original **no declara licencia** — en [`NOTICE.md`](NOTICE.md).
 
@@ -103,27 +103,51 @@ se indica explícitamente **no legible con certeza**.
 
 ### 🔧 Modo debug
 
-`START_DEBUG.cmd` activa las imágenes de diagnóstico y muestra en cada escaneo o replanificación una línea de estado compacta, por ejemplo `10/100: ¡Energía a la vista! Recalculando ruta`. Los datos de máquina completos siguen en `runs/<id-del-run>/events.jsonl`.
+**Un run normal no escribe nada en disco.** Ni capturas, ni diagnósticos, ni
+registro: `START.cmd` y `LOOP.cmd` sólo dejan lo que ves en la terminal.
+
+`START_DEBUG.cmd` y `LOOP_DEBUG.cmd` encienden lo demás. El bot crea entonces
+`runs/<id-del-run>/` con `events.jsonl` (una línea por decisión), una captura
+anotada por acción, los diagnósticos de las paradas de seguridad y las dos
+imágenes finales. Además imprime una línea de estado en cada escaneo, del tipo
+`10/100: ¡Energía a la vista! Recalculando ruta`.
+
+Cuenta unos 57 MB por cada 200 acciones. Enciéndelo cuando algo vaya mal y
+quieras diagnosticarlo, o cuando quieras convertir el run en un caso de
+regresión: `replay_harness.py` y `tests/test_replay.py` se alimentan de esas
+carpetas.
+
+| | `START.cmd` / `LOOP.cmd` | `START_DEBUG.cmd` / `LOOP_DEBUG.cmd` |
+|---|---|---|
+| Capturas y diagnósticos | no | sí |
+| `events.jsonl` | no | sí |
+| Estado por escaneo | cada 2 % | cada escaneo |
 
 ## 🔁 Loops de pantalla
 
-Repetir un dungeon no es explorar: no hay tablero ni pasos, sólo una secuencia
-corta de pantallas — oferta, batalla, recompensa, oferta otra vez. `LOOP.cmd` es
-la entrada para eso, separada de `START.cmd` a propósito.
+Un dungeon que se repite es una secuencia de cuatro pantallas: oferta,
+batalla, recompensa, oferta otra vez. `LOOP.cmd` las recorre. Tiene entrada
+propia porque las preguntas del explorador (cuántas acciones, cuánto cuesta)
+no significan nada aquí.
 
-Doble clic en **`LOOP.cmd`**: elige el perfil (sólo pregunta si hay más de uno),
-comprueba durante ~12 s que reconoce lo que hay en pantalla, y pregunta **una**
-cosa — `Arrancar [S/n]`. Sin límite de vueltas; `Ctrl+C` para parar.
+Doble clic en **`LOOP.cmd`**: eliges el perfil (sólo pregunta si hay más de
+uno), comprueba durante 12 s que reconoce lo que hay en pantalla y te hace
+**una** pregunta, `Arrancar [S/n]`. Corre sin límite de vueltas hasta que lo
+pares con `Ctrl+C`.
 
 ```powershell
 .\LOOP.cmd -Loop lost_sector -Yes            # sin preguntas
 .\LOOP.cmd -Loop dungeon -Yes -Cycles 50     # acotado
 ```
 
-Perfiles incluidos: `lost_sector` y `dungeon` (cubre Attack, Defense y SP Type,
-que el juego rota). Ninguno trae constantes de píxeles: un loop se **aprende** de
-capturas tomadas en tu propio BlueStacks. Cómo enseñar uno nuevo, las reglas de
-seguridad y las mediciones están en [`SCREEN_LOOPS.md`](SCREEN_LOOPS.md).
+Vienen dos perfiles: `lost_sector` y `dungeon`, que cubre los tres tipos que
+el juego rota (Attack, Defense y SP Type). Ninguno trae constantes de píxeles.
+Cada loop **aprende** las pantallas de capturas que tomas en tu propio
+BlueStacks, así que enseñarle uno nuevo son seis capturas y un comando:
+[`SCREEN_LOOPS.md`](SCREEN_LOOPS.md) lo explica, junto con las reglas de
+seguridad y lo que rinde cada modo.
+
+`LOOP_DEBUG.cmd` hace lo mismo guardando el registro de cada frame.
 
 ## 🧠 Flujo de decisión
 
@@ -150,8 +174,9 @@ Con items visibles el controlador planifica como máximo dos acciones hasta el s
 | `INSTALL.cmd` | Iniciar la instalación simple |
 | `CHECK.cmd` | Verificar ADB y cuadrícula sin enviar entradas |
 | `START.cmd` | Iniciar el modo bot tranquilo con branding |
-| `START_DEBUG.cmd` | Run de desarrollo con estado por escaneo e imágenes de diagnóstico |
-| `LOOP.cmd` | Loops de pantalla repetible (dungeon, defensa, invocación) — ver `SCREEN_LOOPS.md` |
+| `START_DEBUG.cmd` | Lo mismo que `START.cmd`, guardando capturas, diagnósticos y `events.jsonl` |
+| `LOOP.cmd` | Loops de pantalla repetible (dungeon, defensa, invocación); ver `SCREEN_LOOPS.md` |
+| `LOOP_DEBUG.cmd` | Lo mismo que `LOOP.cmd`, guardando el registro de cada frame |
 | `Setup.ps1` | Verificar Python y preparar el entorno local |
 | `Check-Setup.ps1` | Ejecutar el modo de diagnóstico seguro |
 | `Start-Bot.ps1` | Preguntar opciones de inicio y lanzar el run |
@@ -169,7 +194,7 @@ Con items visibles el controlador planifica como máximo dos acciones hasta el s
 | `safe_tap.py` | Variación acotada del punto y el ritmo de cada tap |
 | `overlays.py` | Quién manda en el frame cuando algo tapa el tablero |
 | `SCREEN_LOOPS.md` | Cómo se enseña, se lanza y se acota un loop |
-| `tests/` | 603 tests offline, con fixtures de capturas reales |
+| `tests/` | 607 tests offline, con fixtures de capturas reales |
 | `requirements.txt` | Dependencias mínimas de Python |
 
 ## 📦 ¿Por qué no un paquete portable gigante?
@@ -207,7 +232,7 @@ Estos tests no envían entradas ADB.
 La versión actual está en `VERSION` y se muestra en el banner de la terminal y con
 `python auto_digiworld_batch2.py --version`.
 
-### Unreleased (fork de Niveku)
+### v0.3.0 - 27.08.2026 (fork de Niveku)
 
 - 🧾 **Recibo de paticas**: el contador del HUD es la autoridad sobre qué taps cobró
   el juego; la banda transportadora avanza con el recibo, no con la fe en los taps.
@@ -220,13 +245,17 @@ La versión actual está en `VERSION` y se muestra en el banner de la terminal y
 - ⏱️ **Ritmo adaptativo**: las esperas responden al aparato — un tap tragado las
   estira, un frame limpio las relaja.
 - 💸 El lanzador cotiza el run antes de empezar y ya no cancela por error.
+- 🤫 **Silencio por defecto**: un run ya no deja nada en disco. Las capturas de
+  diagnóstico venían encendidas en el arranque normal (`if (-not $NoDebugShots)`),
+  así que cada run escribía cientos de PNG y un log que nadie había pedido. Ahora
+  eso vive en `START_DEBUG.cmd` y `LOOP_DEBUG.cmd`.
 - 🔁 **Loops de pantalla** (`LOOP.cmd`): motor genérico para las pantallas que
   se repiten, con perfiles aprendidos de capturas propias. Una pantalla que otro
   proceso dejó abierta no se toca; el frame que detiene un loop se guarda.
 - 🎯 **Compromiso de objetivo**: llegar al lado de un item ya no es lo que lo
   descarta. Medido sobre 857 frames: 20 de los 40 encogimientos de plan eran esa
   forma, y el A/B sobre las mismas grabaciones cambia 51 decisiones.
-- 🧪 603 tests offline.
+- 🧪 607 tests offline.
 - 🗣️ Interfaz de usuario completa en español (runner, launchers PowerShell y esta README).
 
 Diario completo de defectos y evidencia en [`docs/`](docs/).

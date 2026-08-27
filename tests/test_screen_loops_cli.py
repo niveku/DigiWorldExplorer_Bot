@@ -112,13 +112,25 @@ class CliTests(unittest.TestCase):
         self.learn()
         frozen = BATTLE(9)
         code, _ = self.drive([CHALLENGE(4), CHALLENGE(5)] + [frozen] * 20,
-                             ["run", "--loop", "trials", "--poll", "0"])
+                             ["run", "--loop", "trials", "--poll", "0",
+                              "--debug"])
         self.assertEqual(code, 0)
         shots = sorted(Path("outputs").glob("*_trials/frame_al_parar.png"))
         self.assertTrue(shots)
-        self.addCleanup(shots[-1].unlink)
+        self.addCleanup(shutil.rmtree, shots[-1].parent, True)
         with Image.open(shots[-1]) as saved:
             self.assertEqual(saved.size, frozen.size)
+
+    def test_a_normal_run_leaves_nothing_behind(self):
+        # User directive 2026-08-27. A loop that quietly wrote a folder
+        # per launch is how outputs/ reached a hundred directories, and
+        # none of it was asked for.
+        self.learn()
+        before = set(Path("outputs").glob("*_trials"))
+        code, _ = self.drive([CHALLENGE(4), CHALLENGE(5)] + [BATTLE(9)] * 20,
+                             ["run", "--loop", "trials", "--poll", "0"])
+        self.assertEqual(code, 0)
+        self.assertEqual(set(Path("outputs").glob("*_trials")), before)
 
     def test_run_taps_inside_the_declared_safe_radius(self):
         self.learn()
@@ -156,7 +168,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(adb.called)
 
-    def test_a_run_writes_its_events(self):
+    def test_a_debug_run_writes_its_events(self):
         # The run folder is named "<stamp>_<loop>", and the stamp itself
         # contains an underscore, so anything looser than an exact suffix
         # match reaches other loops' folders: the first version of this
@@ -169,7 +181,8 @@ class CliTests(unittest.TestCase):
         before = mine()
         self.learn()
         self.drive(list(self.ROUND_TRIP),
-                   ["run", "--loop", "trials", "--cycles", "1", "--poll", "0"])
+                   ["run", "--loop", "trials", "--cycles", "1", "--poll", "0",
+                    "--debug"])
         created = sorted(mine() - before)
         self.assertEqual(len(created), 1)
         log = created[0] / "events.jsonl"

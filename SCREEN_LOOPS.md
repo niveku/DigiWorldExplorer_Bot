@@ -127,8 +127,10 @@ estados mejor separados, nunca ejecutando `run` a ver qué pasa.
 5. **Presupuesto explícito.** `--cycles N` para en la pantalla que
    *ofrece* la siguiente vuelta, nunca a mitad de una: media vuelta cuesta
    el ticket y no devuelve nada.
-6. **Cada tap se registra** en `outputs/<stamp>_<loop>/events.jsonl` con
-   la pantalla, la razón y el punto.
+6. **Cada tap se puede registrar**, con la pantalla, la razón y el punto,
+   en `outputs/<stamp>_<loop>/events.jsonl`. Con `LOOP_DEBUG.cmd` o
+   `--debug`: un loop normal no escribe nada en disco, y ahí es donde
+   tambien se guarda la pantalla que lo detenga.
 
 ## Lo que todavía no está medido
 
@@ -148,11 +150,10 @@ perdido**. Separación `offer` vs `reward`: 6,47x.
 solo estado y esta nota decía que Lost Sector «no tiene panel de
 recompensa». Salía de cinco vueltas seguidas, y las cinco se perdieron:
 la muestra no contenía el caso. El panel existe y sale al ganar, con
-siete cartas y un *Tap to close*. Es el mismo error que la regla del
-residual del calculador describe — una conclusión sacada de una muestra
-que nunca pudo contener el contraejemplo — y aquí la refutó la primera
-victoria. La consecuencia importa: si la cuenta gana el nivel 69, este
-loop **sí** rinde, al revés de lo que se concluyó con SP-89.
+siete cartas y un *Tap to close*. La regla del residual del calculador ya nombra
+este error: sacar una conclusión de una muestra que nunca pudo contener
+el contraejemplo. Lo refutó la primera victoria. Y cambia la cuenta: si
+la partida gana el nivel 69, este loop rinde, cosa que SP-89 no hacía.
 
 El nivel del piso **no** afecta al reconocimiento: a Lv.71, con otro
 jefe y otro número, `offer` da distancia 0,0033 contra un umbral de
@@ -193,11 +194,11 @@ python screen_loops.py learn --loop dungeon \
     --needs-session reward --needs-session failed
 ```
 
-**Regla general que deja esto**: un perfil sólo conoce las variantes que
-ha visto. Si una pantalla cambia con el día, la semana o el evento,
-el arreglo no es bajar el umbral — eso acerca las pantallas entre sí y
-termina en un tap en el diálogo equivocado — sino añadir capturas de la
-variante nueva al **mismo** estado.
+**Regla general**: un perfil sólo conoce las variantes que ha visto. Si
+una pantalla cambia con el día, la semana o el evento, añade capturas de
+la variante nueva al **mismo** estado. Bajar el umbral parece el atajo y
+no lo es: acerca las pantallas entre sí y acaba en un tap sobre el
+diálogo equivocado.
 
 ## Medición: 5,13 h del dungeon VS. SP-Type 89 (2026-08-25)
 
