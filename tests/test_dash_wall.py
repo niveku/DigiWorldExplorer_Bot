@@ -72,6 +72,11 @@ class ReverseStepVetoTests(unittest.TestCase):
         for cell in ((1, 2), (1, 3), (3, 1)):
             info[cell]["pyramid"] = 0.9
         info[(0, 3)].update(item=0.10, orange=0.10)
+        # The pair launch below is what makes the bot step down here, and
+        # since 2026-08-28 it needs a payload on the LAUNCH row. Without
+        # this the fixture stops reproducing the livelock and the guard
+        # test below says so - which is how this was noticed.
+        info[(1, 4)].update(item=0.10, orange=0.10)
         return info
 
     def test_the_livelock_reversal_is_refused(self):
@@ -301,11 +306,13 @@ class PairDashTests(unittest.TestCase):
 
     def test_two_adjacent_pyramids_ahead_trigger_a_dash(self):
         # Since the pair-economics gate (run 20260821T225908) a bare
-        # pair no longer pays; the right-side orange makes it routing.
+        # pair no longer pays; the orange IN THE LANE makes it routing.
+        # It used to sit at (0,4), off the dash's row, where nothing
+        # counts it - the dash fired on the stock gate instead.
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
         wall(info, 2, (2, 3))
-        info[(0, 4)].update(item=0.10, orange=0.10)
+        info[(2, 4)].update(item=0.10, orange=0.10)
         action, reason = strategy.choose(info)
         self.assertEqual(action, ("dash", (2, 1), "right"))
         self.assertIn("pair", reason)
@@ -328,9 +335,11 @@ class PairDashTests(unittest.TestCase):
         self.assertNotEqual(action[0], "dash")
 
     def test_off_path_pickup_far_right_does_not_block(self):
+        # The wall is a real three so the dash is worth firing at all;
+        # what is under test is that the far-right orb does not veto it.
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
-        wall(info, 2, (2, 3))
+        wall(info, 2, (2, 3, 4))
         info[(4, 4)].update(item=0.10, green=0.10)
         action, reason = strategy.choose(info)
         self.assertEqual(action, ("dash", (2, 1), "right"))
@@ -450,10 +459,17 @@ class PairDashDefersToWallTests(unittest.TestCase):
         # stabilized hunt dragged the bot back: five wasted moves.
         # A wall in the player's own row never blocks the pair; only a
         # wall one row above or below defers it.
+        # Payload made real 2026-08-28: this scenario used an
+        # OFF-ROW pickup, which right_targets never counted (it
+        # requires the target's row to be the dash's), so the dash
+        # only fired through the bare-pair stock gate that the
+        # dash_result records refuted. The thing under test is
+        # unchanged; the payload now is one.
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
-        wall(info, 2, (3, 4))
-        info[(4, 4)].update(item=0.10, orange=0.10)
+        wall(info, 2, (2, 3))
+        # Two columns out, so the one-step grab does not answer first.
+        info[(2, 4)].update(item=0.10, orange=0.10)
         action, reason = strategy.choose(
             info, hunt_walls=False,
             preview=[False, False, True, False, False])
@@ -473,10 +489,16 @@ class PairLaunchApproachTests(unittest.TestCase):
     dashes it could reach by moving a single cell up or down."""
 
     def test_moves_one_row_down_to_a_pair_launch(self):
+        # Payload made real 2026-08-28: this scenario used an
+        # OFF-ROW pickup, which right_targets never counted (it
+        # requires the target's row to be the dash's), so the dash
+        # only fired through the bare-pair stock gate that the
+        # dash_result records refuted. The thing under test is
+        # unchanged; the payload now is one.
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
         wall(info, 3, (2, 3))
-        info[(0, 4)].update(item=0.10, orange=0.10)
+        info[(3, 4)].update(item=0.10, orange=0.10)
         action, reason = strategy.choose(info)
         self.assertEqual(action, ("move", (3, 1), "down"))
         self.assertIn("pair launch", reason)
@@ -560,8 +582,7 @@ class PickupPriorityTests(unittest.TestCase):
     def test_a_ticket_does_not_veto_the_pair_dash(self):
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
-        wall(info, 2, (2, 3))
-        info[(0, 4)].update(item=0.10, orange=0.10)
+        wall(info, 2, (2, 3, 4))
         info[(4, 1)].update(item=0.10, green=0.10, card_green=0.09)  # ticket at risk
         action, reason = strategy.choose(info)
         self.assertEqual(action, ("dash", (2, 1), "right"))
@@ -901,9 +922,10 @@ class DashSuspectDeferenceTests(unittest.TestCase):
         info[(2, 1)]["player"] = 0.2
         info[(2, 2)]["pyramid"] = 0.9
         info[(2, 3)]["pyramid"] = 0.9
-        # Right-side orange: the pair stays worth its 400 shards under
-        # the pair-economics gate.
-        info[(1, 4)].update(item=0.09, orange=0.09)
+        # An orange IN THE PATH: the one payload the measurements
+        # support. A dash collects what already lies in its lane (n=33,
+        # +108.5 energy) and not what its breaks drop (n=427, +12.9).
+        info[(2, 4)].update(item=0.09, orange=0.09)
         return info
 
     def test_a_believed_left_band_pickup_still_vetoes_the_wall_dash(self):
@@ -1040,7 +1062,12 @@ class PairLaunchGateTests(unittest.TestCase):
         info[(0, 0)]["player"] = 0.2
         info[(1, 1)]["pyramid"] = 0.9
         info[(1, 2)]["pyramid"] = 0.9
-        info[(0, 4)].update(item=0.09, orange=0.09)
+        # On the LAUNCH row, past its path: the payload the launch gate
+        # now asks for. It used to sit at (0,4) - the player's row - and
+        # the gate read right_targets, which is about the player's row,
+        # so it justified climbing away from the very target it named
+        # (fixed 2026-08-28 after run 20260822T215547 n=27-28).
+        info[(1, 4)].update(item=0.09, orange=0.09)
         return info
 
     def test_launch_step_refused_when_launch_path_leaves_a_pickup_at_risk(self):
@@ -1113,7 +1140,9 @@ class UnstableWallPairDashTests(unittest.TestCase):
         info[(2, 2)]["pyramid"] = 0.9
         info[(2, 4)]["pyramid"] = 0.9
         wall(info, 4, (2, 3, 4))
-        info[(0, 4)].update(item=0.09, orange=0.09)
+        # In the lane, between the two pyramids: the payload the dash is
+        # measured to actually collect.
+        info[(2, 3)].update(item=0.09, orange=0.09)
         return info
 
     def test_unstable_wall_does_not_block_the_pair_dash(self):
@@ -1268,10 +1297,15 @@ class MidTierDetourCapTests(unittest.TestCase):
         # 400-shard dash whose measured yield is ~+20E: the veto cost
         # more than the card. Claws and orbs (real charge refunds)
         # still veto; oranges always do.
+        # Payload made real 2026-08-28: this scenario used an
+        # OFF-ROW pickup, which right_targets never counted (it
+        # requires the target's row to be the dash's), so the dash
+        # only fired through the bare-pair stock gate that the
+        # dash_result records refuted. The thing under test is
+        # unchanged; the payload now is one.
         info = empty_grid()
         info[(2, 1)]["player"] = 0.2
-        wall(info, 2, (2, 3))
-        info[(4, 4)].update(item=0.10, orange=0.10)
+        wall(info, 2, (2, 3, 4))
         info[(4, 1)].update(item=0.10, pink=0.10)
         action, reason = strategy.choose(info, hunt_walls=False)
         self.assertEqual(action, ("dash", (2, 1), "right"))
@@ -1416,15 +1450,21 @@ class PerishableMidTierTests(unittest.TestCase):
 
 
 class PairDashEconomicsTests(unittest.TestCase):
-    """Doctrine 2026-08-22 (user, after the dash-collects-its-drops
-    rule): TWO REAL pyramids pay for the dash on their own - each break
-    drops at ~46% and the dash collects the drops in the same motion,
-    plus three columns of free advance (run 20260822T142042 n=97-98
-    spent a garra on an X-X the user wanted dashed). The 20260821T225908
-    lesson survives where it was true: a pair whose second pyramid is
-    only a sixth-column PREVIEW still needs an item in the path, a
-    right-side target, or a third pyramid - previews flicker and those
-    nine dashes bought nothing."""
+    """What actually pays for a 400-shard dash.
+
+    The doctrine this class used to assert - "two REAL pyramids pay for
+    the dash on their own, each break drops at ~46% and the dash
+    collects the drops in the same motion" - was refuted on 2026-08-28
+    by the runner's own dash_result records (n=556): a bare pair yields
+    +12.9 energy and a bare three +20.7, both indistinguishable from the
+    passive tick, while a pair with an item already in its lane yields
+    +108.5. The dash collects what is lying there; it does not collect
+    what it breaks.
+
+    So the payload rule is back to what it was before: an item in the
+    path, a same-row target the dash's own break opens the lane to, or a
+    third pyramid. Advance alone never pays - three columns cost three
+    steps (120 shards) on foot against 400."""
 
     def bare_pair(self):
         info = empty_grid()
@@ -1433,9 +1473,9 @@ class PairDashEconomicsTests(unittest.TestCase):
         info[(2, 3)]["pyramid"] = 0.9
         return info
 
-    def test_two_real_pyramids_pay_for_the_dash(self):
+    def test_two_real_pyramids_do_not_pay_for_the_dash(self):
         action, reason = strategy.choose(self.bare_pair())
-        self.assertEqual(action[0], "dash")
+        self.assertNotEqual(action[0], "dash", reason)
 
     def test_preview_supplied_pair_still_needs_a_payload(self):
         info = empty_grid()
@@ -1452,10 +1492,18 @@ class PairDashEconomicsTests(unittest.TestCase):
         self.assertEqual(action[0], "dash")
 
     def test_right_side_target_pays_for_the_dash(self):
-        info = self.bare_pair()
-        info[(0, 4)].update(item=0.09, orange=0.09)
+        # From column 0 the lane is (2,1)-(2,3), so a same-row target at
+        # (2,4) is OUTSIDE the path: this is right_targets on its own,
+        # not path_items wearing its name. The old version of this test
+        # put the target at (0,4), a different row, which right_targets
+        # never counted - it passed on the stock gate instead.
+        info = empty_grid()
+        info[(2, 0)]["player"] = 0.2
+        info[(2, 1)]["pyramid"] = 0.9
+        info[(2, 2)]["pyramid"] = 0.9
+        info[(2, 4)].update(item=0.09, orange=0.09)
         action, reason = strategy.choose(info)
-        self.assertEqual(action[0], "dash")
+        self.assertEqual(action[0], "dash", reason)
 
     def test_three_pyramids_pay_for_themselves(self):
         info = self.bare_pair()
@@ -1571,10 +1619,12 @@ class RightTargetPayloadTests(unittest.TestCase):
         action, reason = strategy.choose(info, player=(2, 1), dash_stock=4)
         self.assertEqual(action[0], "dash")
 
-    def test_comfortable_stock_still_fires_the_bare_pair(self):
+    def test_a_full_stock_does_not_make_a_bare_pair_worth_it(self):
+        # Having dashes to spare is not a reason to lose 280 shards with
+        # one: the stock gate went out with the doctrine it served.
         action, reason = strategy.choose(self._pair(), player=(2, 1),
                                          dash_stock=20)
-        self.assertEqual(action[0], "dash")
+        self.assertNotEqual(action[0], "dash", reason)
 
 
 class PerishableNeverScrolledAwayTests(unittest.TestCase):
@@ -2404,13 +2454,28 @@ class ExplorerNeverStepsBackTests(unittest.TestCase):
         self.assertEqual(action, ("move", (4, 0), "left"))
 
 
-class DashStockGateTests(unittest.TestCase):
-    """Second user complaint about pair dashes ('un dash sobre 2 y no
-    sobre 3'): run 20260822T183056 spent six freshly bought dashes,
-    every one on a bare pair. A bare 2-pyramid pair (no items in path,
-    no right-side target) is roughly break-even, so it only fires when
-    dashes are plentiful; walls of three and pairs with payload always
-    fire."""
+class BarePairNeverFiresTests(unittest.TestCase):
+    """A bare pair is not break-even. It is a 280-shard loss.
+
+    This class replaces DashStockGateTests, which gated the bare pair on
+    dash stock because "two REAL pyramids pay for the dash on their own -
+    each break drops at ~46% and the dash collects its drops in the same
+    motion". The runner's own dash_result records refute the second half
+    (n=556 dashes):
+
+        2 pyramids, no item in the path   n=427   +12.9 energy
+        3 pyramids, no item in the path   n= 92   +20.7
+        2 pyramids, an item in the path   n= 33  +108.5
+
+    The median of a bare dash is 20 - the passive tick, which arrives
+    whether or not anything is dashed. So the dash collects what is
+    ALREADY in its path and not what its breaks drop; two breaks at the
+    measured 44% should have shown ~110 and show the clock instead.
+
+    Priced out: 400 shards buys three columns of advance, worth three
+    steps (120) on foot, and going around two pyramids is two paws (80).
+    427 of 556 recorded dashes were this bare pair: 170,800 shards.
+    """
 
     def bare_pair(self):
         info = empty_grid()
@@ -2419,29 +2484,34 @@ class DashStockGateTests(unittest.TestCase):
         info[(2, 3)]["pyramid"] = 0.9
         return info
 
-    def test_bare_pair_fires_with_plenty_of_dashes(self):
-        action, reason = strategy.choose(self.bare_pair(), dash_stock=30)
-        self.assertEqual(action[0], "dash")
+    def test_a_bare_pair_never_fires_however_full_the_stock(self):
+        for stock in (None, 5, 30, 99):
+            action, reason = strategy.choose(self.bare_pair(),
+                                             dash_stock=stock)
+            self.assertNotEqual(action[0], "dash", f"stock={stock}: {reason}")
 
-    def test_bare_pair_defers_when_stock_is_low(self):
-        action, reason = strategy.choose(self.bare_pair(), dash_stock=5)
-        self.assertNotEqual(action[0], "dash")
-
-    def test_unknown_stock_keeps_the_doctrine(self):
-        action, reason = strategy.choose(self.bare_pair())
-        self.assertEqual(action[0], "dash")
-
-    def test_payload_pair_ignores_the_stock(self):
+    def test_an_item_in_the_path_still_pays(self):
+        # The 108.5 row: the dash collects what is already lying there.
         info = self.bare_pair()
         info[(2, 4)].update(item=0.10, orange=0.10)
         action, reason = strategy.choose(info, dash_stock=5)
-        self.assertEqual(action[0], "dash")
+        self.assertEqual(action[0], "dash", reason)
 
-    def test_wall_of_three_ignores_the_stock(self):
+    def test_a_wall_of_three_still_fires(self):
         info = self.bare_pair()
         info[(2, 4)]["pyramid"] = 0.9
         action, reason = strategy.choose(info, dash_stock=5)
-        self.assertEqual(action[0], "dash")
+        self.assertEqual(action[0], "dash", reason)
+
+    def test_the_paw_that_lines_up_a_bare_pair_is_not_spent_either(self):
+        # The launch approach used the same stock gate. Walking a paw to
+        # reach a dash that loses 280 shards loses the paw as well.
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(3, 2)]["pyramid"] = 0.9
+        info[(3, 3)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, dash_stock=30)
+        self.assertNotIn("pair launch", reason)
 
 
 class ExplorerNeverAttacksLeftTests(unittest.TestCase):

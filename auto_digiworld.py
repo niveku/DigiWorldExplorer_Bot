@@ -818,23 +818,34 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
         # preview-needs-payload rule (review 2026-08-22, 'economy').
         right_targets = any(cell[0] == player[0] and cell[1] >= 3
                             for cell in (orange_items | mid_items))
-        # Doctrine 2026-08-22 (user): two REAL pyramids pay for the
-        # dash on their own - each break drops at ~46% and the dash
-        # collects its drops in the same motion, plus three columns of
-        # advance (run 20260822T142042 n=97-98 spent a garra on an X-X
-        # the user wanted dashed). A pair whose second pyramid is only
-        # the sixth-column PREVIEW keeps needing a payload: previews
-        # flicker, and run 20260821T225908's nine dashes bought nothing.
-        real_path_pyramids = sum(1 for cell in path
-                                 if is_obstacle(info[cell]))
-        # A bare 2-real pair is roughly break-even, so it only spends a
-        # dash while stock is comfortable (second user complaint about
-        # 2-dashes, run 20260822T183056: six fresh dashes, all pairs).
-        # Payload pairs and threes always fire.
-        stock_ok = dash_stock is None or dash_stock >= 12
-        pair_worth = (path_items or right_targets
-                      or (real_path_pyramids >= 2 and stock_ok)
-                      or path_pyramids >= 3)
+        # REFUTED 2026-08-28, by the runner's own dash_result records.
+        # The rule here used to read "two REAL pyramids pay for the dash
+        # on their own - each break drops at ~46% and the dash collects
+        # its drops in the same motion", and fired a bare pair whenever
+        # dash stock was comfortable. The second half of that sentence is
+        # false, and the log had been saying so all along:
+        #
+        #   2 pyramids, no item in the path   n=427   +12.9 energy
+        #   3 pyramids, no item in the path   n= 92   +20.7
+        #   2 pyramids, an item in the path   n= 33  +108.5
+        #
+        # The median of a bare dash is exactly 20 - the passive tick,
+        # which arrives whether or not anything is dashed. So a dash
+        # collects what is ALREADY lying in its path (the 108.5 row is
+        # real) and does NOT collect what the pyramids it breaks drop.
+        # Two breaks at the measured 44% should have shown ~110; they
+        # show the clock.
+        #
+        # Priced out: 400 shards buys three columns of advance, which on
+        # foot is three steps (120). The pyramids only cost something
+        # when there is no way around, and going around is two paws (80).
+        # 427 of the 556 recorded dashes - 77% - were this bare pair:
+        # 170,800 shards for the tick.
+        #
+        # So the pair is back to what this file said before the doctrine
+        # was added: an item in the path, a third pyramid, or a same-row
+        # target the dash genuinely approaches. Nothing else.
+        pair_worth = path_items or right_targets or path_pyramids >= 3
         # Only an IMMINENT wall (launch one row above or below) may hold
         # the pair back - it stabilizes and fires within a frame or two
         # (run 20260820T033221). A far wall blocked the pair without
@@ -874,10 +885,20 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
                 launch_items = any(info[cell]["item"] > .06
                                    or info[cell].get("claw", 0.0) > .10
                                    for cell in launch_path)
-                launch_real = sum(1 for cell in launch_path
-                                  if is_obstacle(info[cell]))
-                if not (launch_items or right_targets
-                        or (launch_real >= 2 and stock_ok)
+                # Same gate as the pair itself: walking a paw to line
+                # up a dash that loses 280 shards loses the paw too.
+                #
+                # Judged on the LAUNCH row, exactly like launch_risk
+                # below. right_targets asks about the PLAYER's row, so
+                # using it here justified climbing to row 3 with the
+                # target sitting on row 4 - the launch fired, and from
+                # the launch cell the orange won again and sent the bot
+                # straight back (run 20260822T215547 n=27-28, caught by
+                # the replay corpus when the stock gate stopped hiding
+                # it).
+                launch_targets = any(cell[0] == launch[0] and cell[1] >= 3
+                                     for cell in (orange_items | mid_items))
+                if not (launch_items or launch_targets
                         or dash_path_pyramids(info, *launch) >= 3):
                     continue
                 launch_risk = {cell
