@@ -133,6 +133,59 @@ class WorldModel:
         revealed = {tuple(cell) for cell in revealed}
         seen_cells = set(items) | pyramids
 
+        # ---- the belt moved and the ledger did not count it ------
+        # The receipt is the belt's authority, and it can UNDER-count: a
+        # paw reading the HUD could not resolve leaves conveyor_shift one
+        # column short. The world moved anyway, so from that frame on
+        # every track sits one column right of what the eyes report - and
+        # the eyes are right, because a tracked entity cannot teleport
+        # and cannot be born where one already stands.
+        #
+        # Run 20260828T213035 obs#48-52 (user: "no pudieron desaparecer
+        # ni haber aparecido... si las habia visto antes, ya sabe que
+        # estan ahi, pero despues no las coge"): two steps cards tracked
+        # at (2,4) and (4,3) with six sightings; the next frame the eyes
+        # put them at (2,3) and (4,2) with shift 0. The tracks aged out
+        # on misses while the sightings started fresh tracks one column
+        # left - unexplained, one sighting, suspect - and the bot walked
+        # past cards it had been watching for six frames.
+        #
+        # So: an unseen track whose own category IS seen exactly one
+        # column to its left, on a cell no other track claims, is that
+        # same entity after a scroll nobody billed. Move it; do not
+        # duplicate it. This runs BEFORE the sighting loop, so the moved
+        # track collects the sighting and no fresh one is born beside it.
+        #
+        # The "no other track claims it" guard is the whole difference
+        # from the version reverted earlier today, which handed the
+        # history to whatever twin sat there and so merged two real
+        # neighbours the moment the left one was collected (caught by the
+        # replay corpus on 20260823T142253 n=32).
+        for cell, track in sorted(self.tracks.items()):
+            if cell in seen_cells or track.kind != "item":
+                continue
+            left = (cell[0], cell[1] - 1)
+            if left[1] < 0 or left not in items:
+                continue
+            # Blocked only by another ITEM track: that is the rival claim
+            # the guard is for. A PYRAMID track sitting there is stale by
+            # the same drift - the eyes are calling that cell a pickup
+            # this very frame - and the miss loop below would delete it
+            # anyway, since a pyramid vision reports as gone is gone.
+            # Requiring the cell to be empty of ANY track is what stopped
+            # this firing on the case it was written for: run
+            # 20260828T213035 obs#49 had a stale pyramid track at (2,3)
+            # and (4,2), exactly where the two cards had slid to.
+            rival = self.tracks.get(left)
+            if rival is not None and rival.kind == "item":
+                continue
+            if items[left] != track.category:
+                continue
+            track.cell = left
+            track.misses = 0
+            self.tracks[left] = self.tracks.pop(cell)
+
+
         for cell in seen_cells:
             kind = "pyramid" if cell in pyramids else "item"
             category = None if kind == "pyramid" else items.get(cell)

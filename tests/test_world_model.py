@@ -352,6 +352,71 @@ class DashConfettiTests(unittest.TestCase):
         self.assertIn((1, 3), model.believed_items())
         self.assertNotIn((1, 4), model.believed_items())
 
+
+class UnbilledScrollTests(unittest.TestCase):
+    """A tracked entity cannot disappear and cannot be reborn.
+
+    The receipt is the belt's authority and it can UNDER-count: a paw
+    reading the HUD could not resolve leaves conveyor_shift a column
+    short. The world moved anyway, so every track sits one column right
+    of what the eyes report - and the eyes are right.
+
+    Run 20260828T213035 obs#48-49 (user: "no pudieron desaparecer ni
+    haber aparecido... si las habia visto antes, ya sabe que estan ahi,
+    pero despues no las coge"): two steps cards tracked at (2,4) and
+    (4,3) with six sightings; the next frame the eyes put them at (2,3)
+    and (4,2) with shift 0. The tracks aged out on misses while the
+    sightings started fresh, unexplained, suspect tracks one column
+    left, and the bot walked past cards it had watched for six frames.
+    """
+
+    def watched(self, cell, pyramids=frozenset(), frames=6):
+        model = wm.WorldModel()
+        for _ in range(frames):
+            model.observe({"items": {cell: "steps"},
+                           "pyramids": set(pyramids)})
+        return model
+
+    def test_the_track_follows_the_eyes(self):
+        model = self.watched((2, 4))
+        model.observe({"items": {(2, 3): "steps"}, "pyramids": set()})
+        self.assertEqual(model.believed_items(), {(2, 3): "steps"})
+        self.assertEqual(model.suspect_cells(), set())
+
+    def test_a_stale_pyramid_does_not_block_it(self):
+        # The first version of this rule demanded the left cell be empty
+        # of ANY track, and there was a stale pyramid track exactly where
+        # the cards had slid to - so it never fired on the case it was
+        # written for.
+        model = self.watched((2, 4), pyramids={(2, 3)})
+        model.observe({"items": {(2, 3): "steps"}, "pyramids": set()})
+        self.assertEqual(model.believed_items(), {(2, 3): "steps"})
+
+    def test_two_real_neighbours_are_never_merged(self):
+        # The rival claim the guard is for. This is the case that killed
+        # the version reverted earlier the same day: it handed the
+        # history to whatever twin sat there, so collecting the left one
+        # merged two real cards (replay corpus, 20260823T142253 n=32).
+        model = wm.WorldModel()
+        for _ in range(6):
+            model.observe({"items": {(2, 3): "steps", (2, 4): "steps"},
+                           "pyramids": set()})
+        model.observe({"items": {(2, 3): "steps"}, "pyramids": set()})
+        self.assertEqual(model.believed_items(),
+                         {(2, 3): "steps", (2, 4): "steps"})
+
+    def test_a_different_category_is_a_different_thing(self):
+        model = self.watched((2, 4))
+        model.observe({"items": {(2, 3): "orange"}, "pyramids": set()})
+        self.assertIn((2, 4), model.believed_items())
+        self.assertIn((2, 3), model.suspect_cells())
+
+    def test_it_only_looks_one_column_left(self):
+        model = self.watched((2, 4))
+        model.observe({"items": {(2, 2): "steps"}, "pyramids": set()})
+        self.assertIn((2, 4), model.believed_items())
+        self.assertIn((2, 2), model.suspect_cells())
+
 if __name__ == "__main__":
     unittest.main()
 
