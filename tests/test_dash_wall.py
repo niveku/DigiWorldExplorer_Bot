@@ -1782,38 +1782,63 @@ class FrameClockTests(unittest.TestCase):
 
 
 class FormingWallGateAgreementTests(unittest.TestCase):
-    """Review 2026-08-22 (multi-agent, 'conflicts' lens): the
-    forming-wall positioning added earlier today walks to the launch
-    without checking whether the pair-dash rule will actually FIRE
-    there. With low dash stock the 2-real pair is refused on arrival,
-    explore scrolls, and the wall is eaten anyway - the walk taps are
-    pure loss on top of the wall. Positioning and firing must share
-    one predicate."""
+    """Walk toward a forming wall only where the walk buys something.
+
+    The rule exists to save a wall the next scroll would EAT: run
+    20260822T234822 n=14 had (4,1),(4,2) in position plus (4,4) and the
+    preview lit, and the explorer scrolled three times and expelled its
+    own left side unbroken. That danger is real only while the run
+    already touches column 1.
+
+    A run that starts at column 2 is not in danger - the belt brings it
+    closer for free - and walking to its launch cost seven paws in run
+    20260828T211315 n=32-38 (user: "otra vez empezo a dar vueltas"): the
+    rule walked the bot to the launch, the pair rule refused on arrival
+    because a bare pair with a way around it is not worth 400 shards,
+    explore walked it off, and the rule sent it back. The board never
+    changed once, and the bot had been standing ON the launch when it
+    started.
+
+    That is also why the anticipation is confined here. This rule counts
+    the pyramid the preview PROMISES; dash_path_pyramids counts only
+    what has landed. Anywhere else that gap is a disagreement between
+    the walk and the dash, which is what the loop was made of. Counting
+    the promise on both sides is no fix either: a dash through a cell
+    that is still empty breaks nothing.
+    """
 
     def _forming(self):
+        # Left side already at column 1, reinforcement promised.
         info = empty_grid()
         info[(3, 1)]["player"] = 0.2
         info[(4, 1)]["pyramid"] = 0.9
         info[(4, 2)]["pyramid"] = 0.9
         return info, [False, False, False, False, True]
 
-    def test_no_walk_when_the_dash_would_be_refused_on_arrival(self):
-        info, preview = self._forming()
-        action, reason = strategy.choose(info, player=(3, 1),
-                                         preview=preview, dash_stock=4)
+    def test_it_walks_to_save_a_wall_the_scroll_would_eat(self):
+        for stock in (1, 4, 20, None):
+            info, preview = self._forming()
+            action, reason = strategy.choose(info, player=(3, 1),
+                                             preview=preview,
+                                             dash_stock=stock)
+            self.assertIn("forming wall", reason, f"stock={stock}")
+
+    def test_a_run_starting_at_column_two_is_not_walked_to(self):
+        # One column further right, so the belt cannot kill it: the same
+        # board the user's loop was made of.
+        info = empty_grid()
+        info[(3, 1)]["player"] = 0.2
+        info[(4, 2)]["pyramid"] = 0.9
+        info[(4, 3)]["pyramid"] = 0.9
+        _, reason = strategy.choose(info, player=(3, 1),
+                                    preview=[False] * 4 + [True],
+                                    dash_stock=38)
         self.assertNotIn("forming wall", reason)
 
-    def test_walks_when_stock_lets_the_pair_fire(self):
-        info, preview = self._forming()
-        action, reason = strategy.choose(info, player=(3, 1),
-                                         preview=preview, dash_stock=20)
-        self.assertIn("forming wall", reason)
-
     def test_three_run_positions_regardless_of_stock(self):
-        # A 3-pyramid run always pays (path_pyramids >= 3 fires the
-        # dash at any stock), so the bot must head for the launch -
-        # by the veteran wall hunt or the forming-wall rule, either
-        # label - and must never scroll the run away instead.
+        # A 3-pyramid run always pays, so the bot must head for the
+        # launch - by the veteran wall hunt or this rule, either label -
+        # and must never scroll the run away instead.
         info, preview = self._forming()
         info[(4, 3)]["pyramid"] = 0.9
         action, reason = strategy.choose(info, player=(3, 1),
@@ -1821,6 +1846,21 @@ class FormingWallGateAgreementTests(unittest.TestCase):
         self.assertIsNotNone(action)
         self.assertNotEqual(tuple(action[1]), (3, 2),
                             "scrolling right eats the forming wall")
+
+    def test_the_user_board_stops_circling(self):
+        # 20260828T211315 n=32-38, exactly as recorded. Nothing here may
+        # send the bot walking to a launch - from any of the six cells
+        # it circled.
+        info = empty_grid()
+        for cell in ((0, 0), (0, 1), (2, 2), (2, 3), (4, 0), (4, 4)):
+            info[cell]["pyramid"] = 0.9
+        preview = [False, False, True, False, False]
+        for player in ((2, 1), (3, 1), (3, 0), (2, 0), (1, 1), (1, 0)):
+            board = {cell: dict(values) for cell, values in info.items()}
+            board[player]["player"] = 0.5
+            _, reason = strategy.choose(board, player=player,
+                                        preview=preview, dash_stock=38)
+            self.assertNotIn("forming wall", reason, f"desde {player}")
 
 
 class ScreenColumnScrollTests(unittest.TestCase):

@@ -289,6 +289,42 @@ def find_large_player(image, board, min_pixels=120, item_cells=()):
     return (row, col), score
 
 
+def pair_dash_pays(info, cell, wanted, extra_pyramids=0):
+    """Is a dash launched from `cell` worth its 400 shards?
+
+    ONE predicate, because the rule that walks toward a launch has to be
+    the same rule that fires on arrival. When they drifted apart the bot
+    walked to a launch the dash then refused, the explorer took over and
+    walked it away, and the rule sent it back: run 20260828T211315
+    n=32-38 spent seven paws circling a board that never changed - and
+    it was standing ON the launch cell when it started.
+
+    `wanted` is the set of pickups worth routing to; `extra_pyramids`
+    lets the caller count a wall the preview promises but that has not
+    landed yet.
+    """
+    path = [(cell[0], col) for col in range(cell[1] + 1, min(5, cell[1] + 4))]
+    if not path:
+        return False
+    pyramids = sum(1 for c in path if is_obstacle(info[c])) + extra_pyramids
+    if pyramids < 2:
+        return False
+    if pyramids >= 3:
+        return True
+    if any(info[c]["item"] > .06 or info[c].get("claw", 0.0) > .10
+           for c in path):
+        return True
+    if any(other[0] == cell[0] and other[1] >= 3 for other in wanted):
+        return True
+    # No way around means the two-paw detour the veto quotes is not on
+    # the board, and then the dash is the cheap answer after all.
+    return not any(
+        not is_obstacle(info[(row, cell[1])])
+        and cell[1] + 1 < 5
+        and not is_obstacle(info[(row, cell[1] + 1)])
+        for row in (cell[0] - 1, cell[0] + 1) if 0 <= row < 5)
+
+
 def pickup_type(values):
     """Classify a pickup cell into its economic type, or None.
 
@@ -844,31 +880,19 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
         #
         # So the pair is back to what this file said before the doctrine
         # was added: an item in the path, a third pyramid, or a same-row
-        # target the dash genuinely approaches.
+        # target the dash genuinely approaches - plus the premise itself,
+        # added 2026-08-28b after the user stopped a run over a garra:
+        # "going around two pyramids is two paws" only holds while there
+        # IS a way around. Run 20260828T185642 n=11 had pyramids above,
+        # below and ahead, so the real alternatives were two garras (400,
+        # no advance) or a walk back through column 0. Of 266 bare pairs
+        # in the recordings, 227 (85%) do have the sidestep and stay
+        # vetoed; 39 (15%) are walled like that one.
         #
-        # Plus the premise itself, added 2026-08-28b after the user
-        # stopped a run over a garra: "400 shards buys three columns that
-        # cost 120 on foot, and going around two pyramids is two paws
-        # (80)" only holds while there IS a way around. Run
-        # 20260828T185642 n=11: pyramids above, below AND ahead, so the
-        # sidestep did not exist. The real alternatives there were two
-        # garras (400, no advance) or a long walk back through column 0 -
-        # against a dash that breaks both AND advances three. The veto
-        # was quoting a detour that was not on the board, and the
-        # explorer fell through to the forward garra: half the price for
-        # a quarter of the result.
-        #
-        # Measured over the recordings: of 266 bare pairs with a
-        # readable board, 227 (85%) do have the sidestep and stay
-        # vetoed; 39 (15%) are walled like this one.
-        sidestep = any(
-            not is_obstacle(info[(row, player[1])])
-            and player[1] + 1 < 5
-            and not is_obstacle(info[(row, player[1] + 1)])
-            for row in (player[0] - 1, player[0] + 1)
-            if 0 <= row < 5)
-        pair_worth = (path_items or right_targets or path_pyramids >= 3
-                      or not sidestep)
+        # The test lives in pair_dash_pays so the rule that WALKS to a
+        # launch asks exactly this question too.
+        pair_worth = pair_dash_pays(info, tuple(player),
+                                    orange_items | mid_items)
         # Only an IMMINENT wall (launch one row above or below) may hold
         # the pair back - it stabilizes and fires within a frame or two
         # (run 20260820T033221). A far wall blocked the pair without
@@ -1056,23 +1080,54 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
                 continue
             start = next((c for c in range(5)
                           if is_obstacle(info[(r, c)])), None)
-            if start is None or not 1 <= start <= 2:
+            # Only a wall whose left side is ALREADY at column 1.
+            #
+            # This rule exists to save a wall the next scroll would eat:
+            # run 20260822T234822 n=14 had (4,1),(4,2) in position plus
+            # (4,4) and the preview lit, and the explorer scrolled three
+            # times and expelled its own left side unbroken. A run that
+            # starts at column 2 is not in that danger - scrolling
+            # brings it closer, not to its death - so walking to its
+            # launch buys nothing the belt would not give for free.
+            #
+            # And walking there costs plenty. Run 20260828T211315
+            # n=32-38 (user: "otra vez empezo a dar vueltas"): row 2
+            # held a pair starting at column 2, this rule walked the bot
+            # to the launch, the pair rule refused on arrival, explore
+            # walked it off, and this sent it back. Seven paws on a
+            # board that never changed.
+            if start != 1:
                 continue
             run_len = 0
             while start + run_len < 5 and is_obstacle(info[(r, start + run_len)]):
                 run_len += 1
             if run_len < 2:
                 continue
-            # Positioning must share the predicate that will FIRE the
-            # dash on arrival, or the walk is pure loss and explore
-            # eats the wall anyway (review 2026-08-22, 'conflicts'
-            # lens: a 2-real pair under low stock is refused at the
-            # launch, so walking there paid taps for nothing).
-            will_fire = (run_len >= 3
-                         or dash_stock is None or dash_stock >= 12)
-            if not (dashes_enabled and will_fire):
-                continue
             launch = (r, start - 1)
+            # Positioning must share the predicate that will FIRE the
+            # dash on arrival, or the walk is pure loss and explore eats
+            # the wall anyway (review 2026-08-22, 'conflicts' lens).
+            #
+            # It stopped sharing it on 2026-08-28, when the bare-pair
+            # veto was rewritten and this line was left quoting the old
+            # dash-stock gate. Run 20260828T211315 n=32-38: row 2 held a
+            # two-pyramid pair, stock was full, so this walked the bot to
+            # the launch - and the pair rule, which now asks about items,
+            # same-row targets and whether there is a way around,
+            # refused. Explore took over, walked it off, and this sent it
+            # back. Seven paws on a board that never changed.
+            #
+            # The promised pyramid counts, because saving the wall is
+            # the whole point and by arrival it will have landed. That
+            # anticipation is exactly why this rule may only look at
+            # walls already touching column 1: elsewhere it would walk
+            # toward a dash the arrival board does not justify, which is
+            # the disagreement the 211315 loop was made of.
+            if not (dashes_enabled
+                    and pair_dash_pays(info, launch,
+                                       orange_items | mid_items,
+                                       extra_pyramids=1)):
+                continue
             if tuple(player) == launch:
                 break
             step = shortest_action(info, player, {launch},
