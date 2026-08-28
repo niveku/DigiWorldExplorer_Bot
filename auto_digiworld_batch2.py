@@ -1931,10 +1931,6 @@ def main():
     slide_waits = 0
     lag_cooldown = 0
     committed_wall = None
-    # The stop the plan is currently walking to. Kept so that
-    # arriving beside it cannot be what un-chooses it: see
-    # already_walking_to() in auto_digiworld.py.
-    committed_target = None
     wall_holds = 0
     last_dash = None
     chest_cooldown = 0
@@ -2364,9 +2360,6 @@ def main():
             banned_targets = shift_items_left(banned_targets)
             pending_reveals = shift_items_left(pending_reveals)
             ban_history = shift_cells_left(ban_history)
-            if committed_target is not None:
-                row, col = committed_target
-                committed_target = (row, col - 1) if col else None
         scrolls_since_frame += belt_shift
         taps_claimed += claimed
         taps_charged += charged
@@ -2728,8 +2721,7 @@ def main():
                                          suspect_cells=suspect_items,
                                          dash_stock=dash_stock,
                                          blocked_direction=blocked_direction,
-                                         allow_paid_detour=overrule_streak >= 1,
-                                         committed_target=committed_target)
+                                         allow_paid_detour=overrule_streak >= 1)
         left_band_risk = any(
             cell[1] <= 2 and strategy.pickup_type(info[cell])
             not in (None, "purple_ticket", "green_ticket", "steps")
@@ -2790,8 +2782,7 @@ def main():
                                              hunt_walls=wall_stable,
                                              suspect_cells=suspect_items,
                                              blocked_direction=blocked_direction,
-                                             allow_paid_detour=overrule_streak >= 1,
-                                             committed_target=committed_target)
+                                             allow_paid_detour=overrule_streak >= 1)
         if action is None:
             # One unreadable frame must not kill a run: rescan a few
             # times before giving up.
@@ -2813,11 +2804,6 @@ def main():
             return 4
         no_action_waits = 0
         kind, target, direction = action
-        # Read back from the reason the plan just printed, so the
-        # commitment and the log can never disagree. A branch that
-        # names no plan (a dash, an explore step) clears it, which is
-        # what should happen: there is nothing being walked to.
-        committed_target = strategy.first_stop(reason)
         if args.verbose:
             color = "93" if item_goals else "36"
             progress(done, args.steps, plan_status(kind, direction, reason, len(item_goals)), color)

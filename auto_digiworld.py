@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import heapq
 import itertools
 import json
@@ -124,7 +123,14 @@ def shortest_action(info, player, targets, allow_obstacles=True,
 
     A garra costs 200 shards plus the 40-shard follow-up step, minus
     roughly one step of expected drop value (50.9% break-drop rate at
-    ~+20 energy) - about five steps at 40 shards each. Pricing it at 2
+    ~+20 energy) - about five steps at 40 shards each. The +20 there is
+    the passive regeneration tick, not the drop (see pickup_type): the
+    instant yield of an attack is 0.3 energy over 357 recorded attacks,
+    and a drop that lands as an ORANGE on the board is worth 125 when it
+    is later walked onto. Which of the two the 50.9% refers to was never
+    isolated, so the price of 5 stands unchanged until an experiment
+    settles it - breaking one pyramid beside a clear board and reading
+    the HUD before and after. Pricing it at 2
     made a one-attack shortcut tie a free two-step detour and win by pop
     order (run 20260820T183527 attacks 25/85 spent garras beside free
     detours). Breaking through still wins where no free path exists.
@@ -283,100 +289,22 @@ def find_large_player(image, board, min_pixels=120, item_cells=()):
     return (row, col), score
 
 
-def grab_forces_a_reversal(cell, player, targets):
-    """Does taking this adjacent pickup put every other target behind us?
-
-    A vertical grab costs one paw and, when nothing else is left on that
-    side of the player's row, one more to walk back: two paws for a
-    20-energy orange is 10 per paw against a run average of 13-22 (user
-    report 2026-08-24; run 20260823T155501 n=51 went up for (0,1) and
-    straight back down for (1,4)). A grab on the way costs nothing extra,
-    and a sideways grab never advances any row, so it always has to be
-    walked back if the targets are elsewhere.
-    """
-    others = [tuple(other) for other in targets if tuple(other) != tuple(cell)]
-    if not others:
-        return False
-    step = cell[0] - player[0]
-    return not any((other[0] - player[0]) * step > 0 for other in others)
-
-
-def is_adjacent(cell, player):
-    """One orthogonal step away."""
-    return abs(cell[0] - player[0]) + abs(cell[1] - player[1]) == 1
-
-
-def first_stop(reason):
-    """The first stop of the plan a reason describes, or None.
-
-    The reason string is the plan's public form - the runner logs it and
-    the tests assert on it - so reading the commitment back out of it
-    keeps one source of truth instead of a second return value threaded
-    through every caller of choose().
-    """
-    if reason and reason.startswith("adjacent item="):
-        # The grab is one step, so it normally clears itself. It has to be
-        # readable anyway: a tap the game swallows leaves the bot standing
-        # beside the same orange with no commitment, and the guard would
-        # walk it away on the very next frame.
-        body = reason.split("=", 1)[1]
-    elif reason and "targets=[" in reason:
-        body = "[" + reason.split("targets=[", 1)[1].rsplit("]", 1)[0] + "]"
-    else:
-        return None
-    try:
-        stops = ast.literal_eval(body)
-    except (ValueError, SyntaxError):
-        return None
-    if isinstance(stops, tuple) and stops and not isinstance(stops[0], tuple):
-        return stops
-    return tuple(stops[0]) if stops else None
-
-
-def already_walking_to(cell, committed):
-    """Arriving beside a target must not be what un-chooses it.
-
-    The side-trip guard below only judges an ADJACENT cell. So a target
-    two steps away survives planning, is chosen as the first stop, and is
-    walked toward - and the arrival step is precisely what makes it
-    adjacent, which is what prunes it. The paw is spent either way;
-    dropping the target now buys nothing and usually costs a reversal on
-    top. Twenty of the forty plan shrinks across the two runs of
-    2026-08-26 are this one shape, e.g. player (2,1) -> (1,1) chasing
-    (1,2), dropped on arrival.
-
-    The exemption covers exactly the cell the previous frame committed
-    to, so the guard's arithmetic is untouched for every other target:
-    what changes is only that a verdict already acted on is not reversed
-    by the act itself.
-    """
-    return committed is not None and tuple(cell) == tuple(committed)
-
-
-def side_trip_is_wasteful(info, cell, player, targets):
-    """A one-step grab that has to be walked back for 20 energy.
-
-    Guards both adjacent-grab loops: the second one keys on the generic
-    item mask, so an orange whose mask crosses .06 reaches it too and the
-    first loop's skip would just be undone one branch later.
-
-    The erosion band buys no exemption. Every reversal the user reported
-    grabbed a COLUMN-1 orange and walked straight back (runs
-    20260823T150728 n=35, 154134 n=60, 155203 n=31, 155501 n=51), and
-    rescuing 20 energy for two paws is the losing side of the same
-    arithmetic the dash veto already states: "a 20-energy orange is not a
-    rescue". Claws, orbs and paw cards are worth five to ten steps and
-    never reach this guard."""
-    return (pickup_type(info[cell]) == "orange"
-            and grab_forces_a_reversal(cell, player, targets))
-
-
 def pickup_type(values):
     """Classify a pickup cell into its economic type, or None.
 
-    Measured values (run 20260820T041234 HUD deltas): orange +20 energy,
-    claw +1 garra (200 shards), dash orb +1 dash (400), paws +5 steps
-    (200), tickets +1 ticket (negligible).
+    Measured values: orange +125 energy, claw +1 garra (200 shards),
+    dash orb +1 dash (400), paws +5 steps (200), tickets +1 ticket
+    (negligible).
+
+    The orange was priced at +20 from 2026-08-20 to 2026-08-28 and that
+    was the passive regeneration tick, not the pickup. Re-measured over
+    every recorded run (n=623 frames whose plan stepped onto a KNOWN
+    orange): the energy delta is +125 in 623 of them and never +20 more
+    often than on a frame that picked nothing up (2.9% against 3.6%,
+    which is the +20 tick arriving on its own ~28s cadence). One step
+    costs 18.2 energy of run average (3014 charged steps), so an orange
+    is worth about seven paws - the arithmetic that called a two-paw
+    round trip for one "the losing side" was inverted by a factor of six.
     """
     if values.get("claw", 0.0) > .10:
         return "claw"
@@ -633,7 +561,7 @@ def dash_path_pyramids(info, row, col):
 def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
            ignored_targets=(), player=None, preview=None, hunt_walls=True,
            suspect_cells=(), dash_stock=None, blocked_direction=None,
-           allow_paid_detour=False, committed_target=None):
+           allow_paid_detour=False):
     """Pick the next action, refusing to undo the step just taken.
 
     blocked_direction is the runner's receipt-backed report that the last
@@ -653,8 +581,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     """
     action, reason = _choose(info, previous_direction, attacks_enabled,
                              dashes_enabled, ignored_targets, player, preview,
-                             hunt_walls, suspect_cells, dash_stock,
-                             committed_target)
+                             hunt_walls, suspect_cells, dash_stock)
     if (blocked_direction is None or action is None
             or action[0] != "move" or action[2] != blocked_direction):
         return action, reason
@@ -663,7 +590,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     detour, detour_reason = _choose(closed, previous_direction, attacks_enabled,
                                     dashes_enabled, ignored_targets, player,
                                     preview, hunt_walls, suspect_cells,
-                                    dash_stock, committed_target)
+                                    dash_stock)
     if detour is None or detour[1] == action[1]:
         return action, reason
     if detour[0] != "move" and not allow_paid_detour:
@@ -686,7 +613,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
 
 def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
             ignored_targets=(), player=None, preview=None, hunt_walls=True,
-            suspect_cells=(), dash_stock=None, committed_target=None):
+            suspect_cells=(), dash_stock=None):
     # A caller that already resolved the player (dead reckoning, large-sprite
     # locator) passes it in; per-cell scores stay authoritative otherwise.
     if player is None:
@@ -740,6 +667,12 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
     # measured yield is ~+20E costs less than the veto it used to
     # trigger. Claws and dash orbs are real charge refunds and still
     # veto; oranges always do.
+    # (That ~+20E is the regeneration tick again: over 352 recorded
+    # dashes the very next frame reads +20 157 times, 0 141 times and
+    # +125 never. A three-frame window does show oranges, but it also
+    # contains ordinary steps, so what the dash itself collects is not
+    # measured yet. The comparison is left standing rather than guessed:
+    # a steps card is still the cheapest thing on the board either way.)
     steps_cards = {cell for cell in mid_items
                    if pickup_type(info[cell]) == "steps"}
 
@@ -773,16 +706,6 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
         cell = (player[0] + dr, player[1] + dc)
         if (0 <= cell[0] < 5 and 0 <= cell[1] < 5
                 and cell in (orange_items | mid_items | other_items)):
-            # A plain orange out of the erosion band is the one pickup
-            # that cannot pay for a round trip: 20 energy for the two
-            # paws a side trip costs. Claws, dash orbs and paw cards are
-            # worth five to ten steps each and always justify it, and
-            # anything in columns 0-1 is about to fall off the board.
-            if (not already_walking_to(cell, committed_target)
-                    and side_trip_is_wasteful(
-                        info, cell, player,
-                        orange_items | mid_items | other_items)):
-                continue
             return ("move", cell, direction), f"adjacent item={cell}"
 
     # A visible wall of three pyramids is irresistible while dashes remain:
@@ -855,11 +778,6 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
         if not (0 <= cell[0] < 5 and 0 <= cell[1] < 5):
             continue
         if cell in other_items or cell in claw_items:
-            if (not already_walking_to(cell, committed_target)
-                    and side_trip_is_wasteful(
-                        info, cell, player,
-                        orange_items | mid_items | other_items)):
-                continue
             return ("move", cell, direction), f"adjacent item={cell}"
 
     # Two pyramids inside the 3-cell dash path cost the same 400 shards as
@@ -989,18 +907,6 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
         tour_mids = prune_low_value_mids(player, orange_items, mid_items,
                                          mid_types, info=info)
     tour_items = orange_items | tour_mids
-    # The tour re-decides what the adjacent-grab guard just skipped, so
-    # the same arithmetic has to reach it: an adjacent plain orange that
-    # every other stop sits back across is a two-paw round trip for 20
-    # energy, below what the rightward step it displaces earns (11.7
-    # energy per right-only frame against 6.9 per vertical-only frame,
-    # 710 frames of runs 20260823T15* + 20260824T0*). It drops out of the
-    # plan and comes back into it the moment the belt puts it on the way.
-    tour_items = {cell for cell in tour_items
-                  if already_walking_to(cell, committed_target)
-                  or not (is_adjacent(cell, player)
-                          and side_trip_is_wasteful(info, cell, player,
-                                                    tour_items))}
     if tour_items:
         order = plan_tour(player, tour_items)
         if order:
@@ -1137,9 +1043,12 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
     # whatever we do, and standing still to mourn it burns paws for
     # nothing (run 20260823T074036 n=197-199 ping-ponged (0,0)<->(0,1) to
     # the end of the run over a dash orb behind a two-pyramid wall).
-    # allow_obstacles=False on purpose: a 200-shard garra to rescue a
-    # 20-energy orange is not a rescue, so a perishable reachable only by
-    # breaking through does not veto the advance either.
+    # allow_obstacles=False on purpose: a garra to rescue one orange is
+    # a marginal trade, not a rescue - 200 shards is about 91 energy at
+    # the measured 18.2 energy per 40-shard step, against the orange's
+    # 125 - and marginal is not enough to hold the whole world still on
+    # its behalf, so a perishable reachable only by breaking through
+    # does not veto the advance either.
     # tour_items, not the raw sightings: the veto and the plan must want
     # the same things. Reading orange_items | mid_items let a pickup the
     # tour had already pruned as not worth a detour still hold the whole

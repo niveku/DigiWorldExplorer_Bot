@@ -2,7 +2,7 @@
 
 # ⚡ DigiWorldExplorer_Bot ⚡
 
-![Version](https://img.shields.io/badge/version-0.3.0-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Tests](https://img.shields.io/badge/tests-607-green)
+![Version](https://img.shields.io/badge/version-0.3.1-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Tests](https://img.shields.io/badge/tests-598-green)
 
 ### 🦖 Exploración automatizada de DigiWorld para Digimon UP
 
@@ -20,7 +20,7 @@
 > exploración, launchers de Windows, empaquetado — es de
 > [RobinTh0r](https://github.com/RobinTh0r/DigiWorldExplorer_Bot), que la publicó en
 > julio de 2026. Encima van 127 commits míos: el recibo de paticas, el modelo del
-> mundo, el harness de replay y 607 tests.
+> mundo, el harness de replay y 598 tests.
 > Detalle en [`docs/UPSTREAM.md`](docs/UPSTREAM.md); autoría y estado de licencia
 > — el original **no declara licencia** — en [`NOTICE.md`](NOTICE.md).
 
@@ -194,7 +194,7 @@ Con items visibles el controlador planifica como máximo dos acciones hasta el s
 | `safe_tap.py` | Variación acotada del punto y el ritmo de cada tap |
 | `overlays.py` | Quién manda en el frame cuando algo tapa el tablero |
 | `SCREEN_LOOPS.md` | Cómo se enseña, se lanza y se acota un loop |
-| `tests/` | 607 tests offline, con fixtures de capturas reales |
+| `tests/` | 598 tests offline, con fixtures de capturas reales |
 | `requirements.txt` | Dependencias mínimas de Python |
 
 ## 📦 ¿Por qué no un paquete portable gigante?
@@ -232,6 +232,23 @@ Estos tests no envían entradas ADB.
 La versión actual está en `VERSION` y se muestra en el banner de la terminal y con
 `python auto_digiworld_batch2.py --version`.
 
+### v0.3.1 - 28.08.2026
+
+- 🍊 **Una energía vale 125, no 20.** El +20 con el que se tasaba desde el
+  20.08 era el tick de regeneración pasiva, no la recogida. Remedido sobre
+  todas las grabaciones (n=623 frames cuyo plan pisó un naranja conocido: el
+  salto es +125 y nunca +20 más de lo que sube un frame que no recoge nada).
+  Un paso cuesta 18,2 de energía de media sobre 3.014 pasos cobrados.
+- 🐛 **Ya no se salta una energía adyacente.** El guard que la descartaba
+  cuando el resto de objetivos quedaba al otro lado de la fila salía de esa
+  cuenta invertida: el rodeo cuesta dos paticas (~36) y la energía da 125.
+  Caso de campo, run `20260828T150835` n=12: el bot tomó una del par, la
+  cinta puso la otra justo debajo, y se fue por un dash orb; dos pasos
+  después la energía se había salido del tablero.
+- 🧹 Con el guard se va su andamiaje: el compromiso de objetivo de v0.3.0
+  existía solo para cancelar sus falsos positivos. El A/B del harness sobre
+  cuatro corridas grabadas da violaciones idénticas antes y después.
+
 ### v0.3.0 - 27.08.2026 (fork de Niveku)
 
 - 🧾 **Recibo de paticas**: el contador del HUD es la autoridad sobre qué taps cobró
@@ -254,7 +271,8 @@ La versión actual está en `VERSION` y se muestra en el banner de la terminal y
   proceso dejó abierta no se toca; el frame que detiene un loop se guarda.
 - 🎯 **Compromiso de objetivo**: llegar al lado de un item ya no es lo que lo
   descarta. Medido sobre 857 frames: 20 de los 40 encogimientos de plan eran esa
-  forma, y el A/B sobre las mismas grabaciones cambia 51 decisiones.
+  forma, y el A/B sobre las mismas grabaciones cambia 51 decisiones. (Retirado
+  en v0.3.1 junto con el guard cuyos falsos positivos corregía.)
 - 🧪 607 tests offline.
 - 🗣️ Interfaz de usuario completa en español (runner, launchers PowerShell y esta README).
 

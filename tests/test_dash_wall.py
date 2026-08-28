@@ -2795,114 +2795,50 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class SideTripGrabTests(unittest.TestCase):
-    """The free adjacent grab is not free when it has to be walked back.
+class AdjacentGrabTests(unittest.TestCase):
+    """An adjacent orange is never worth walking past.
 
-    User report 2026-08-24: "aun suele dar un paso erroneo hacia atras a
-    veces cuando toma una energia". Log evidence, run 20260823T155501
-    n=51: from (1,1) the bot stepped UP for the orange at (0,1) and came
-    straight back DOWN for the orange at (1,4) - two paws for one 20
-    energy orange, 10 per paw against a run average of 13-22. The grab
-    only stops paying when every other target sits back across the row
-    it left.
+    From 2026-08-24 to 2026-08-28 a guard skipped an adjacent plain
+    orange whenever every other target sat back across the row it would
+    leave, on the grounds that the two paws of the round trip cost more
+    than the pickup. That arithmetic priced the orange at +20 energy,
+    which was the passive regeneration tick and not the pickup at all.
+    Re-measured over every recorded run (n=623 frames whose plan stepped
+    onto a known orange) the pickup is +125, against 18.2 energy per
+    charged step: the round trip pays about three and a half times over.
+
+    Field case, run 20260828T150835 n=12 (user report): the bot took one
+    orange of a vertical pair, the belt put the second one directly
+    below it at (2,1), and the guard walked past it toward a dash orb on
+    the player's own row. Two right steps later the orange had scrolled
+    off the board.
     """
 
-    def test_a_grab_with_no_other_target_never_reverses(self):
-        self.assertFalse(strategy.grab_forces_a_reversal((0, 2), (1, 2), []))
-
-    def test_a_grab_towards_the_other_targets_keeps_going(self):
-        self.assertFalse(strategy.grab_forces_a_reversal((0, 2), (1, 2),
-                                                         [(0, 4)]))
-
-    def test_every_other_target_back_across_the_row_is_a_reversal(self):
-        self.assertTrue(strategy.grab_forces_a_reversal((0, 2), (1, 2),
-                                                        [(1, 4)]))
-
-    def test_a_sideways_grab_costs_no_row(self):
-        self.assertTrue(strategy.grab_forces_a_reversal((1, 1), (1, 2),
-                                                        [(1, 4)]))
-
-    def test_the_planner_skips_the_side_trip_for_a_plain_orange(self):
+    def test_the_second_orange_of_a_pair_is_not_walked_past(self):
         info = empty_grid()
-        info[(0, 2)]["orange"] = .9
-        info[(0, 2)]["item"] = .9
-        info[(1, 4)]["orange"] = .9
-        info[(1, 4)]["item"] = .9
-        action, _ = strategy.choose(info, None, False, False, set(), (1, 2))
-        self.assertNotEqual(action[2], "up")
+        info[(2, 1)].update(orange=.9, item=.9)
+        info[(1, 4)].update(green=.9, item=.9)
+        action, reason = strategy.choose(info, player=(1, 1),
+                                         dashes_enabled=False)
+        self.assertEqual(tuple(action[1]), (2, 1), reason)
 
-    def approach_board(self):
-        """The 2026-08-26 indecision board: one orange up and across,
-        everything else below it."""
+    def test_the_orange_two_steps_away_is_still_approached(self):
+        """One orange up and across, everything else below it."""
         info = empty_grid()
         for cell in ((1, 2), (3, 3), (4, 4)):
-            info[cell]["orange"] = .9
-            info[cell]["item"] = .9
-        return info
-
-    def test_the_orange_two_steps_away_is_chosen_from_below(self):
-        action, reason = strategy.choose(self.approach_board(), player=(2, 1))
+            info[cell].update(orange=.9, item=.9)
+        action, reason = strategy.choose(info, player=(2, 1))
         self.assertEqual(tuple(action[1]), (1, 1), reason)
 
-    def test_arriving_beside_it_does_not_un_choose_it(self):
-        """The paw is spent either way, so dropping it now buys nothing.
-
-        Player walked (2,1) -> (1,1) for the orange at (1,2). Without the
-        commitment the arrival step is exactly what makes (1,2) adjacent,
-        which is what prunes it - one paw spent to change our mind, and
-        usually a reversal on top. Twenty of the forty plan shrinks in
-        the two runs of 2026-08-26 are this shape.
-        """
-        action, reason = strategy.choose(self.approach_board(), player=(1, 1),
-                                         committed_target=(1, 2))
+    def test_arriving_beside_it_takes_it(self):
+        # The step that makes a target adjacent used to be the step that
+        # pruned it, so the bot spent a paw to change its mind and often
+        # a second one reversing. Nothing prunes it now.
+        info = empty_grid()
+        for cell in ((1, 2), (3, 3), (4, 4)):
+            info[cell].update(orange=.9, item=.9)
+        action, reason = strategy.choose(info, player=(1, 1))
         self.assertEqual(tuple(action[1]), (1, 2), reason)
-
-    def test_without_the_commitment_the_old_verdict_still_stands(self):
-        # The guard's arithmetic is untouched for everything the bot is
-        # not already walking to: an adjacent plain orange that every
-        # other stop sits back across is still a two-paw round trip.
-        # Asserted on the PLAN, not on the step: the step out of (1,1) is
-        # rightward either way, so it lands on (1,2) whether or not (1,2)
-        # is a stop. What the guard decides is membership in the tour.
-        _, reason = strategy.choose(self.approach_board(), player=(1, 1))
-        self.assertNotIn("(1, 2)", reason)
-
-    def test_the_commitment_is_read_back_out_of_the_reason(self):
-        # The reason string is the plan's public form, so the commitment
-        # is read from it rather than returned separately. Both shapes a
-        # pickup can print have to parse, including the one-step grab: a
-        # swallowed tap leaves the bot beside the same orange, and an
-        # unreadable reason would walk it away on the next frame.
-        self.assertEqual(strategy.first_stop("orange targets=[(1, 2), (3, 3)]"),
-                         (1, 2))
-        self.assertEqual(strategy.first_stop("adjacent item=(2, 2)"), (2, 2))
-        self.assertIsNone(strategy.first_stop("explore right"))
-        self.assertIsNone(strategy.first_stop(None))
-
-    def test_the_commitment_reaches_only_the_cell_it_names(self):
-        info = self.approach_board()
-        info[(0, 1)]["orange"] = .9
-        info[(0, 1)]["item"] = .9
-        self.assertTrue(strategy.already_walking_to((1, 2), (1, 2)))
-        self.assertFalse(strategy.already_walking_to((0, 1), (1, 2)))
-        self.assertFalse(strategy.already_walking_to((1, 2), None))
-
-    def test_a_perishable_orange_buys_no_exemption(self):
-        info = empty_grid()
-        info[(0, 1)]["orange"] = .9
-        info[(0, 1)]["item"] = .9
-        info[(1, 4)]["orange"] = .9
-        info[(1, 4)]["item"] = .9
-        self.assertTrue(strategy.side_trip_is_wasteful(
-            info, (0, 1), (1, 1), {(0, 1), (1, 4)}))
-
-    def test_a_claw_is_always_worth_the_walk_back(self):
-        info = empty_grid()
-        info[(0, 2)]["claw"] = .9
-        info[(1, 4)]["orange"] = .9
-        info[(1, 4)]["item"] = .9
-        self.assertFalse(strategy.side_trip_is_wasteful(
-            info, (0, 2), (1, 2), {(0, 2), (1, 4)}))
 
 
 class PaidDetourAfterASecondReversalTests(unittest.TestCase):
