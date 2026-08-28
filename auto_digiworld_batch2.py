@@ -2379,10 +2379,13 @@ def main():
             belt_shift, pending_picked, previous_direction)
         # The same receipt that settles the belt settles this memory:
         # a belt that moved or a pickup that landed makes every cell on
-        # the board worth standing on again.
+        # the board worth standing on again. Only the CLEAR belongs here;
+        # the cell is added once the player is resolved, some forty lines
+        # below - adding it here read `player` before this frame assigned
+        # it and killed the first frame of every run with
+        # UnboundLocalError (reported live 2026-08-28).
         if belt_shift or pending_picked:
             barren_stands = set()
-        barren_stands.add(tuple(player))
         if pending_taps:
             pending_picked = False
         if blocked_direction:
@@ -2433,6 +2436,10 @@ def main():
             # The receipt outranks the locator: see receipt_pins_player.
             player, player_score, player_source = expected_player, 1.0, "receipt"
         distrust_player = False
+        # Where the player actually stands, now that every source has had
+        # its say: the barren memory records cells the bot OCCUPIED, not
+        # cells it hoped to occupy.
+        barren_stands.add(tuple(player))
         # The receipt already said whether the tap executed, so there is
         # nothing to infer from where the player is standing and nothing
         # to sit out a grace frame for. (silent_rejection admitted in its
