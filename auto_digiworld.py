@@ -1150,10 +1150,21 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
             # walls already touching column 1: elsewhere it would walk
             # toward a dash the arrival board does not justify, which is
             # the disagreement the 211315 loop was made of.
+            #
+            # The promise is the PREVIEW's alone. `reinforced` also
+            # accepts a pyramid already standing at column 4, and that
+            # one is not a promise: it is on the board, and from a
+            # column-0 launch the dash reaches columns 1-3, so it sits
+            # outside the path and stays there - walking left does not
+            # scroll. Run 20260828T215949 n=78 (user: "tenia que bajar
+            # 1 seguir por ahi pero decidio devolverse"): row 2 held
+            # (2,1),(2,2) and a far (2,4), preview dark, and the
+            # phantom third sent the bot two paws backwards to set up a
+            # dash that would have broken two.
             if not (dashes_enabled
                     and pair_dash_pays(info, launch,
                                        orange_items | mid_items,
-                                       extra_pyramids=1)):
+                                       extra_pyramids=1 if preview[r] else 0)):
                 continue
             if tuple(player) == launch:
                 break
