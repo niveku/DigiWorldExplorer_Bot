@@ -92,6 +92,42 @@ def cells(image, board):
             claw_score = float(claw_mask[~claw_border].mean())
             if float(claw_mask[claw_border].mean()) > .01:
                 claw_score = 0.0
+            elif claw_score <= .10:
+                # A claw standing in the row of the foreground ice loses
+                # its bottom to it, and with it the area this threshold
+                # reads. Run 20260828T215949 n=78 scored .091 and the bot
+                # walked past a garra in plain sight (user: "por que no
+                # bajo y tomo la garra"). Area cannot be stretched to
+                # cover the gap - .091 sits inside the pyramid-glint
+                # band, whose 99th percentile is .094 - so recognise the
+                # sprite instead of measuring it: a claw is ~500 slash
+                # pixels at about a third fill of their own bounding
+                # box, and a bite from below removes pixels without
+                # changing the fill. Both bands are needed; glints are
+                # either too few pixels or far denser (95th pct fill
+                # .64). Measured over the 12,250 recorded digiworld
+                # frames: 528 cells fall inside both bands, 310 of them
+                # already clearing the threshold on area alone and 125
+                # below it. The item guard is what makes the rest safe -
+                # the orange energy's yellow cap clears both bands on
+                # its own, and pickup_type asks about the claw BEFORE
+                # the orange, so without it energy would be renamed
+                # garras. It drops 104, and the 21 that remain are
+                # claws bitten by the ice, every one of them in row 4.
+                claw_pixels = claw_mask & ~claw_border
+                count = int(claw_pixels.sum())
+                ys, xs = np.nonzero(claw_pixels)
+                item_here = max(orange_mask.mean(), pink_mask.mean(),
+                                green_mask.mean())
+                if count >= 300 and item_here <= .06:
+                    box = ((ys.max() - ys.min() + 1) *
+                           (xs.max() - xs.min() + 1))
+                    if .24 <= count / box <= .45:
+                        # As much claw as the ice leaves visible: every
+                        # reader of this score asks the same yes/no
+                        # question of it, so report the unoccluded
+                        # sprite's own median rather than invent a scale.
+                        claw_score = .13
             result[(row, col)] = {
                 "player": float(max(red_player.mean(), bright_neutral_player.mean(),
                                     shadow_player_score)),
@@ -737,11 +773,25 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
     # perishable ages during the one-step grab (run 20260821T234344 n=9
     # abandoned a paws card one step away for a perishable three cells
     # down - the free grab costs the rescue zero erosion).
+    #
+    # Suspects excluded. Everywhere else in this file a left-band
+    # suspect is confetti that can never be believed or targeted, and
+    # this was the one rule that still walked to one: run
+    # 20260828T223602 n=65 ate the orange at (3,3), the pickup burst
+    # painted a card on (3,0) behind the bot, and the free-grab rule
+    # spent a paw walking backwards onto it (user: "dio un paso para
+    # atras sin razon... si ya habia pasado por esa celda y no habia
+    # nada, por que ahora si habria de haber algo?"). A step onto a
+    # maybe-item is free only when it was going that way anyway; this
+    # loop skips 'right' by construction, so every step it takes is a
+    # detour. Being wrong the other way costs nothing but three frames
+    # of confirmation, and the item is adjacent the whole time.
     for dr, dc, direction in DIRS:
         if direction == "right":
             continue
         cell = (player[0] + dr, player[1] + dc)
         if (0 <= cell[0] < 5 and 0 <= cell[1] < 5
+                and cell not in suspect_cells
                 and cell in (orange_items | mid_items | other_items)):
             return ("move", cell, direction), f"adjacent item={cell}"
 
@@ -813,6 +863,8 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
             continue
         cell = (player[0] + dr, player[1] + dc)
         if not (0 <= cell[0] < 5 and 0 <= cell[1] < 5):
+            continue
+        if direction != "right" and cell in suspect_cells:
             continue
         if cell in other_items or cell in claw_items:
             return ("move", cell, direction), f"adjacent item={cell}"

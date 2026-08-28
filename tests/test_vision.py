@@ -145,6 +145,36 @@ class InventoryOcrTests(unittest.TestCase):
         self.assertLess(info[(1, 4)]["claw"], 0.005)   # empty dark cell
         self.assertLess(info[(0, 2)]["claw"], 0.005)   # pyramid
 
+    def test_a_claw_bitten_by_the_foreground_ice_is_still_a_claw(self):
+        """Run 20260828T215949 n=78 (user: "tenia que bajar 1 seguir por
+        ahi pero decidio devolverse").
+
+        The garra at (4,2) sat in the row the foreground ice blocks
+        cross, which ate its lower third. Area alone read .091 against
+        a threshold of .10, so the board came back empty and the bot
+        walked away from a pickup it had in plain sight. The area was
+        not rescuable - .091 is inside the pyramid-glint band - so the
+        sprite is recognised by pixel count and fill instead.
+        """
+        image = Image.open(FIXTURES / "claw_behind_ice.png")
+        info = strategy.cells(image, (74, 425, 627, 872))
+        self.assertGreater(info[(4, 2)]["claw"], 0.10)
+        self.assertEqual(strategy.pickup_type(info[(4, 2)]), "claw")
+        for cell in ((2, 1), (2, 2), (3, 3)):    # pyramids on the same board
+            self.assertLess(info[cell]["claw"], 0.10, cell)
+
+    def test_the_rescue_does_not_promote_an_orange_to_a_claw(self):
+        """The orange energy wears a yellow cap that clears the pixel
+        count and the fill on its own, and pickup_type asks about the
+        claw BEFORE the orange - so without the item guard the rescue
+        would rename energy as garras. Run 20260827T214445 n=139 is one
+        of the 104 cells the guard drops, against the 21 claws the
+        rescue recovers.
+        """
+        image = Image.open(FIXTURES / "orange_yellow_cap.png")
+        info = strategy.cells(image, (78, 425, 621, 875))
+        self.assertEqual(strategy.pickup_type(info[(4, 1)]), "orange")
+
     def test_energy_counter_still_reads_after_font_changes(self):
         image = Image.open(FIXTURES / "hud_29_74_32.png")
         self.assertEqual(runner.read_energy_counter(image), 5760)
