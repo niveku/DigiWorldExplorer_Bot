@@ -2886,6 +2886,17 @@ def main():
                                      total_scrolls)
         if wall_now is not None:
             committed_wall = (wall_now, done, total_scrolls)
+        # What the loop breaker has closed off is invisible in the log
+        # otherwise, and it is passed to choose() as ignored_targets - so
+        # a forensic pass sees the bot walk past a pickup with no reason
+        # given anywhere. Run 20260828T213035 n=72 (user: "decidio tomar
+        # el camino que no las tomaba y era el mismo") could not be
+        # settled for want of exactly this line: replaying the frame the
+        # planner takes the card, so the difference has to be state the
+        # log never showed.
+        if banned_targets:
+            event["banned_targets"] = sorted(list(cell)
+                                             for cell in banned_targets)
         action, reason = strategy.choose(info, previous_direction,
                                          attacks_enabled, dashes_enabled,
                                          ignored_targets=(set(banned_targets.keys())

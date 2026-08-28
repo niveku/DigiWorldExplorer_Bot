@@ -893,6 +893,33 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
         # launch asks exactly this question too.
         pair_worth = pair_dash_pays(info, tuple(player),
                                     orange_items | mid_items)
+        # One scroll from a wall of three: wait for it.
+        #
+        # The sixth column is a real reading, not a guess - it is the
+        # sliver of column 5 the board shows past its own edge - and when
+        # it lights up on the player's row, a pyramid enters at column 4
+        # on the next scroll. If the pair already in the path sits at
+        # columns 3 and 4, that scroll leaves BOTH of them inside the
+        # path (they slide to 2 and 3) and drops the newcomer at 4: two
+        # becomes three, for the price of the rightward step the bot was
+        # going to take anyway.
+        #
+        # Run 20260828T213035 n=29 (user: "era claro que venia un
+        # segmento de tres piramides y se hizo un dash antes de estar al
+        # lado, entonces solo rompio dos de las tres"): player at (0,1),
+        # pyramids at (0,3) and (0,4), preview lit on row 0. It spent 400
+        # shards on two.
+        #
+        # Only when every path pyramid is at column 3 or more. One at
+        # column 2 would slide to column 1 and OUT of the path, so
+        # waiting would trade a pyramid for a pyramid and gain nothing.
+        path_pyramid_cells = [cell for cell in path if is_obstacle(info[cell])]
+        third_is_one_scroll_away = (
+            preview is not None and preview[player[0]]
+            and len(path_pyramid_cells) == 2
+            and all(cell[1] >= 3 for cell in path_pyramid_cells))
+        if third_is_one_scroll_away:
+            pair_worth = False
         # Only an IMMINENT wall (launch one row above or below) may hold
         # the pair back - it stabilizes and fires within a frame or two
         # (run 20260820T033221). A far wall blocked the pair without

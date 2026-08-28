@@ -2494,6 +2494,60 @@ class ExplorerNeverStepsBackTests(unittest.TestCase):
         self.assertEqual(action, ("move", (4, 0), "left"))
 
 
+class ThirdPyramidOneScrollAwayTests(unittest.TestCase):
+    """Do not spend a dash on two when the third is one scroll away.
+
+    The sixth column is a reading, not a guess: it is the sliver of
+    column 5 the board shows past its own edge. When it lights up on the
+    player's row a pyramid enters at column 4 on the next scroll, and if
+    the pair already in the path sits at columns 3 and 4 both stay in the
+    path (sliding to 2 and 3) while the newcomer lands at 4. Two becomes
+    three for the price of a step the bot was taking anyway.
+
+    Run 20260828T213035 n=29 (user: "era claro que venia un segmento de
+    tres piramides y se hizo un dash antes de estar al lado, entonces
+    solo rompio dos de las tres"): player at (0,1), pyramids at (0,3) and
+    (0,4), preview lit on row 0. Four hundred shards for two.
+    """
+
+    def walled_pair(self, columns=(3, 4)):
+        # Walled above and below so the bare pair is worth firing at all
+        # - what is under test is the timing, not the worth.
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.5
+        for cell in ((1, 1), (3, 1)):
+            info[cell]["pyramid"] = 0.9
+        for col in columns:
+            info[(2, col)]["pyramid"] = 0.9
+        return info
+
+    def test_it_fires_when_nothing_is_coming(self):
+        _, reason = strategy.choose(self.walled_pair(), player=(2, 1),
+                                    preview=[False] * 5)
+        self.assertIn("dash pair", reason)
+
+    def test_it_waits_when_the_preview_promises_the_third(self):
+        _, reason = strategy.choose(self.walled_pair(), player=(2, 1),
+                                    preview=[False, False, True,
+                                             False, False])
+        self.assertNotIn("dash pair", reason)
+
+    def test_a_promise_on_another_row_changes_nothing(self):
+        _, reason = strategy.choose(self.walled_pair(), player=(2, 1),
+                                    preview=[True, False, False,
+                                             False, True])
+        self.assertIn("dash pair", reason)
+
+    def test_a_pair_that_would_slide_out_does_not_wait(self):
+        # At columns 2 and 3 the left one slides to column 1, OUT of the
+        # path: waiting would trade a pyramid for a pyramid.
+        _, reason = strategy.choose(self.walled_pair(columns=(2, 3)),
+                                    player=(2, 1),
+                                    preview=[False, False, True,
+                                             False, False])
+        self.assertIn("dash pair", reason)
+
+
 class BarePairNeverFiresTests(unittest.TestCase):
     """A bare pair is not break-even. It is a 280-shard loss.
 
