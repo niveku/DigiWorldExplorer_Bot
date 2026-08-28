@@ -422,5 +422,41 @@ class SilentByDefaultTests(unittest.TestCase):
         self.assertEqual(runner.log_frame(None, {"action": "move"}), 0)
 
 
+
+class ReceiptPixelSeamTests(unittest.TestCase):
+    """The world model follows the pixels; the ledger follows the receipt.
+
+    Fed the receipt, the model advanced every track one column while
+    vision, still mid-animation, reported the entity where it was: the
+    track missed at its new cell, became a believed-unseen memory, and
+    the sighting at the old cell opened a SECOND track. One orange, two
+    tracks, one column apart.
+
+    Run 20260828T190229 n=96-100 (user: "iba bastante bien hasta que dio
+    un paso atras"): detection (4,2) with memory (4,1), then (4,1) with
+    (4,0). The bot collected the real one at (4,1) - energy 13185 to
+    13310 - and then spent two paws walking left to its own duplicate,
+    where the energy did not move.
+    """
+
+    def test_a_lagging_sensor_holds_the_belt_back(self):
+        self.assertEqual(runner.belt_the_pixels_confirm(1, 0), (0, 1))
+
+    def test_the_remainder_lands_on_a_later_frame(self):
+        advance, owed = runner.belt_the_pixels_confirm(2, 1)
+        self.assertEqual((advance, owed), (1, 1))
+        self.assertEqual(runner.belt_the_pixels_confirm(owed, 1), (1, 0))
+
+    def test_silence_leaves_the_receipt_standing(self):
+        # The sensor answers None in a good share of frames; guessing
+        # against silence would stall the belt instead of syncing it.
+        self.assertEqual(runner.belt_the_pixels_confirm(1, None), (1, 0))
+
+    def test_pixels_ahead_of_the_receipt_do_not_overshoot(self):
+        self.assertEqual(runner.belt_the_pixels_confirm(1, 2), (1, 0))
+
+    def test_a_still_world_owes_nothing(self):
+        self.assertEqual(runner.belt_the_pixels_confirm(0, 0), (0, 0))
+
 if __name__ == "__main__":
     unittest.main()

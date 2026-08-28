@@ -108,6 +108,9 @@ class Replay:
         self.phantoms = {}
         self.pending_reveals = {}
         self.prev_strip = None
+        # Same seam the runner keeps: the model follows the pixels.
+        self.pixels_owe = 0
+        self.measured = None
         self.slide_waits = 0
         self.paw_count = None
         self.pending_taps = []
@@ -215,6 +218,9 @@ class Replay:
         # The belt advances on the game's receipt, not on our taps - the
         # same order of authority the runner follows: paws, then pixels,
         # then the taps we sent.
+        # Stashed for _observe_world: the model's advance is capped by
+        # what the sensor saw, exactly as in the runner.
+        self.measured = measured
         if charged is None and self.prev_action != "dash":
             charged = ledger.charge_matching_shift(self.pending_taps, measured)
         if charged is None:
@@ -442,9 +448,11 @@ class Replay:
             category = strategy.pickup_type(values)
             if category:
                 items[cell] = category
+        model_shift, self.pixels_owe = runner.belt_the_pixels_confirm(
+            self.claimed + self.pixels_owe, self.measured)
         self.world.observe(
             {"items": items, "pyramids": pyramids},
-            shift=self.claimed, player=player,
+            shift=model_shift, player=player,
             revealed=runner.live_reveal_cells(self.pending_reveals, self.done),
             preview=strategy.sixth_column_preview(img, det.board),
             edge_explains=self.prev_action != "dash")

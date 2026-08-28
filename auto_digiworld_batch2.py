@@ -1078,6 +1078,33 @@ def compact_state(info, player, remembered):
     }
 
 
+def belt_the_pixels_confirm(owed, measured):
+    """Split a receipt-granted scroll into what has landed and what is
+    still in flight: returns (advance_now, still_owed).
+
+    The receipt answers "did the game charge that step"; the pixels
+    answer "where is everything NOW". Different questions, and the world
+    model asks the second, so it must not be fed the first.
+
+    Fed the receipt, the model advanced every track one column while
+    vision, still mid-animation, reported the entity where it was: the
+    track missed at its new cell, became a believed-unseen memory, and
+    the sighting at the old cell opened a SECOND track. One orange, two
+    tracks, one column apart. Run 20260828T190229 n=96-100 (user: "iba
+    bastante bien hasta que dio un paso atras"): detection (4,2) with
+    memory (4,1), then (4,1) with (4,0). The bot took the real one -
+    energy 13185 to 13310 - and then spent two paws walking left to its
+    own duplicate, where the energy did not move.
+
+    A sensor with nothing to say (None) leaves the receipt standing:
+    that is the old behaviour and the common case, and guessing against
+    silence would stall the belt instead.
+    """
+    if measured is None or measured >= owed:
+        return owed, 0
+    return measured, owed - measured
+
+
 def dash_scroll_count(player_col):
     """Columns the world scrolls on a dash: clamp-to-column-1 physics.
 
@@ -1262,10 +1289,24 @@ def pickup_goals(info, player):
 def is_single_step_approach(reason):
     """Dash approaches advance one verified cell per screenshot.
 
-    Blind follow-ups batched past the launch row on both approach kinds
-    (wall approach, and "pair launch" in run 20260820T180814 events 33-35,
-    which ping-ponged around row 3 instead of launching)."""
-    return reason.startswith(("approach dash wall", "pair launch"))
+    Blind follow-ups batch past the launch cell: the batcher extends in
+    the same direction and the launch is not an item, so it has no goal
+    to measure against and simply keeps going.
+
+    There are THREE approach rules and this guard listed two of them.
+    "position for forming wall" arrived later and never got added, which
+    is the whole of run 20260828T191457 n=40-46 (user: "al final hizo
+    unas vueltas extranisimas perdiendo varios pasos"): the board did not
+    change once, the launch stayed (1,1), and the bot walked (2,1) ->
+    (2,0) -> (1,0) -> (0,0) -> (1,0) -> (2,0) -> (3,0) - seven paws past
+    a launch cell it had been standing next to. Twice it took the right
+    first step and the batch carried it two cells beyond.
+
+    (The earlier two: wall approach, and "pair launch" in run
+    20260820T180814 events 33-35, which ping-ponged around row 3 instead
+    of launching.)"""
+    return reason.startswith(("approach dash wall", "pair launch",
+                              "position for forming wall"))
 
 
 def progress(current, total, message, color="36"):
@@ -1962,6 +2003,8 @@ def main():
     # the phantom-appearance check (guessing it let ghosts hide behind
     # coincidental mappings, run 20260820T184744 events 105/136).
     scrolls_since_frame = 0
+    # Belt the receipt has granted but the pixels have not shown yet.
+    pixels_owe = 0
     # The paw ledger: what the game charged us for the taps still awaiting
     # their receipt. `pending_taps` is emptied the moment the counter is
     # read again, so a WAIT frame cannot swallow a scroll.
@@ -2616,9 +2659,40 @@ def main():
             category = strategy.pickup_type(values)
             if category:
                 detected_items[cell] = category
+        # ---- the receipt/pixel seam -----------------------------
+        # The receipt answers "did the game charge that step"; the pixels
+        # answer "where is everything NOW". Different questions, and the
+        # model asks the second, so it must not be fed the first.
+        #
+        # Feeding it the receipt advanced every track one column while
+        # vision, still mid-animation, reported the entity where it was:
+        # the track missed at its new cell, became a believed-unseen
+        # memory, and the sighting at the old cell opened a SECOND track.
+        # One orange, two tracks, one column apart. Run 20260828T190229
+        # n=96-100 (user: "iba bastante bien hasta que dio un paso
+        # atras"): detection (4,2) with memory (4,1), then (4,1) with
+        # (4,0). The bot took the real one - energy 13185 to 13310 - and
+        # then spent two paws walking left to its own duplicate, where
+        # the energy did not move.
+        #
+        # So the model advances only as far as the pixels admit and the
+        # rest rides to the next frame. When the sensor has nothing to
+        # say (None) the receipt stands, which is the old behaviour and
+        # the common case.
+        #
+        # Tried first and reverted: reconciling the duplicate inside the
+        # model, handing a lost track's history to a same-category twin
+        # one shift to the right. It merges two REAL neighbours whenever
+        # the left one is collected on the same frame, and the replay
+        # corpus caught it (20260823T142253 n=32).
+        belt_owed = scrolls_since_frame + pixels_owe
+        model_shift, pixels_owe = belt_the_pixels_confirm(belt_owed, measured)
+        if pixels_owe:
+            event["belt_in_flight"] = {"receipt": belt_owed,
+                                       "pixels": measured}
         world.observe({"items": detected_items,
                        "pyramids": detected_pyramids},
-                      shift=scrolls_since_frame, player=player,
+                      shift=model_shift, player=player,
                       revealed=live_reveal_cells(pending_reveals,
                                                  frame_clock.now),
                       preview=preview, occluded=occluded_cells,
