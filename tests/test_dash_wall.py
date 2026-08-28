@@ -2484,6 +2484,43 @@ class BarePairNeverFiresTests(unittest.TestCase):
         info[(2, 3)]["pyramid"] = 0.9
         return info
 
+    def test_a_walled_pair_fires_because_the_detour_is_not_there(self):
+        """The veto quotes a detour; it has to exist to be quoted.
+
+        Run 20260828T185642 n=11 (user stopped the run over it): pyramids
+        above, below and ahead. The sidestep the veto prices at two paws
+        was not on the board, so the real alternatives were two garras -
+        400 shards and no advance - or a walk back through column 0. The
+        dash breaks both AND advances three columns. The explorer, with
+        the dash vetoed, fell through to the forward garra: half the
+        price for a quarter of the result.
+
+        Of 266 bare pairs in the recordings, 227 (85%) do have the
+        sidestep and stay vetoed; 39 (15%) look like this.
+        """
+        info = self.bare_pair()
+        for cell in ((1, 1), (3, 1)):
+            info[cell]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, player=(2, 1))
+        self.assertEqual(action[0], "dash", reason)
+
+    def test_one_open_side_is_enough_to_keep_the_veto(self):
+        # Only the row below is walled: stepping up and forward is still
+        # two paws, so the pair stays refused.
+        info = self.bare_pair()
+        info[(3, 1)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, player=(2, 1))
+        self.assertNotEqual(action[0], "dash", reason)
+
+    def test_a_side_that_is_free_but_walled_ahead_is_no_detour(self):
+        # (1,1) is free, but (1,2) is a pyramid: stepping aside buys
+        # nothing, so it does not count as a way around.
+        info = self.bare_pair()
+        info[(3, 1)]["pyramid"] = 0.9
+        info[(1, 2)]["pyramid"] = 0.9
+        action, reason = strategy.choose(info, player=(2, 1))
+        self.assertEqual(action[0], "dash", reason)
+
     def test_a_bare_pair_never_fires_however_full_the_stock(self):
         for stock in (None, 5, 30, 99):
             action, reason = strategy.choose(self.bare_pair(),

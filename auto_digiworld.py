@@ -844,8 +844,31 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
         #
         # So the pair is back to what this file said before the doctrine
         # was added: an item in the path, a third pyramid, or a same-row
-        # target the dash genuinely approaches. Nothing else.
-        pair_worth = path_items or right_targets or path_pyramids >= 3
+        # target the dash genuinely approaches.
+        #
+        # Plus the premise itself, added 2026-08-28b after the user
+        # stopped a run over a garra: "400 shards buys three columns that
+        # cost 120 on foot, and going around two pyramids is two paws
+        # (80)" only holds while there IS a way around. Run
+        # 20260828T185642 n=11: pyramids above, below AND ahead, so the
+        # sidestep did not exist. The real alternatives there were two
+        # garras (400, no advance) or a long walk back through column 0 -
+        # against a dash that breaks both AND advances three. The veto
+        # was quoting a detour that was not on the board, and the
+        # explorer fell through to the forward garra: half the price for
+        # a quarter of the result.
+        #
+        # Measured over the recordings: of 266 bare pairs with a
+        # readable board, 227 (85%) do have the sidestep and stay
+        # vetoed; 39 (15%) are walled like this one.
+        sidestep = any(
+            not is_obstacle(info[(row, player[1])])
+            and player[1] + 1 < 5
+            and not is_obstacle(info[(row, player[1] + 1)])
+            for row in (player[0] - 1, player[0] + 1)
+            if 0 <= row < 5)
+        pair_worth = (path_items or right_targets or path_pyramids >= 3
+                      or not sidestep)
         # Only an IMMINENT wall (launch one row above or below) may hold
         # the pair back - it stabilizes and fires within a frame or two
         # (run 20260820T033221). A far wall blocked the pair without
