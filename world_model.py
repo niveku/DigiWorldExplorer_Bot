@@ -161,6 +161,22 @@ class WorldModel:
         # history to whatever twin sat there and so merged two real
         # neighbours the moment the left one was collected (caught by the
         # replay corpus on 20260823T142253 n=32).
+        #
+        # And the belt moves EVERYTHING. One track sliding a column on
+        # its own is not a scroll, it is a coincidence - which is how a
+        # collected orange handed its history to a confetti flake in run
+        # 20260828T223602 n=65 (user: "dio un paso para atras sin
+        # razon... si ya habia pasado por esa celda y no habia nada, por
+        # que ahora si habria de haber algo?"). The orange the bot had
+        # just eaten at (3,3) had shifted to (3,1); the pickup burst
+        # painted a card at (3,0); the rule moved the dead track onto it
+        # and the flake was believed on sight. So a re-sync needs a
+        # SECOND track agreeing on the same one-column offset. Two cards
+        # moved together in the run this was written for; the flake had
+        # nobody. Pyramids count as witnesses - the belt carries them
+        # too - and the cost of holding back on a lone candidate is only
+        # that a real item spends three frames re-confirming.
+        slid = []
         for cell, track in sorted(self.tracks.items()):
             if cell in seen_cells or track.kind != "item":
                 continue
@@ -181,9 +197,16 @@ class WorldModel:
                 continue
             if items[left] != track.category:
                 continue
-            track.cell = left
-            track.misses = 0
-            self.tracks[left] = self.tracks.pop(cell)
+            slid.append((cell, left, track))
+        witnesses = len(slid) + sum(
+            1 for cell, track in self.tracks.items()
+            if track.kind == "pyramid" and cell not in seen_cells
+            and (cell[0], cell[1] - 1) in pyramids)
+        if witnesses >= 2:
+            for cell, left, track in slid:
+                track.cell = left
+                track.misses = 0
+                self.tracks[left] = self.tracks.pop(cell)
 
 
         for cell in seen_cells:

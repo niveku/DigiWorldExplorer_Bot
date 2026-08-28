@@ -370,17 +370,19 @@ class UnbilledScrollTests(unittest.TestCase):
     left, and the bot walked past cards it had watched for six frames.
     """
 
-    def watched(self, cell, pyramids=frozenset(), frames=6):
+    def watched(self, cells, pyramids=frozenset(), frames=6):
         model = wm.WorldModel()
         for _ in range(frames):
-            model.observe({"items": {cell: "steps"},
+            model.observe({"items": {cell: "steps" for cell in cells},
                            "pyramids": set(pyramids)})
         return model
 
-    def test_the_track_follows_the_eyes(self):
-        model = self.watched((2, 4))
-        model.observe({"items": {(2, 3): "steps"}, "pyramids": set()})
-        self.assertEqual(model.believed_items(), {(2, 3): "steps"})
+    def test_the_tracks_follow_the_eyes(self):
+        model = self.watched(((2, 4), (4, 3)))
+        model.observe({"items": {(2, 3): "steps", (4, 2): "steps"},
+                       "pyramids": set()})
+        self.assertEqual(model.believed_items(),
+                         {(2, 3): "steps", (4, 2): "steps"})
         self.assertEqual(model.suspect_cells(), set())
 
     def test_a_stale_pyramid_does_not_block_it(self):
@@ -388,8 +390,38 @@ class UnbilledScrollTests(unittest.TestCase):
         # of ANY track, and there was a stale pyramid track exactly where
         # the cards had slid to - so it never fired on the case it was
         # written for.
-        model = self.watched((2, 4), pyramids={(2, 3)})
-        model.observe({"items": {(2, 3): "steps"}, "pyramids": set()})
+        model = self.watched(((2, 4), (4, 3)), pyramids={(2, 3), (4, 2)})
+        model.observe({"items": {(2, 3): "steps", (4, 2): "steps"},
+                       "pyramids": set()})
+        self.assertEqual(model.believed_items(),
+                         {(2, 3): "steps", (4, 2): "steps"})
+
+    def test_one_track_sliding_alone_is_not_a_belt(self):
+        """Run 20260828T223602 n=65 (user: "dio un paso para atras sin
+        razon").
+
+        The bot ate the orange at (3,3); by then the belt had carried
+        its track to (3,1), and the pickup burst painted a card on
+        (3,0) behind it. With no second witness that is a coincidence,
+        not a scroll - and believing it handed a dead orange's six
+        sightings to a confetti flake, which the free-grab rule then
+        walked backwards to collect.
+        """
+        model = wm.WorldModel()
+        for _ in range(6):
+            model.observe({"items": {(3, 1): "orange"}, "pyramids": set()})
+        model.observe({"items": {(3, 0): "orange"}, "pyramids": set()})
+        self.assertIn((3, 0), model.suspect_cells())
+        self.assertNotIn((3, 0), model.believed_items())
+
+    def test_a_pyramid_can_be_the_second_witness(self):
+        # The belt carries pyramids too, so one card plus one pyramid
+        # moving by the same column is a scroll like any other.
+        model = wm.WorldModel()
+        for _ in range(6):
+            model.observe({"items": {(2, 4): "steps"},
+                           "pyramids": {(4, 3)}})
+        model.observe({"items": {(2, 3): "steps"}, "pyramids": {(4, 2)}})
         self.assertEqual(model.believed_items(), {(2, 3): "steps"})
 
     def test_two_real_neighbours_are_never_merged(self):
@@ -406,19 +438,18 @@ class UnbilledScrollTests(unittest.TestCase):
                          {(2, 3): "steps", (2, 4): "steps"})
 
     def test_a_different_category_is_a_different_thing(self):
-        model = self.watched((2, 4))
-        model.observe({"items": {(2, 3): "orange"}, "pyramids": set()})
+        model = self.watched(((2, 4), (4, 3)))
+        model.observe({"items": {(2, 3): "orange", (4, 2): "steps"},
+                       "pyramids": set()})
         self.assertIn((2, 4), model.believed_items())
         self.assertIn((2, 3), model.suspect_cells())
 
     def test_it_only_looks_one_column_left(self):
-        model = self.watched((2, 4))
-        model.observe({"items": {(2, 2): "steps"}, "pyramids": set()})
+        model = self.watched(((2, 4), (4, 3)))
+        model.observe({"items": {(2, 2): "steps", (4, 2): "steps"},
+                       "pyramids": set()})
         self.assertIn((2, 4), model.believed_items())
         self.assertIn((2, 2), model.suspect_cells())
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class RefutedPyramidTests(unittest.TestCase):
@@ -463,3 +494,7 @@ class RefutedPyramidTests(unittest.TestCase):
         world.observe(seen(items=[((0, 3), "orange")], pyramids=[(0, 2)]))
         world.refute((0, 2))
         self.assertIn((0, 3), world.believed_items())
+
+
+if __name__ == "__main__":
+    unittest.main()
