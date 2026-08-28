@@ -387,7 +387,9 @@ class CompactStateLogTests(unittest.TestCase):
         self.assertEqual(state["player"], [0, 1])
         self.assertEqual(state["items"], {"0,3": "orange"})
         self.assertEqual(state["pyramids"], [[0, 2]])
-        self.assertEqual(state["remembered"], {"3,3": "steps"})
+        # The step it was last seen on rides along: a forensic pass has
+        # to be able to tell a fresh memory from a stale one.
+        self.assertEqual(state["remembered"], {"3,3": ["steps", 7]})
 
 
 class SilentByDefaultTests(unittest.TestCase):

@@ -1073,8 +1073,13 @@ def compact_state(info, player, remembered):
                   if is_pickup(v) and (r, c) != tuple(player)},
         "pyramids": sorted([r, c] for (r, c), v in info.items()
                            if strategy.is_obstacle(v)),
-        "remembered": {f"{r},{c}": cat
-                       for (r, c), (cat, _) in remembered.items()},
+        # The step the memory was last SEEN on rides along. Without it a
+        # forensic pass can tell that the bot chased a memory and not
+        # whether the memory was fresh or stale, which is exactly the
+        # question a decision about chasing it turns on (attempt of
+        # 2026-08-28 to size that rule died here for want of the number).
+        "remembered": {f"{r},{c}": [cat, seen]
+                       for (r, c), (cat, seen) in remembered.items()},
     }
 
 
