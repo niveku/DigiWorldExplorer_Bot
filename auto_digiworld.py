@@ -1247,20 +1247,34 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
             # toward a dash the arrival board does not justify, which is
             # the disagreement the 211315 loop was made of.
             #
-            # The promise is the PREVIEW's alone. `reinforced` also
-            # accepts a pyramid already standing at column 4, and that
-            # one is not a promise: it is on the board, and from a
-            # column-0 launch the dash reaches columns 1-3, so it sits
-            # outside the path and stays there - walking left does not
-            # scroll. Run 20260828T215949 n=78 (user: "tenia que bajar
-            # 1 seguir por ahi pero decidio devolverse"): row 2 held
-            # (2,1),(2,2) and a far (2,4), preview dark, and the
-            # phantom third sent the bot two paws backwards to set up a
-            # dash that would have broken two.
+            # No anticipation at all, from either half of `reinforced`.
+            # Walking to a column-0 launch does not scroll - left, up
+            # and down never do - so the board on arrival is the board
+            # right here, and neither the pyramid already standing at
+            # column 4 nor the one the preview promises at column 5 is
+            # inside the dash path, which reaches columns 1-3.
+            #
+            # Counting either of them broke the rule this comment block
+            # already states: positioning must share the predicate that
+            # FIRES the dash. Run 20260828T215949 n=78 was the column-4
+            # half (two paws backwards), and run 20260828T233043
+            # n=79-85 was the preview half, which cost more: row 1 held
+            # (1,1),(1,2) with the preview lit and row 2 wide open, so
+            # this walked the bot two paws to (1,0), the pair rule
+            # refused on arrival because a bare pair with a way around
+            # is not worth 400 shards, explore walked it off, this sent
+            # it back, and it finally spent a GARRA on (1,1) and dashed
+            # from inside the wall anyway (user: "lo mas facil hubiera
+            # sido usar una garra... pero en vez de usar un dash, uso
+            # garras").
+            #
+            # What survives is the routing: when the pair on the board
+            # pays by itself, this still walks to its launch instead of
+            # scrolling it away. What is gone is walking toward a dash
+            # the arrival board does not justify.
             if not (dashes_enabled
                     and pair_dash_pays(info, launch,
-                                       orange_items | mid_items,
-                                       extra_pyramids=1 if preview[r] else 0)):
+                                       orange_items | mid_items)):
                 continue
             if tuple(player) == launch:
                 break

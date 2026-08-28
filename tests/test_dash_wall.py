@@ -1815,13 +1815,28 @@ class FormingWallGateAgreementTests(unittest.TestCase):
         info[(4, 2)]["pyramid"] = 0.9
         return info, [False, False, False, False, True]
 
-    def test_it_walks_to_save_a_wall_the_scroll_would_eat(self):
+    def test_a_bare_pair_with_a_way_around_it_is_left_to_the_belt(self):
+        """Superseded 2026-08-28. This asserted the opposite - walk to
+        the launch whatever the stock - on the premise that a forming
+        wall is an opportunity worth positioning for. The bare-pair
+        measurement refuted the premise afterwards: 427 recorded dashes
+        against a two-pyramid run with an open row beside it, ~170,800
+        shards, all of them cheaper to walk around.
+
+        So the gate is now the same predicate that will FIRE the dash,
+        with nothing anticipated, and on this board it says no: row 3 is
+        wide open. Run 20260828T233043 n=79-85 is what the anticipation
+        cost - two paws to the launch, a refusal on arrival, explore
+        walking it off, this sending it back, and a GARRA spent on the
+        wall it had just walked to (user: "en vez de usar un dash, uso
+        garras").
+        """
         for stock in (1, 4, 20, None):
             info, preview = self._forming()
-            action, reason = strategy.choose(info, player=(3, 1),
-                                             preview=preview,
-                                             dash_stock=stock)
-            self.assertIn("forming wall", reason, f"stock={stock}")
+            _, reason = strategy.choose(info, player=(3, 1),
+                                        preview=preview,
+                                        dash_stock=stock)
+            self.assertNotIn("forming wall", reason, f"stock={stock}")
 
     def test_a_run_starting_at_column_two_is_not_walked_to(self):
         # One column further right, so the belt cannot kill it: the same
@@ -1846,6 +1861,30 @@ class FormingWallGateAgreementTests(unittest.TestCase):
         self.assertIsNotNone(action)
         self.assertNotEqual(tuple(action[1]), (3, 2),
                             "scrolling right eats the forming wall")
+
+    def test_the_preview_promise_never_lands_before_the_launch(self):
+        """Run 20260828T233043 n=79-85, exactly as recorded.
+
+        Row 1 held (1,1),(1,2) with the sixth-column preview lit and
+        row 2 wide open. The old gate counted the promised third and
+        walked the bot two paws to (1,0) - but walking left, up or down
+        does not scroll, so the promise stays at screen column 5 and
+        the dash path is still the same two pyramids on arrival. The
+        pair rule refused there, explore walked the bot off, and this
+        sent it back.
+        """
+        info = empty_grid()
+        info[(2, 1)]["player"] = 0.2
+        info[(1, 1)]["pyramid"] = 0.9
+        info[(1, 2)]["pyramid"] = 0.9
+        preview = [False, True, False, False, False]
+        for player in ((2, 1), (2, 0), (1, 0), (0, 0)):
+            board = {cell: dict(values) for cell, values in info.items()}
+            board[(2, 1)]["player"] = 0.0
+            board[player]["player"] = 0.5
+            _, reason = strategy.choose(board, player=player,
+                                        preview=preview, dash_stock=20)
+            self.assertNotIn("forming wall", reason, f"desde {player}")
 
     def test_the_user_board_stops_circling(self):
         # 20260828T211315 n=32-38, exactly as recorded. Nothing here may
@@ -1980,27 +2019,41 @@ class IncomingWallAlignmentTests(unittest.TestCase):
                                          preview=preview)
         self.assertEqual(action, ("move", (3, 2), "right"))
 
-    def test_partial_wall_already_in_place_is_not_scrolled_away(self):
-        # Run 20260822T234822 n=14: row 4 held (4,1),(4,2) IN POSITION
-        # plus (4,4) and the preview lit - a 5-pyramid wall forming
-        # with its left side already at the launch. The explorer
-        # scrolled 3 times and expelled its own (4,1),(4,2) off the
-        # board unbroken. Physics: every scroll eats the left side of
-        # a forming wall. With a partial run in columns <=2 and
-        # reinforcements incoming on the same row, scrolling that row
-        # is forbidden - hold position and let the wall connect.
+    def test_a_wall_the_bot_can_simply_walk_past_is_not_defended(self):
+        """Run 20260822T234822 n=14, re-adjudicated 2026-08-28.
+
+        Row 4 held (4,1),(4,2) plus (4,4) with the preview lit, and the
+        explorer scrolled three times and expelled its own left side
+        unbroken. That was read as a loss and this test forbade the
+        scroll. What it never asked is whether the wall was worth
+        anything: the bot stands in row 3, and row 3 is empty all the
+        way across. A wall it never has to touch costs nothing to lose,
+        and the dash that would break it costs 400 shards against the
+        ~80 of walking past.
+
+        The reinforcements do not change that. They only arrive by
+        scrolling, and every scroll that feeds the right of the run
+        eats its left - after one, (4,1) is at (4,0) and there is no
+        launch cell left to stand on. The run in the PATH is two
+        pyramids now and two pyramids later.
+
+        Three in the path is the case that pays, and it still routes to
+        the launch by the wall hunt.
+        """
         info = empty_grid()
         info[(3, 1)]["player"] = 0.2
         info[(4, 1)]["pyramid"] = 0.9
         info[(4, 2)]["pyramid"] = 0.9
         info[(4, 4)]["pyramid"] = 0.9
         preview = [False, False, False, False, True]
+        _, reason = strategy.choose(info, player=(3, 1), preview=preview)
+        self.assertNotIn("forming wall", reason)
+
+        info[(4, 3)]["pyramid"] = 0.9        # now three in the path
         action, reason = strategy.choose(info, player=(3, 1),
-                                         preview=preview)
-        if action is not None:
-            self.assertNotEqual(action, ("move", (3, 2), "right"))
-            self.assertNotEqual(tuple(action[1])[1], 2,
-                                "no scrolling right while the wall forms")
+                                         preview=preview, dash_stock=1)
+        self.assertIsNotNone(action)
+        self.assertNotEqual(action, ("move", (3, 2), "right"), reason)
 
 
 class ExplorerNeverBuysGarraOverFreeStepTests(unittest.TestCase):
