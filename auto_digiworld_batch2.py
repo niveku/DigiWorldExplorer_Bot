@@ -1785,8 +1785,26 @@ def safe_followup_moves(info, player, first_target, direction, count, goals=None
     dr, dc = DIR_DELTA[direction]
     results = []
     goals = set(goals or ())
-    previous_distance = (min(abs(first_target[0]-g[0]) + abs(first_target[1]-g[1])
-                             for g in goals) if goals else None)
+    # ONE anchor, chosen from where the player stands, and every extra
+    # tap has to get closer to THAT goal.
+    #
+    # The old version took the min over every goal on each step, and the
+    # comment below already knew the hole: a move can trade
+    # distance-to-A for distance-to-B. Guarding with `>=` closes the
+    # flat trade and not the descending one. Run 20260828T172224 n=103
+    # (user report): player at (0,1), orange at (0,3) behind the pyramid
+    # at (0,2), a steps card at (4,1). One step down to (1,1) is the
+    # whole detour - from there the belt walks the orange in. The batch
+    # added a second down to (2,1) because it was closer to the CARD,
+    # which the tour had already pruned out of the plan. Two paws for a
+    # goal nobody was going to.
+    #
+    # The anchor is measured from the player, not from first_target, so
+    # it is the goal the tour itself would have picked first.
+    anchor = (min(goals, key=lambda g: (abs(player[0]-g[0]) + abs(player[1]-g[1]), g))
+              if goals else None)
+    previous_distance = (abs(first_target[0]-anchor[0])
+                         + abs(first_target[1]-anchor[1]) if anchor else None)
     if direction == "right" and first_target[1] >= 2:
         offset = 1
         screen_player = (first_target[0], first_target[1] - 1)
@@ -1816,13 +1834,12 @@ def safe_followup_moves(info, player, first_target, direction, count, goals=None
         # batches that are provably safe. test_corridor_margin.py pins
         # the property, because it lives in this offset arithmetic and
         # nothing else would notice if a future edit lost it.
-        if goals:
-            distance = min(abs(checked_cell[0]-g[0]) + abs(checked_cell[1]-g[1])
-                           for g in goals)
-            # Strictly closer, not merely no-worse: with several goals a
-            # move can trade distance-to-A for distance-to-B and keep the
-            # min flat while overshooting the route's turn cell (run
-            # 20260821T200525 n=353-359 ping-ponged six moves that way).
+        if anchor:
+            distance = (abs(checked_cell[0]-anchor[0])
+                        + abs(checked_cell[1]-anchor[1]))
+            # Strictly closer, not merely no-worse: overshooting the
+            # route's turn cell cost six moves in run 20260821T200525
+            # n=353-359.
             if distance >= previous_distance:
                 break
             previous_distance = distance

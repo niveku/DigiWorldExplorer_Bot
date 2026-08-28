@@ -18,6 +18,13 @@ import unittest
 import auto_digiworld_batch2 as runner
 
 
+def empty_grid():
+    return {(row, col): {"player": 0.0, "orange": 0.0, "pink": 0.0,
+                        "green": 0.0, "item": 0.0, "pyramid": 0.0,
+                        "highlight": 1.0}
+            for row in range(5) for col in range(5)}
+
+
 def grid(pyramids=()):
     cells = {}
     for row in range(5):
@@ -72,6 +79,48 @@ class CorridorTests(unittest.TestCase):
         moves = runner.safe_followup_moves(info, (1, 1), (1, 2), "right", 3)
         self.assertEqual([checked for _, checked in moves], [(1, 3)])
 
+
+
+class BatchAnchorTests(unittest.TestCase):
+    """One goal per batch, chosen from where the player stands.
+
+    Run 20260828T172224 n=103 (user: "dio 2 pasos al centro cuando con 1
+    ya podia rodear la piramide"): player at (0,1), orange at (0,3)
+    behind the pyramid at (0,2), a steps card at (4,1). The plan named
+    only the orange - the card had been pruned - but the batcher scored
+    its follow-ups against EVERY sighting, so a second step down passed
+    because it closed on the card. Two paws toward a goal nobody was
+    going to.
+
+    The old guard rejected a move that kept the minimum flat, which is
+    the trade its own comment described; it could not see the minimum
+    DROP by switching goals. Anchoring fixes the goal instead.
+    """
+
+    def board(self):
+        info = empty_grid()
+        info[(0, 2)]["pyramid"] = 0.9
+        info[(0, 3)].update(item=0.9, orange=0.9)
+        info[(4, 1)].update(item=0.9, pink=0.9)
+        return info
+
+    def test_the_batch_does_not_chase_the_other_goal(self):
+        extra = runner.safe_followup_moves(
+            self.board(), (0, 1), (1, 1), "down", 1, {(0, 3), (4, 1)})
+        self.assertEqual(extra, [], "el segundo paso solo acercaba a la carta")
+
+    def test_a_batch_toward_the_one_goal_still_extends(self):
+        # Nothing competing: two steps down both close on (4,1).
+        info = empty_grid()
+        info[(4, 1)].update(item=0.9, pink=0.9)
+        extra = runner.safe_followup_moves(
+            info, (0, 1), (1, 1), "down", 2, {(4, 1)})
+        self.assertEqual([cell for cell, _ in extra], [(2, 1), (3, 1)])
+
+    def test_without_goals_the_batch_is_unchanged(self):
+        info = empty_grid()
+        extra = runner.safe_followup_moves(info, (0, 1), (1, 1), "down", 2, set())
+        self.assertEqual([cell for cell, _ in extra], [(2, 1), (3, 1)])
 
 if __name__ == "__main__":
     unittest.main()
