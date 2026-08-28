@@ -1084,6 +1084,34 @@ def compact_state(info, player, remembered):
 
 
 def belt_the_pixels_confirm(owed, measured):
+    """RETIRED 2026-08-28c. Kept only so the reason survives.
+
+    It capped the world model's advance at what the pixel sensor could
+    see, to stop the model running ahead of the animation. The sensor is
+    not good enough to hold that veto: on the frames where the belt
+    genuinely moves it reads 1 in 41.8%, says nothing in 36.4%, reads 2
+    in 10.0% - and reads a flat ZERO in 11.9% (n=1576). One frame in
+    eight, the cap froze the model while the world moved.
+
+    What that looks like, run 20260828T212305 n=31-34 (user: "no tomo
+    una energia que tenia al lado"): the same orange lands on (2,2),
+    then (2,1), then (2,0) as the belt carries it, and because the model
+    never advanced, each position is a NEW track with one sighting. It
+    stayed suspect the whole way across the board and was never chased.
+    The suspect list just grew: [(2,2)], then [(2,1),(2,2)], then
+    [(2,0),(2,1),(2,2)].
+
+    The sensor can CONFIRM the receipt; it cannot outvote it. The
+    duplicate-track bug this was meant to fix (see
+    docs/review-2026-08-28.md section 9) is back to being open, and it is
+    the rarer of the two by a wide margin.
+
+    Returns the receipt untouched.
+    """
+    return owed, 0
+
+
+def _retired_belt_the_pixels_confirm(owed, measured):
     """Split a receipt-granted scroll into what has landed and what is
     still in flight: returns (advance_now, still_owed).
 

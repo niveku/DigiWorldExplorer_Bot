@@ -426,36 +426,28 @@ class SilentByDefaultTests(unittest.TestCase):
 
 
 class ReceiptPixelSeamTests(unittest.TestCase):
-    """The world model follows the pixels; the ledger follows the receipt.
+    """The receipt drives the model. The pixels only ever confirm it.
 
-    Fed the receipt, the model advanced every track one column while
-    vision, still mid-animation, reported the entity where it was: the
-    track missed at its new cell, became a believed-unseen memory, and
-    the sighting at the old cell opened a SECOND track. One orange, two
-    tracks, one column apart.
+    A cap that let the sensor hold the model back was tried on
+    2026-08-28 and retired the same day. On the frames where the belt
+    genuinely moves the sensor reads 1 in 41.8%, says nothing in 36.4%,
+    reads 2 in 10.0% - and reads a flat ZERO in 11.9% (n=1576). One
+    frame in eight it would have frozen the model while the world moved.
 
-    Run 20260828T190229 n=96-100 (user: "iba bastante bien hasta que dio
-    un paso atras"): detection (4,2) with memory (4,1), then (4,1) with
-    (4,0). The bot collected the real one at (4,1) - energy 13185 to
-    13310 - and then spent two paws walking left to its own duplicate,
-    where the energy did not move.
+    Run 20260828T212305 n=31-34 (user: "no tomo una energia que tenia al
+    lado"): the same orange landed on (2,2), then (2,1), then (2,0) as
+    the belt carried it, and with the model frozen each position was a
+    new track with one sighting. It stayed suspect all the way across
+    and was never chased.
     """
 
-    def test_a_lagging_sensor_holds_the_belt_back(self):
-        self.assertEqual(runner.belt_the_pixels_confirm(1, 0), (0, 1))
+    def test_the_receipt_is_never_outvoted(self):
+        for measured in (0, 1, 2, None):
+            self.assertEqual(runner.belt_the_pixels_confirm(1, measured),
+                             (1, 0), f"medido={measured}")
 
-    def test_the_remainder_lands_on_a_later_frame(self):
-        advance, owed = runner.belt_the_pixels_confirm(2, 1)
-        self.assertEqual((advance, owed), (1, 1))
-        self.assertEqual(runner.belt_the_pixels_confirm(owed, 1), (1, 0))
-
-    def test_silence_leaves_the_receipt_standing(self):
-        # The sensor answers None in a good share of frames; guessing
-        # against silence would stall the belt instead of syncing it.
-        self.assertEqual(runner.belt_the_pixels_confirm(1, None), (1, 0))
-
-    def test_pixels_ahead_of_the_receipt_do_not_overshoot(self):
-        self.assertEqual(runner.belt_the_pixels_confirm(1, 2), (1, 0))
+    def test_nothing_is_ever_left_in_flight(self):
+        self.assertEqual(runner.belt_the_pixels_confirm(3, 0), (3, 0))
 
     def test_a_still_world_owes_nothing(self):
         self.assertEqual(runner.belt_the_pixels_confirm(0, 0), (0, 0))
