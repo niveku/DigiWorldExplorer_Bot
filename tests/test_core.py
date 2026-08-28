@@ -62,6 +62,40 @@ class StrategyTests(unittest.TestCase):
         # may claim it, and both produce the same move.
         self.assertTrue(reason.startswith(("adjacent item", "direct horizontal item")))
 
+    def test_the_free_grab_does_not_walk_backwards_onto_a_suspect(self):
+        """Run 20260828T223602 n=65 (user: "dio un paso para atras sin
+        razon... si ya habia pasado por esa celda y no habia nada, por
+        que ahora si habria de haber algo?").
+
+        The bot ate an orange, the pickup burst painted a card on the
+        cell behind it, and the free-grab rule spent a paw walking left
+        onto it. Everywhere else in the strategy a left-band suspect is
+        confetti that can never be believed or targeted; this rule was
+        the one that still walked to one. A step onto a maybe-item is
+        free only when the bot was going that way anyway, and this loop
+        skips 'right' by construction.
+        """
+        info = empty_grid()
+        info[(3, 1)]["player"] = 0.2
+        info[(3, 0)].update(item=0.10, orange=0.10)     # the confetti flake
+        action, reason = strategy.choose(info, player=(3, 1),
+                                         attacks_enabled=False,
+                                         dashes_enabled=False,
+                                         suspect_cells={(3, 0)},
+                                         ignored_targets={(3, 0)})
+        self.assertNotEqual(action[2], "left", reason)
+
+    def test_a_believed_item_behind_the_bot_is_still_grabbed(self):
+        # The same board with the cell adjudicated: one step back for a
+        # real orange is the trade this rule exists to make.
+        info = empty_grid()
+        info[(3, 1)]["player"] = 0.2
+        info[(3, 0)].update(item=0.10, orange=0.10)
+        action, reason = strategy.choose(info, player=(3, 1),
+                                         attacks_enabled=False,
+                                         dashes_enabled=False)
+        self.assertEqual(action, ("move", (3, 0), "left"), reason)
+
     def test_explorer_prefers_a_free_cell_over_attacking_sideways(self):
         # A garra costs 200 shards vs 40 for a step: with no goal in sight
         # the explorer must not break a non-blocking pyramid below when a
