@@ -86,9 +86,25 @@ class RunnerSmokeTests(unittest.TestCase):
                                         "dashes": 9, "green_tickets": 0,
                                         "purple_tickets": 0}):
             code, adb = self.drive(["--steps", "40"], [board_frame()])
-        self.assertEqual(code, 9, "sin paticas la corrida tiene su propio codigo")
+        self.assertEqual(code, 7, "sin paticas la corrida tiene su propio codigo")
         taps = [c for c in adb.call_args_list if "tap" in c.args]
         self.assertLessEqual(len(taps), 2, f"siguio tocando sin paticas: {len(taps)}")
+
+    def test_a_long_run_reaches_the_periodic_checks(self):
+        """Both earlier smoke tests stop within a handful of frames, so
+        anything the loop only does every N actions stayed unexecuted.
+
+        That blind spot shipped: a local named `out_of_steps` shadowed
+        the module function of the same name, and the only caller sat
+        behind a `done - last_stamina_check >= 25` gate. Four frames of
+        coverage said nothing, and the bot died on the user's screen at
+        action 25 with `TypeError: 'bool' object is not callable`.
+        """
+        code, _ = self.drive(["--steps", "40"],
+                             [board_frame("fm_at_1_1"),
+                              board_frame("fm_at_3_1"),
+                              board_frame("claw_board")])
+        self.assertEqual(code, 0)
 
     def test_plan_only_reads_the_hud_without_tapping(self):
         code, adb = self.drive(["--steps", "10", "--plan-only"],

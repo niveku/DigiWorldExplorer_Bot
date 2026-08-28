@@ -1994,7 +1994,7 @@ def main():
     frames_seen = 0
     idle_frames = 0
     idle_abort = False
-    out_of_steps = False
+    stamina_exhausted = False
     zero_paw_frames = 0
     taps_claimed = 0
     taps_charged = 0
@@ -2019,7 +2019,6 @@ def main():
     no_action_waits = 0
     attack_noeffect_streak = 0
     first_move_dest = None
-    last_stamina_check = 0
     last_move_player_source = None
     last_move_player_score = 0.0
     distrust_player = False
@@ -2228,20 +2227,6 @@ def main():
                 return 2
             time.sleep(RESCAN_DELAY); continue
         unreliable = 0
-        # The out-of-steps STOP used to live only behind the modal-overlay
-        # path; with the confetti gate that path fires rarely, so the
-        # stamina counter is polled directly every 25 actions instead.
-        if done - last_stamina_check >= 25:
-            last_stamina_check = done
-            if out_of_steps(read_inventory_counters(image), rejected_streak=2):
-                event["action"] = "STOP: out of steps (stamina 0)"
-                wait_frames += log_frame(log, event)
-                print("Pasos agotados: el contador de estamina marca 0. "
-                      "Se regeneran por debajo de 100, o se compran con "
-                      "shards (2000 = 50 pasos).")
-                show_run_summary(done, args.steps, started_at, collected,
-                                 energy_start, read_energy_counter(image), "33")
-                return 7
         if energy_start is None:
             current_read = read_energy_counter(
                 image,
@@ -2299,12 +2284,14 @@ def main():
         # not end a healthy run - the observed stall had seventeen.
         zero_paw_frames = zero_paw_frames + 1 if paws_now == 0 else 0
         if zero_paw_frames >= 2:
-            out_of_steps = True
+            stamina_exhausted = True
             log_frame(log, dict(event, status="out_of_steps"))
-            print("Sin paticas: el contador de pasos llego a 0, asi que el "
-                  "juego ya no cobra ningun movimiento. Se corta la corrida; "
-                  "compra pasos en la tienda para seguir.")
-            break
+            print("Pasos agotados: el contador de estamina marca 0, asi que "
+                  "el juego ya no cobra ningun movimiento. Se regeneran por "
+                  "debajo de 100, o se compran con shards (2000 = 50 pasos).")
+            show_run_summary(done, args.steps, started_at, collected,
+                             energy_start, read_energy_counter(image), "33")
+            return 7
 
         if stable_board is None:
             stable_board = det.board
@@ -3146,7 +3133,7 @@ def main():
     keep_evidence(run_dir, "final_diagnostic.png",
                   bot.diagnostic(final, final_det))
     event = {"time_utc": datetime.now(timezone.utc).isoformat(),
-             "status": "out_of_steps" if out_of_steps else "complete",
+             "status": "out_of_steps" if stamina_exhausted else "complete",
              "steps": done, "run_dir": str(run_dir) if run_dir else None,
              "detection": bot.asdict(final_det)}
     energy_end, energy_end_source = final_energy(
@@ -3172,9 +3159,7 @@ def main():
     wait_frames += log_frame(log, event)
     show_run_summary(done, args.steps, started_at, collected, energy_start, energy_end)
     progress(done, args.steps, format_efficiency(event["efficiency"]), "36")
-    # 9 is its own code so a launcher can offer the shop instead of
-    # treating an exhausted run as a crash.
-    return 8 if idle_abort else 9 if out_of_steps else 0
+    return 8 if idle_abort else 7 if stamina_exhausted else 0
 
 
 if __name__ == "__main__":
