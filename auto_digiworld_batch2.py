@@ -854,7 +854,17 @@ ACTION_DELAYS = {
     "move_pickup": 0.55,
     "move_pickup_scroll": 0.70,
     "attack": 0.85,
-    "dash": 1.30,
+    # Raised 1.30 -> 2.00 on 2026-08-28. The dash animates its own
+    # pickups across three columns, and reading the board mid-animation
+    # is how the confetti got believed. Timed against the recordings:
+    # with a 2.0s gap 10% of post-dash frames still showed five or more
+    # items, with 2.2s 5%, with 2.5s 1% (n=346). 2.00 here plus the
+    # pipeline lands around 2.5s. The remaining 1% is why the world model
+    # also refuses the right-edge amnesty after a dash - a delay is a bet
+    # on this machine's timing, and the pipeline just got six times
+    # faster. Dashes are now ~3 per hundred actions, so the extra second
+    # costs a few seconds a run.
+    "dash": 2.00,
 }
 JITTER_FRACTION = 0.45
 
@@ -2624,7 +2634,8 @@ def main():
                       shift=scrolls_since_frame, player=player,
                       revealed=live_reveal_cells(pending_reveals,
                                                  frame_clock.now),
-                      preview=preview, occluded=occluded_cells)
+                      preview=preview, occluded=occluded_cells,
+                      edge_explains=previous_action != "dash")
         suspect_items = world.suspect_cells()
         # Memory is simply the believed tracks vision cannot see right
         # now - no separate store, no TTL, no ghost-dropping rules.

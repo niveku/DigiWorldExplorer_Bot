@@ -446,7 +446,8 @@ class Replay:
             {"items": items, "pyramids": pyramids},
             shift=self.claimed, player=player,
             revealed=runner.live_reveal_cells(self.pending_reveals, self.done),
-            preview=strategy.sixth_column_preview(img, det.board))
+            preview=strategy.sixth_column_preview(img, det.board),
+            edge_explains=self.prev_action != "dash")
         stats = self.world_stats
         stats["frames"] += 1
         stats["believed"] += len(self.world.believed_items())

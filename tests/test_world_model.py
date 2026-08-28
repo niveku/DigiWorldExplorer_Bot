@@ -302,6 +302,56 @@ class NoReprocessingTests(unittest.TestCase):
         self.assertEqual(world.stats()["updates"], touched)
 
 
+
+class DashConfettiTests(unittest.TestCase):
+    """A dash's own animation must not be believed as loot.
+
+    The right-edge amnesty says a thing inside the last `shift` columns
+    arrived through the edge, so it is believed on sight. A dash breaks
+    that bet twice over: it scrolls three columns, which widens the band
+    to columns 2-4, and it throws a pickup animation across exactly
+    those columns.
+
+    Measured over the recordings: one frame after a dash the board shows
+    2.37 items against a 1.63 baseline and 18% of those frames carry
+    five or more (n=346); by the second frame it is 1.67 and 8%, which is
+    the baseline. The confetti lives one frame, inside the band.
+
+    Run 20260828T172224 n=68-71 (user report): dash, seven oranges, one
+    of them remembered at (1,1), a paw up to fetch it, energy unchanged
+    at 11270, a paw back down.
+    """
+
+    def test_the_edge_amnesty_believes_on_sight_after_a_normal_scroll(self):
+        model = wm.WorldModel()
+        model.observe({"items": {}, "pyramids": set()})
+        model.observe({"items": {(1, 4): "orange"}, "pyramids": set()}, shift=1)
+        self.assertIn((1, 4), model.believed_items())
+
+    def test_a_dash_frame_believes_nothing_on_sight(self):
+        model = wm.WorldModel()
+        model.observe({"items": {}, "pyramids": set()})
+        model.observe({"items": {(1, 2): "orange", (1, 3): "orange",
+                                 (1, 4): "orange"}, "pyramids": set()},
+                      shift=3, edge_explains=False)
+        self.assertEqual(model.believed_items(), {})
+        self.assertEqual(model.suspect_cells(),
+                         {(1, 2), (1, 3), (1, 4)})
+
+    def test_a_real_item_is_believed_two_frames_later(self):
+        # The price of the doubt, stated exactly: an unexplained birth
+        # needs CONFIRM_SIGHTINGS=3, so a real item waits two more
+        # frames. The confetti never reaches the second sighting.
+        model = wm.WorldModel()
+        model.observe({"items": {}, "pyramids": set()})
+        model.observe({"items": {(1, 3): "orange", (1, 4): "orange"},
+                       "pyramids": set()}, shift=3, edge_explains=False)
+        model.observe({"items": {(1, 3): "orange"}, "pyramids": set()})
+        self.assertEqual(model.believed_items(), {}, "todavia en duda")
+        model.observe({"items": {(1, 3): "orange"}, "pyramids": set()})
+        self.assertIn((1, 3), model.believed_items())
+        self.assertNotIn((1, 4), model.believed_items())
+
 if __name__ == "__main__":
     unittest.main()
 

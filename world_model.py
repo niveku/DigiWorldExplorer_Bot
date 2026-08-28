@@ -115,7 +115,7 @@ class WorldModel:
     # ---- observation -------------------------------------------------
 
     def observe(self, detections, shift=0, player=None, revealed=(),
-                preview=None, occluded=()):
+                preview=None, occluded=(), edge_explains=True):
         """Fold one frame of vision into the model.
 
         `detections` is {"items": {cell: category}, "pyramids": {cells}}
@@ -136,7 +136,8 @@ class WorldModel:
         for cell in seen_cells:
             kind = "pyramid" if cell in pyramids else "item"
             category = None if kind == "pyramid" else items.get(cell)
-            self._update(cell, kind, category, shift, first_frame, revealed)
+            self._update(cell, kind, category, shift, first_frame, revealed,
+                         edge_explains)
 
         # Cells the partner's own body covers are UNOBSERVABLE, not
         # empty: their colours are wiped precisely because they read as
@@ -182,7 +183,8 @@ class WorldModel:
             elif not lit:
                 self._predicted.pop(row, None)
 
-    def _update(self, cell, kind, category, shift, first_frame, revealed):
+    def _update(self, cell, kind, category, shift, first_frame, revealed,
+                edge_explains=True):
         self._updates += 1
         track = self.tracks.get(cell)
         if track is not None and track.kind == kind:
@@ -202,7 +204,8 @@ class WorldModel:
             # the old, blunt answer.
             track.misses = 0
             return
-        origin = self._classify(cell, shift, first_frame, revealed)
+        origin = self._classify(cell, shift, first_frame, revealed,
+                                edge_explains)
         self.tracks[cell] = Track(cell=cell, kind=kind, category=category,
                                   origin=origin, born=self.frame)
         if kind == "pyramid" and origin == "right_edge":
@@ -210,7 +213,8 @@ class WorldModel:
             if row in self._predicted:
                 self._confirmed.add(row)
 
-    def _classify(self, cell, shift, first_frame, revealed):
+    def _classify(self, cell, shift, first_frame, revealed,
+                  edge_explains=True):
         if first_frame:
             return "initial"
         if cell in revealed:
@@ -218,7 +222,29 @@ class WorldModel:
         # An entity entering at column 4 on the first of `shift` scrolls
         # ends the interval at column 5 - shift; anything left of that
         # cannot have come in through the edge.
-        if shift and cell[1] >= BOARD - shift:
+        #
+        # Unless the scroll was a DASH. The amnesty is a bet that a thing
+        # inside the band arrived through the edge, and a dash is the one
+        # move where something else arrives there: its own pickup
+        # animation, which throws confetti across the three columns it
+        # crossed. Worse, the wider the shift the wider the band - a
+        # 3-column dash grants amnesty to columns 2, 3 and 4 at once,
+        # which is most of the board. Measured: one frame after a dash
+        # the board shows 2.37 items against a 1.63 baseline, and 18% of
+        # those frames carry five or more (n=346); by the second frame it
+        # is back to 1.67 and 8%. So the confetti lives exactly one frame
+        # and lands exactly in the band that believes it on sight. Run
+        # 20260828T172224 n=68-71 (user report): dash, seven oranges, one
+        # of them remembered at (1,1), a paw up to fetch it, no energy
+        # gained, a paw back down.
+        #
+        # Refusing the amnesty costs a real item TWO frames of doubt:
+        # unexplained births need CONFIRM_SIGHTINGS=3 sightings. That is
+        # affordable precisely where it applies - the band is columns 2-4,
+        # the far side of the board, three scrolls from the erosion edge
+        # and several steps from the player either way. A phantom, by
+        # contrast, is not there for the second sighting at all.
+        if shift and edge_explains and cell[1] >= BOARD - shift:
             return "right_edge"
         return "unexplained"
 
