@@ -300,11 +300,11 @@ class PurchaseRecommendationTests(unittest.TestCase):
     def test_empty_inventory_recommends_full_load(self):
         rec = runner.purchase_recommendation(
             100, {"steps": 0, "attacks": 0, "dashes": 0})
-        self.assertEqual(rec["steps"]["deficit"], 90)
+        self.assertEqual(rec["steps"]["deficit"], 98)
         self.assertEqual(rec["steps"]["packs"], 2)
-        self.assertEqual(rec["attacks"]["deficit"], 4)
-        self.assertEqual(rec["dashes"]["deficit"], 4)
-        self.assertEqual(rec["total_shards"], 2 * 2000 + 4 * 200 + 4 * 400)
+        self.assertEqual(rec["attacks"]["deficit"], 3)
+        self.assertEqual(rec["dashes"]["deficit"], 3)
+        self.assertEqual(rec["total_shards"], 2 * 2000 + 3 * 200 + 3 * 400)
 
     def test_full_inventory_needs_nothing(self):
         rec = runner.purchase_recommendation(
@@ -314,11 +314,11 @@ class PurchaseRecommendationTests(unittest.TestCase):
     def test_partial_inventory_buys_only_the_gap(self):
         rec = runner.purchase_recommendation(
             100, {"steps": 60, "attacks": 4, "dashes": 1})
-        self.assertEqual(rec["steps"]["deficit"], 30)
+        self.assertEqual(rec["steps"]["deficit"], 38)
         self.assertEqual(rec["steps"]["packs"], 1)
         self.assertEqual(rec["attacks"]["deficit"], 0)
-        self.assertEqual(rec["dashes"]["deficit"], 3)
-        self.assertEqual(rec["total_shards"], 2000 + 3 * 400)
+        self.assertEqual(rec["dashes"]["deficit"], 2)
+        self.assertEqual(rec["total_shards"], 2000 + 2 * 400)
 
     def test_unreadable_counters_are_skipped(self):
         rec = runner.purchase_recommendation(
@@ -332,24 +332,26 @@ class AffordableActionsTests(unittest.TestCase):
     """The inverse question the launcher asks before a run: with what I
     am carrying, how far can I go, and what runs out first?
 
-    Re-measured 2026-08-23 over 39 recorded runs / 9,650 actions: 0.760
-    steps, 0.027 garras, 0.026 dashes per action on the weighted mean,
-    and 0.860 / 0.080 / 0.050 in the worst single run - which is why the
-    launcher reports a range instead of one confident number.
+    Rates re-measured 2026-08-28 after a run starved on steps with the
+    plan promising it would not: 0.85 steps, 0.020 garras, 0.025 dashes
+    per action, and 0.91 / 0.080 / 0.056 in the worst single run - which
+    is why the launcher reports a range instead of one confident number.
+    The numbers below follow BURN_PER_ACTION; what is under test is the
+    arithmetic and which resource binds, not the constants themselves.
     """
 
     def test_it_names_how_far_the_inventory_goes(self):
         reach = runner.affordable_actions({"steps": 780, "attacks": 100,
                                            "dashes": 100})
-        # 780 paws at the measured 0.78 per action.
-        self.assertEqual(reach["actions"], 1000)
+        # 780 paws at the measured 0.85 per action.
+        self.assertEqual(reach["actions"], 917)
         self.assertEqual(reach["limiting"], "steps")
 
     def test_the_scarcest_resource_is_the_one_that_binds(self):
         reach = runner.affordable_actions({"steps": 5000, "attacks": 40,
                                            "dashes": 2})
         self.assertEqual(reach["limiting"], "dashes")
-        self.assertEqual(reach["actions"], 74)
+        self.assertEqual(reach["actions"], 80)   # 2 / 0.025
 
     def test_an_empty_counter_stops_the_run_at_zero(self):
         reach = runner.affordable_actions({"steps": 0, "attacks": 40,
@@ -360,7 +362,7 @@ class AffordableActionsTests(unittest.TestCase):
         reach = runner.affordable_actions({"steps": None, "attacks": 40,
                                            "dashes": 40})
         self.assertNotIn("steps", reach["per_resource"])
-        self.assertEqual(reach["limiting"], "attacks")
+        self.assertEqual(reach["limiting"], "dashes")
 
     def test_a_fully_unreadable_hud_answers_nothing(self):
         reach = runner.affordable_actions({"steps": None, "attacks": None,
@@ -374,7 +376,7 @@ class AffordableActionsTests(unittest.TestCase):
         # expectation.
         reach = runner.affordable_actions({"steps": 780, "attacks": 100,
                                            "dashes": 100})
-        self.assertEqual(reach["safe_actions"], 906)   # 780 / 0.86
+        self.assertEqual(reach["safe_actions"], 857)   # 780 / 0.91
         self.assertLessEqual(reach["safe_actions"], reach["actions"])
 
 
@@ -403,7 +405,7 @@ class RunPlanTests(unittest.TestCase):
         text = runner.format_run_plan(
             100, {"steps": 5000, "attacks": 40, "dashes": 2})
         self.assertIn("dashes", text)
-        self.assertIn("74", text)          # 2 / 0.027
+        self.assertIn("80", text)          # 2 / 0.025
 
     def test_an_unreadable_hud_says_so_instead_of_inventing(self):
         text = runner.format_run_plan(

@@ -129,16 +129,33 @@ def corridor_dash_due(action, last_attack, done, preview, dashes_enabled, ttl=4,
             and bool(preview[row]))
 
 
-# Net burn per executed action, measured across 13 runs / 2,750 actions
-# (refunds from claw/orb/paw pickups already netted out): 2,144 steps,
-# 91 garras, 73 dashes. Ratio ~24 steps : 1 garra : 0.8 dashes.
-BURN_PER_ACTION = {"steps": 0.78, "attacks": 0.033, "dashes": 0.027}
-#: The same rates in the single worst recorded run, re-measured
-#: 2026-08-23 over 39 runs / 9,650 actions (weighted means came out at
-#: 0.760 / 0.027 / 0.026, so the planning rates above still hold). A run
-#: that leans hard on garras burns three times the average, so a single
-#: confident number would be a lie: the launcher reports both ends.
-WORST_BURN_PER_ACTION = {"steps": 0.86, "attacks": 0.080, "dashes": 0.050}
+# Net burn per executed action. Re-measured 2026-08-28 after a run
+# starved on steps with the plan saying it would not (user report).
+#
+# STEPS, from the per-frame paw counter (the reading the ledger already
+# trusts), 10 runs / 3,556 actions: 0.821 on average, 0.854 across the
+# two runs on today's code, and 0.910 in the worst single run. The old
+# 0.78 was ~9% optimistic, which is a whole pack of 50 on a 600-action
+# plan. Rounded UP to 0.85: starving mid-run costs the session, while
+# over-reserving costs nothing but a bigger number on screen.
+#
+# GARRAS and DASHES fell on purpose. Garras were cut by the 2026-08-21
+# rules ('garras para nada'); dashes by the 2026-08-28 finding that a
+# dash does not collect what it breaks, which retired the bare-pair
+# dash. Measured over actions SENT: garras 0.0242 all-time but 0.0127 on
+# today's code, dashes 0.0340 all-time and 0.0253 today.
+#
+# The new rates lean on a thin sample - two runs, 158 actions - so they
+# are set above what today measured rather than at it, and the worst-case
+# row keeps the older, higher numbers.
+BURN_PER_ACTION = {"steps": 0.85, "attacks": 0.020, "dashes": 0.025}
+#: The same rates in the single worst recorded run. A run that leans
+#: hard on garras burns several times the average, so a single confident
+#: number would be a lie: the launcher reports both ends. Steps re-read
+#: 2026-08-28 (0.910 in the worst of 10 runs); garras and dashes keep the
+#: older, higher figures on purpose, because the policies that lowered
+#: them are days old and two runs are not enough to promise a floor.
+WORST_BURN_PER_ACTION = {"steps": 0.91, "attacks": 0.080, "dashes": 0.056}
 SHOP = {"steps": {"unit": 50, "cost": 2000},   # pack of 50 steps
         "attacks": {"unit": 1, "cost": 200},
         "dashes": {"unit": 1, "cost": 400}}
@@ -1950,6 +1967,8 @@ def main():
     frames_seen = 0
     idle_frames = 0
     idle_abort = False
+    out_of_steps = False
+    zero_paw_frames = 0
     taps_claimed = 0
     taps_charged = 0
     delay_stretch = 1.0
@@ -2243,6 +2262,22 @@ def main():
         # the log could not say whether the game swallowed them or the HUD
         # counter was simply unreadable that frame.
         event["paws"] = {"raw": raw_paws, "sane": paws_now, "ref": paw_count}
+
+        # Zero steps is the end of the run, not a bad frame. The game
+        # refuses every move and says so in a toast the bot cannot read,
+        # so nothing in the loop noticed: run 20260828T172224 spent its
+        # last 17 frames and 20 seconds at zero, eight of them still
+        # tapping and seven of those refused (user report, 2026-08-28).
+        # Two consecutive readings, because one unreadable HUD frame must
+        # not end a healthy run - the observed stall had seventeen.
+        zero_paw_frames = zero_paw_frames + 1 if paws_now == 0 else 0
+        if zero_paw_frames >= 2:
+            out_of_steps = True
+            log_frame(log, dict(event, status="out_of_steps"))
+            print("Sin paticas: el contador de pasos llego a 0, asi que el "
+                  "juego ya no cobra ningun movimiento. Se corta la corrida; "
+                  "compra pasos en la tienda para seguir.")
+            break
 
         if stable_board is None:
             stable_board = det.board
@@ -3082,7 +3117,8 @@ def main():
     keep_evidence(run_dir, "final.png", final)
     keep_evidence(run_dir, "final_diagnostic.png",
                   bot.diagnostic(final, final_det))
-    event = {"time_utc": datetime.now(timezone.utc).isoformat(), "status": "complete",
+    event = {"time_utc": datetime.now(timezone.utc).isoformat(),
+             "status": "out_of_steps" if out_of_steps else "complete",
              "steps": done, "run_dir": str(run_dir) if run_dir else None,
              "detection": bot.asdict(final_det)}
     energy_end, energy_end_source = final_energy(
@@ -3108,7 +3144,9 @@ def main():
     wait_frames += log_frame(log, event)
     show_run_summary(done, args.steps, started_at, collected, energy_start, energy_end)
     progress(done, args.steps, format_efficiency(event["efficiency"]), "36")
-    return 8 if idle_abort else 0
+    # 9 is its own code so a launcher can offer the shop instead of
+    # treating an exhausted run as a crash.
+    return 8 if idle_abort else 9 if out_of_steps else 0
 
 
 if __name__ == "__main__":

@@ -73,6 +73,23 @@ class RunnerSmokeTests(unittest.TestCase):
                               board_frame("claw_board")])
         self.assertEqual(code, 0)
 
+    def test_zero_steps_ends_the_run_instead_of_tapping_at_nothing(self):
+        """The game refuses every move and says so in a toast we cannot
+        read, so the loop has to notice the counter itself.
+
+        Run 20260828T172224 spent its last 17 frames - 20 seconds - at
+        zero steps, eight of them still tapping and seven of those
+        refused (user report 2026-08-28).
+        """
+        with patch.object(runner, "read_inventory_counters",
+                          return_value={"steps": 0, "attacks": 9,
+                                        "dashes": 9, "green_tickets": 0,
+                                        "purple_tickets": 0}):
+            code, adb = self.drive(["--steps", "40"], [board_frame()])
+        self.assertEqual(code, 9, "sin paticas la corrida tiene su propio codigo")
+        taps = [c for c in adb.call_args_list if "tap" in c.args]
+        self.assertLessEqual(len(taps), 2, f"siguio tocando sin paticas: {len(taps)}")
+
     def test_plan_only_reads_the_hud_without_tapping(self):
         code, adb = self.drive(["--steps", "10", "--plan-only"],
                                [board_frame()])
