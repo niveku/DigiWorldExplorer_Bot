@@ -1942,6 +1942,10 @@ def main():
     pending_dash = None
     previous_direction = None
     pending_picked = False
+    # Cells the player has stood on since the world last changed.
+    # Cleared by the belt moving or by a pickup landing, because either
+    # one makes every cell worth standing on again.
+    barren_stands = set()
     wait_frames = 0
     frames_seen = 0
     idle_frames = 0
@@ -2373,6 +2377,12 @@ def main():
         blocked_direction = next_blocked_direction(
             blocked_direction, bool(pending_taps), claimed, charged,
             belt_shift, pending_picked, previous_direction)
+        # The same receipt that settles the belt settles this memory:
+        # a belt that moved or a pickup that landed makes every cell on
+        # the board worth standing on again.
+        if belt_shift or pending_picked:
+            barren_stands = set()
+        barren_stands.add(tuple(player))
         if pending_taps:
             pending_picked = False
         if blocked_direction:
@@ -2721,7 +2731,8 @@ def main():
                                          suspect_cells=suspect_items,
                                          dash_stock=dash_stock,
                                          blocked_direction=blocked_direction,
-                                         allow_paid_detour=overrule_streak >= 1)
+                                         allow_paid_detour=overrule_streak >= 1,
+                                         barren_cells=barren_stands)
         left_band_risk = any(
             cell[1] <= 2 and strategy.pickup_type(info[cell])
             not in (None, "purple_ticket", "green_ticket", "steps")
@@ -2782,7 +2793,8 @@ def main():
                                              hunt_walls=wall_stable,
                                              suspect_cells=suspect_items,
                                              blocked_direction=blocked_direction,
-                                             allow_paid_detour=overrule_streak >= 1)
+                                             allow_paid_detour=overrule_streak >= 1,
+                                             barren_cells=barren_stands)
         if action is None:
             # One unreadable frame must not kill a run: rescan a few
             # times before giving up.

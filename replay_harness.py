@@ -131,6 +131,10 @@ class Replay:
         self.belt = 0
         self.recent_stands = []
         self.last_item_cells = set()
+        # Same short memory the runner keeps, threaded for the same
+        # reason as previous_direction: without it the harness would
+        # audit a different function than the runner runs.
+        self.barren_stands = set()
         # Pickups so far. A round trip is only waste if this number is
         # the same on both stands: run 20260823T144136 n=12-16 walked
         # down two cells for a claw and back up through (3,0), and the
@@ -227,6 +231,9 @@ class Replay:
         self.blocked_direction = runner.next_blocked_direction(
             self.blocked_direction, had_taps, claimed, charged, belt_shift,
             tuple(player) in self.last_item_cells, self.prev_choice_direction)
+        if belt_shift or tuple(player) in self.last_item_cells:
+            self.barren_stands = set()
+        self.barren_stands.add(tuple(player))
 
         # ---- PING-PONG: paws spent to end up where we started ----
         # The belt is the only thing that makes rightward progress, so
@@ -343,7 +350,8 @@ class Replay:
             ignored_targets=set(suspects), player=player,
             suspect_cells=suspects,
             blocked_direction=self.blocked_direction,
-            allow_paid_detour=self.overrule_streak >= 1)
+            allow_paid_detour=self.overrule_streak >= 1,
+            barren_cells=self.barren_stands)
         if action is not None and len(action) > 2:
             self.overrule_streak = runner.next_overrule_streak(
                 self.overrule_streak, self.blocked_direction, action[2])

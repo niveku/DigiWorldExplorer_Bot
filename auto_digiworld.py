@@ -561,7 +561,7 @@ def dash_path_pyramids(info, row, col):
 def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
            ignored_targets=(), player=None, preview=None, hunt_walls=True,
            suspect_cells=(), dash_stock=None, blocked_direction=None,
-           allow_paid_detour=False):
+           allow_paid_detour=False, barren_cells=()):
     """Pick the next action, refusing to undo the step just taken.
 
     blocked_direction is the runner's receipt-backed report that the last
@@ -581,7 +581,8 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     """
     action, reason = _choose(info, previous_direction, attacks_enabled,
                              dashes_enabled, ignored_targets, player, preview,
-                             hunt_walls, suspect_cells, dash_stock)
+                             hunt_walls, suspect_cells, dash_stock,
+                             barren_cells)
     if (blocked_direction is None or action is None
             or action[0] != "move" or action[2] != blocked_direction):
         return action, reason
@@ -590,7 +591,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
     detour, detour_reason = _choose(closed, previous_direction, attacks_enabled,
                                     dashes_enabled, ignored_targets, player,
                                     preview, hunt_walls, suspect_cells,
-                                    dash_stock)
+                                    dash_stock, barren_cells)
     if detour is None or detour[1] == action[1]:
         return action, reason
     if detour[0] != "move" and not allow_paid_detour:
@@ -613,7 +614,7 @@ def choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=T
 
 def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=True,
             ignored_targets=(), player=None, preview=None, hunt_walls=True,
-            suspect_cells=(), dash_stock=None):
+            suspect_cells=(), dash_stock=None, barren_cells=()):
     # A caller that already resolved the player (dead reckoning, large-sprite
     # locator) passes it in; per-cell scores stay authoritative otherwise.
     if player is None:
@@ -1154,6 +1155,28 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
                     min(abs(player[0] - r) for r in incoming_rows)
                 if closes:
                     score += 120
+        if nxt in barren_cells:
+            # Standing here already, with the belt where it is now and
+            # nothing collected since, produced whatever the planner is
+            # about to decide again. Measured over every recording: 351
+            # of 3062 cell changes are that exact return - 351 paws, some
+            # 6400 energy - and 125 of 1346 vertical steps are reversed
+            # on the very next frame with the belt unmoved.
+            #
+            # All THREE terms are the rule. A plain "we were here" would
+            # also punish the 1279 returns that DID collect something,
+            # which is the round trip measured as worth 125 for 36 - the
+            # veto retired on 2026-08-28 wearing a new hat. The runner
+            # clears this memory the moment the belt moves or a pickup
+            # lands, so a cell only stays barren while the world does.
+            #
+            # A penalty, never a ban: in a cul-de-sac the only legal move
+            # IS back, and `pool = preferred or candidates` below is what
+            # keeps a fully penalised board from stalling. 60 outbids the
+            # lane tie-break (8), the pair curiosity (6 per pyramid) and
+            # the gap between up and down, but never the plain advance
+            # (100), which the belt makes self-clearing anyway.
+            score -= 60
         if previous_direction and {previous_direction, direction} in ({"left","right"},{"up","down"}):
             score -= 30
         candidates.append((score, nxt, obstacle, direction,

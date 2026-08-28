@@ -2841,6 +2841,70 @@ class AdjacentGrabTests(unittest.TestCase):
         self.assertEqual(tuple(action[1]), (1, 2), reason)
 
 
+class BarrenRevisitTests(unittest.TestCase):
+    """Do not walk back onto a cell that already gave its answer.
+
+    Measured over every recording (2026-08-28): 351 of 3062 cell changes
+    return to a cell the player already stood on, with the belt in the
+    same place and NOTHING collected in between - 351 paws, some 6400
+    energy. 125 of 1346 vertical steps are reversed on the very next
+    frame with the belt unmoved.
+
+    All three terms matter. 1630 returns happen in total, so 1279 of them
+    DID collect something: those are the round trip measured as 125
+    energy for 36, and a rule that punished the bare return would ban it
+    again - the guard retired earlier the same day, wearing a new hat.
+    The runner clears the memory the moment the belt moves or a pickup
+    lands, which is why the strategy can treat membership as final.
+    """
+
+    def board(self):
+        """Right blocked, so the explorer has to pick a row."""
+        info = empty_grid()
+        for row in range(5):
+            info[(row, 2)]["pyramid"] = 0.9
+        return info
+
+    def test_a_barren_cell_loses_to_a_fresh_one(self):
+        info = self.board()
+        up, _ = strategy.choose(info, player=(2, 1), attacks_enabled=False,
+                                barren_cells={(3, 1)})
+        self.assertEqual(tuple(up[1]), (1, 1))
+        down, _ = strategy.choose(info, player=(2, 1), attacks_enabled=False,
+                                  barren_cells={(1, 1)})
+        self.assertEqual(tuple(down[1]), (3, 1))
+
+    def test_without_the_memory_the_old_choice_stands(self):
+        # The penalty must be the only thing that moved. On this board
+        # the explorer prefers (3,1) on its own, so the test above is
+        # meaningful in one direction and a no-op in the other: marking
+        # (3,1) flips the verdict, marking (1,1) leaves it alone.
+        plain, reason = strategy.choose(self.board(), player=(2, 1),
+                                        attacks_enabled=False)
+        self.assertEqual(tuple(plain[1]), (3, 1), reason)
+
+    def test_a_fully_barren_board_still_moves(self):
+        # A penalty, never a ban: in a cul-de-sac the only legal step IS
+        # the one back, and refusing it would strand the run.
+        info = self.board()
+        action, reason = strategy.choose(
+            info, player=(2, 1), attacks_enabled=False,
+            barren_cells={(1, 1), (3, 1), (2, 0), (2, 2)})
+        self.assertIsNotNone(action, reason)
+        self.assertEqual(action[0], "move")
+
+    def test_a_pickup_outranks_the_memory(self):
+        # The memory only speaks in the explorer. A cell holding an item
+        # is chosen by the branches above it, barren or not: the return
+        # that collects something is the one worth 125 for 36.
+        info = self.board()
+        info[(3, 1)].update(orange=.9, item=.9)
+        action, reason = strategy.choose(info, player=(2, 1),
+                                         attacks_enabled=False,
+                                         barren_cells={(3, 1)})
+        self.assertEqual(tuple(action[1]), (3, 1), reason)
+
+
 class PaidDetourAfterASecondReversalTests(unittest.TestCase):
     """The cost guard protects the wallet; it must not license a loop.
 
