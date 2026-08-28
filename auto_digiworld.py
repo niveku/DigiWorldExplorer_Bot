@@ -128,14 +128,51 @@ def cells(image, board):
                         # question of it, so report the unoccluded
                         # sprite's own median rather than invent a scale.
                         claw_score = .13
+            # The same bite, the same answer, a different channel. A
+            # dash orb read .0575 against .06 in run 20260828T230319
+            # n=42, one step below the bot, and the board came back
+            # empty (user: "no bajo un paso a recoger un Dash"). The
+            # green family - orbs and tickets - is a compact sprite
+            # like the claw: ~530 pixels at about 45% fill of its own
+            # bounding box, and whatever eats part of it (the
+            # foreground ice, or the neighbouring cell when the sprite
+            # straddles the line) removes pixels without changing the
+            # fill. Noise is either smaller (95th pct 280 pixels) or
+            # solid (95th pct fill 1.0).
+            #
+            # 21 cells in the 12,250 recorded frames fall below the
+            # threshold inside both bands, and all 21 are real - six of
+            # them this very orb, tracked across n=37..42 as the belt
+            # carried it from (4,4) to (4,1) with the bot never seeing
+            # it. Checked by eye, all 21.
+            #
+            # Measuring the cell over its top 80% instead was tried and
+            # REFUTED on the same corpus: it gains 101 detections and
+            # loses 77 real ones, because a row-4 sprite is often drawn
+            # low in its cell and the crop cuts it off. The occlusion is
+            # real, but its share of the cell is not fixed enough to
+            # divide by.
+            green_score = float(green_mask.mean())
+            if (green_score <= .06 and orange_mask.mean() <= .06
+                    and pink_mask.mean() <= .06):
+                count = int(green_mask.sum())
+                if count >= 280:
+                    ys, xs = np.nonzero(green_mask)
+                    box = ((ys.max() - ys.min() + 1) *
+                           (xs.max() - xs.min() + 1))
+                    if .25 <= count / box <= .60:
+                        # As much sprite as is visible; every reader
+                        # asks the same yes/no question of this score,
+                        # so report the unoccluded median.
+                        green_score = .08
             result[(row, col)] = {
                 "player": float(max(red_player.mean(), bright_neutral_player.mean(),
                                     shadow_player_score)),
                 "claw": claw_score,
                 "orange": float(orange_mask.mean()),
                 "pink": float(pink_mask.mean()),
-                "green": float(green_mask.mean()),
-                "item": float(max(orange_mask.mean(), pink_mask.mean(), green_mask.mean())),
+                "green": green_score,
+                "item": float(max(orange_mask.mean(), pink_mask.mean(), green_score)),
                 # Type discriminators (run 20260820T041234): the purple
                 # ticket's white card body separates it from the steps paws
                 # (white .096 vs .002), and the green ticket's saturated
@@ -378,7 +415,14 @@ def pickup_type(values):
     is worth about seven paws - the arithmetic that called a two-paw
     round trip for one "the losing side" was inverted by a factor of six.
     """
-    if values.get("claw", 0.0) > .10:
+    # The item guard is part of what a claw IS, not an extra filter the
+    # callers bolt on: claw_items has asked for both since 2026-08-22
+    # (a pyramid's glints trip the slash detector) and this did not, so
+    # the two disagreed about the same cell. The orange energy's yellow
+    # cap is the case that made the gap bite - it can clear the claw
+    # threshold on its own, and this function asks about the claw first,
+    # so an orange came back a garra. A real claw's item score is ~.02.
+    if values.get("claw", 0.0) > .10 and values.get("item", 0.0) <= .06:
         return "claw"
     if values.get("orange", 0.0) > .06:
         return "orange"

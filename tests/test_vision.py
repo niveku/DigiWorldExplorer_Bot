@@ -163,6 +163,44 @@ class InventoryOcrTests(unittest.TestCase):
         for cell in ((2, 1), (2, 2), (3, 3)):    # pyramids on the same board
             self.assertLess(info[cell]["claw"], 0.10, cell)
 
+    def test_a_dash_orb_bitten_by_the_foreground_ice_is_still_an_orb(self):
+        """Run 20260828T230319 n=42 (user: "no bajo un paso a recoger un
+        Dash").
+
+        Second pickup in one evening lost to the same slab, in a
+        different channel: the orb read .0575 of green against a .06
+        threshold, the board came back empty, and the bot explored
+        right past a dash orb one step below it. Recognised by the same
+        two bands as the claw - pixel count and fill - because whatever
+        eats part of a compact sprite takes pixels without changing how
+        densely it fills its own box.
+        """
+        image = Image.open(FIXTURES / "orb_behind_ice.png")
+        info = strategy.cells(image, (74, 425, 627, 872))
+        self.assertEqual(strategy.pickup_type(info[(4, 1)]), "dash_orb")
+
+    def test_the_green_rescue_keeps_tickets_and_orbs_apart(self):
+        # card_green is not touched by the rescue, so a ticket the
+        # rescue lifts is still a ticket. 6 of the 20 cells it recovers
+        # across the recorded runs are tickets, and none of them came
+        # back an orb.
+        orb = {"green": .08, "card_green": .001, "orange": 0.0,
+               "pink": 0.0, "claw": 0.0, "item": .08}
+        ticket = dict(orb, card_green=.089)
+        self.assertEqual(strategy.pickup_type(orb), "dash_orb")
+        self.assertEqual(strategy.pickup_type(ticket), "green_ticket")
+
+    def test_a_stronger_item_in_the_cell_is_not_overwritten(self):
+        # One of the 21 candidates had an orange card sharing the cell
+        # with the orb; the orange already wins and the rescue must not
+        # fire at all.
+        image = Image.open(FIXTURES / "orb_behind_ice.png")
+        info = strategy.cells(image, (74, 425, 627, 872))
+        for cell, values in info.items():
+            if values["green"] == .08:
+                self.assertLessEqual(values["orange"], .06, cell)
+                self.assertLessEqual(values["pink"], .06, cell)
+
     def test_the_rescue_does_not_promote_an_orange_to_a_claw(self):
         """The orange energy wears a yellow cap that clears the pixel
         count and the fill on its own, and pickup_type asks about the
