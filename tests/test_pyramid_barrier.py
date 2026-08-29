@@ -87,5 +87,31 @@ class PyramidBarrierTests(unittest.TestCase):
         self.assertTrue(runner.attack_result(after, before)["broken"])
 
 
+class SixthColumnTuningTests(unittest.TestCase):
+    """The retune is a threshold change; these pin what it must not lose.
+
+    Ground truth for the sliver comes free from the runs: the strip IS
+    column 5, so a one-column scroll turns it into column 4. Measured on
+    4,845 labelled readings over 32 runs, picked on 21 and reported on
+    the 11 held out (split by run): 0.941 precision / 0.916 recall,
+    against 0.869 / 0.902 for the old .18-wide, +10-margin, >.5 strip.
+    """
+
+    def test_the_strip_still_refuses_a_frame_with_no_sliver(self):
+        image = Image.open(FIXTURES / "pyramid_barrier.png").convert("RGB")
+        width = image.size[0]
+        self.assertIsNone(strategy.sixth_column_preview(
+            image, (77, 424, width - 2, 875)))
+
+    def test_the_wall_row_reads_the_same_after_the_garra(self):
+        """Row 3 holds the incoming pyramid in both frames; an attack does
+        not scroll, so the sliver must not change under it."""
+        for name, board in (("pyramid_barrier.png", BOARD),
+                            ("pyramid_barrier_after_garra.png", BOARD_AFTER)):
+            preview = strategy.sixth_column_preview(
+                Image.open(FIXTURES / name).convert("RGB"), board)
+            self.assertEqual(preview, [False, False, False, True, False], name)
+
+
 if __name__ == "__main__":
     unittest.main()

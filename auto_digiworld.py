@@ -457,11 +457,35 @@ def sixth_column_preview(image, board, min_strip=8):
 
     Returns a list of five booleans (pyramid incoming per row), or None when
     the frame has no usable sliver. Only presence of a pyramid is readable
-    in that ~15% of a cell; items and anything subtler are not.
+    in that sliver of a cell; items and anything subtler are not.
+
+    Retuned 2026-08-29 against ground truth the runs label for free: the
+    strip IS column 5, so a one-column scroll turns it into column 4, a
+    full cell the detector reads well. 4,845 labelled readings over 32
+    runs; the geometry and threshold were picked on 21 runs and reported
+    once on the 11 held out, splitting BY RUN.
+
+        strip     top   blue-over-green   thr | holdout precision / recall
+        .18 cell  55%   +10 (until now)   .5  |      0.869 / 0.902
+        .25 cell  55%   +18               .3  |      0.941 / 0.916
+
+    The lever is the blue-over-green margin, not the width: the board's
+    own frame decor beside the strip is bluish too, and +10 lets it
+    through. Demanding +18 separates the pyramid glass from the frame,
+    which then allows a LOWER coverage threshold - a pyramid only half in
+    view still fills .3 of a strip that no longer counts the decor.
+
+    Two things measured and NOT done. Voting the strip across the frames
+    since the last scroll is worse on every variant tried (median-of-3
+    > .5 lands at 0.768 / 0.717): the reading is not noisy frame to
+    frame, it is wrong or right for the whole dwell. And remembering the
+    prediction to break ties once the column lands buys nothing - only
+    0.6% of arrivals (13 of 2,260) read in the ambiguous .45-.90 band at
+    all; the full cell is its own answer.
     """
     a = np.asarray(image)
     x0, y0, x1, y1 = board
-    strip_end = min(a.shape[1], x1 + int((x1 - x0) / 5 * .18))
+    strip_end = min(a.shape[1], x1 + int((x1 - x0) / 5 * .25))
     if strip_end - x1 < min_strip:
         return None
     cell_h = (y1 - y0) / 5
@@ -473,10 +497,8 @@ def sixth_column_preview(image, board, min_strip=8):
         zp = z[:max(1, int(z.shape[0] * .55))]
         pr, pg, pb = zp[:, :, 0], zp[:, :, 1], zp[:, :, 2]
         pyramid = ((pb > 70) & (pr > 45) &
-                   (pb.astype(int) > pg.astype(int) + 10)).mean()
-        # The board's own frame decor keeps the strip at 0.12-0.24 on every
-        # measured frame; a real incoming pyramid reads 0.93-1.0.
-        result.append(bool(pyramid > .5))
+                   (pb.astype(int) > pg.astype(int) + 18)).mean()
+        result.append(bool(pyramid > .3))
     return result
 
 
