@@ -74,13 +74,20 @@ class PyramidBarrierTests(unittest.TestCase):
         self.assertNotIn(action[1], {(3, 2), (4, 1)})
 
     def test_the_garra_that_landed_is_not_reported_dead(self):
-        """n=0 tapped (3,2); n=1 shows it mid-dissolve at .63 while the
-        four pyramids it shares the screen with have not moved. Calling
-        that "no visual effect" twice in a row is what switches garras
-        off - and switching them off on this board is the loop."""
+        """n=0 tapped (3,2); n=1 shows it dissolving while the four
+        pyramids it shares the screen with have not moved. Calling that
+        "no visual effect" twice in a row is what switches garras off -
+        and switching them off on this board is the loop.
+
+        It used to read .93 -> .63, straddling the threshold, and only
+        the drop rule saved it. Once the walkable highlight left the
+        pyramid mask the same cell reads .55 -> .03: the bot is standing
+        beside it, so most of what kept it "above the line" was the
+        game lighting the cell as a legal move."""
         before, after = self.info[(3, 2)], self.after[(3, 2)]
-        self.assertGreater(before["pyramid"], .90)
-        self.assertGreater(after["pyramid"], strategy.PYRAMID_THRESHOLD)
+        self.assertTrue(strategy.is_obstacle(before))
+        self.assertFalse(strategy.is_obstacle(after))
+        self.assertLess(after["pyramid"], before["pyramid"] - runner.BREAK_DROP)
         for cell in ((0, 1), (1, 2), (2, 2), (4, 1), (4, 3)):
             self.assertLess(abs(self.info[cell]["pyramid"]
                                 - self.after[cell]["pyramid"]), .05, cell)
@@ -111,6 +118,32 @@ class SixthColumnTuningTests(unittest.TestCase):
             preview = strategy.sixth_column_preview(
                 Image.open(FIXTURES / name).convert("RGB"), board)
             self.assertEqual(preview, [False, False, False, True, False], name)
+
+
+class WalkableHighlightTests(unittest.TestCase):
+    """The game lights the cells you may step into. That light is bright
+    blue, so it fed the very mask that detects pyramid glass: a cell the
+    bot steps NEXT TO could spike for no other reason.
+
+    Run 20260829T204601 n=21 (user: "decidio alejarse de una energia que
+    justamente tiene una punta de piramide desde abajo"): a real orange
+    at (3,2) with a pyramid at (4,2) below it read .067 on every frame
+    but the one where the bot stood beside it - .468 there, with
+    highlight .767 - and left the planner's board for it."""
+
+    def test_the_lit_neighbour_does_not_read_as_glass(self):
+        after = read("pyramid_barrier_after_garra.png", BOARD_AFTER)
+        lit = after[(3, 2)]
+        self.assertGreater(lit["highlight"], .60)
+        self.assertLess(lit["pyramid"], strategy.PYRAMID_THRESHOLD)
+
+    def test_a_real_pyramid_survives_losing_its_highlight(self):
+        """Every pyramid on this board keeps its score with the light
+        taken out. Over 1,139 recorded frames all 3,850 cells reading
+        raw glass above .90 stay above .40 (worst .438)."""
+        info = read("pyramid_barrier.png", BOARD)
+        for cell in ((0, 1), (1, 2), (2, 2), (3, 2), (4, 1), (4, 3)):
+            self.assertTrue(strategy.is_obstacle(info[cell]), cell)
 
 
 class OneCellOneThingTests(unittest.TestCase):

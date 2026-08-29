@@ -24,7 +24,7 @@ DIRS = ((0, 1, "right"), (1, 0, "down"), (-1, 0, "up"), (0, -1, "left"))
 # Measured across every ground-truth frame: real pyramids score 0.88-0.99,
 # while border decor, sprite parts, and apex remnants stay at or below 0.24.
 # The old 0.18 threshold sat inside the noise band and flickered constantly.
-PYRAMID_THRESHOLD = .45
+PYRAMID_THRESHOLD = .40
 
 
 def is_obstacle(values):
@@ -208,8 +208,31 @@ def cells(image, board):
                 "white": float(((r > 215) & (g > 215) & (b > 215)).mean()),
                 "card_green": float(((g > 140) & (g < 200) & (r < 110) &
                                      (g.astype(int) > b.astype(int) + 40)).mean()),
-                "pyramid": float(((pb > 70) & (pr > 45) &
-                                  (pb.astype(int) > pg.astype(int)+10)).mean()),
+                # The walkable highlight is bright blue, so it feeds the
+                # very mask that detects pyramid glass: a cell the bot
+                # steps NEXT TO spikes for no other reason. Run
+                # 20260829T204601 n=21 (user: "decidio alejarse de una
+                # energia que justamente tiene una punta de piramide
+                # desde abajo") - a real orange with a pyramid below it
+                # read .067 on every frame but the one where the bot
+                # stood beside it, where it read .468 with highlight
+                # .767, and left the planner's board. Run 20260829T201007
+                # n=77 is the same shape: .066, then .450, then .066.
+                #
+                # The game only lights a cell it will let you STEP INTO,
+                # so those pixels cannot be pyramid. Taking them out,
+                # over 1,139 frames: of the 3,850 cells reading raw
+                # glass above .90, ALL stay above .40 (worst .438, p01
+                # .468), while every one of the 50 cells that the
+                # highlight had pushed over the line from the .30-.60
+                # band falls back under it. The threshold moved from
+                # .45 to .40 with the scale: a solid pyramid now reads
+                # about .54, not .95, because the highlight was part of
+                # what it was reading.
+                "pyramid": float((((pb > 70) & (pr > 45) &
+                                   (pb.astype(int) > pg.astype(int)+10)) &
+                                  ~((pb > 120) & (pg > 90) &
+                                    (pb.astype(int) > pr.astype(int)+25))).mean()),
                 "highlight": float(highlight_mask.mean()),
             }
     return result

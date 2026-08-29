@@ -1851,11 +1851,17 @@ def veto_with_blob(player, score, source, blob):
 # is the control the attacked cell needs (an attack does not scroll, so
 # the two frames are aligned cell for cell):
 #
-#   attacked cell   drops more than .25 in  96.0% of taps
-#   untouched ones  drop  more than .25 in   5.4%
+#   attacked cell   drops more than .20 in  97.7% of taps
+#   untouched ones  drop  more than .20 in   5.2%
 #
-# So the drop, not the absolute score, is what a tap looks like.
-BREAK_DROP = .25
+# A backstop, not the main road. When it was written it rescued 32 of
+# 273 taps the absolute rule called dead; re-measured after the walkable
+# highlight left the pyramid mask (2026-08-29, same 382 frame pairs) it
+# rescues ZERO - the absolute rule now agrees on all 292. Nearly every
+# "no visual effect" was the bot standing beside the cell it had just
+# hit, with the game's own highlight holding the score above the line.
+# It stays because it costs nothing and the case it covers is real.
+BREAK_DROP = .20
 
 
 def attack_result(cell_values, before=None):
