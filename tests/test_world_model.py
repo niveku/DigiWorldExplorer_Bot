@@ -24,6 +24,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import world_model as wm
 
+MAX_MISSES_FOR_TEST = wm.MAX_MISSES
+
 
 def seen(items=(), pyramids=()):
     """A frame's detections: item cells (with category) and pyramids."""
@@ -112,15 +114,20 @@ class OriginClassificationTests(unittest.TestCase):
         self.assertIn((3, 2), world.believed_items())
 
     def test_mid_board_appearance_without_a_scroll_is_confetti(self):
+        """Stated against the constant, not against a frame count: the
+        number was re-priced on 2026-08-29 once BURST_ITEMS gave the
+        model a causal confetti detector, and the principle - an
+        unexplained birth has to outlive the animation - is what this
+        test is for."""
         world = running()
-        world.observe(seen(items={(3, 1): "orange"}), shift=0)
-        world.observe(seen(items={(3, 1): "orange"}), shift=0)
+        for _ in range(wm.CONFIRM_SIGHTINGS - 1):
+            world.observe(seen(items={(3, 1): "orange"}), shift=0)
         self.assertEqual(world.at((3, 1)).origin, "unexplained")
         self.assertNotIn((3, 1), world.believed_items())
 
-    def test_confetti_that_outlives_two_frames_is_believed(self):
+    def test_confetti_that_outlives_the_doubt_is_believed(self):
         world = running()
-        for _ in range(3):
+        for _ in range(wm.CONFIRM_SIGHTINGS):
             world.observe(seen(items={(3, 1): "orange"}), shift=0)
         self.assertIn((3, 1), world.believed_items())
 
@@ -230,11 +237,80 @@ class BeliefIsNotRelitigatedTests(unittest.TestCase):
         self.assertNotIn((2, 4), world.suspect_cells())
 
     def test_confetti_never_becomes_memory_by_being_covered(self):
+        """A sighting that DIED counts for nothing: the track is dropped
+        and the next one starts over. Written with one fewer sighting
+        than belief needs, so it stays about the reset and not about the
+        size of CONFIRM_SIGHTINGS."""
         world = running()
-        world.observe(seen(items={(3, 1): "orange"}), shift=0)
-        world.observe(seen(), shift=0)                    # gone
+        for _ in range(wm.CONFIRM_SIGHTINGS - 1):
+            world.observe(seen(items={(3, 1): "orange"}), shift=0)
+        for _ in range(MAX_MISSES_FOR_TEST):
+            world.observe(seen(), shift=0)                # gone
         world.observe(seen(items={(3, 1): "orange"}), shift=0)
         self.assertNotIn((3, 1), world.believed_items())
+
+
+class ConfettiBurstTests(unittest.TestCase):
+    """A collection throws cards across the board. While they are in the
+    air the frame says almost nothing true about items, and it says so
+    LOUDLY: the crowd itself is the signal.
+
+    Ground truth is the game's own energy counter over 761 recorded
+    steps onto a cell the board showed as an orange (45 runs). The share
+    that actually paid its +125 falls off a cliff, not a slope:
+
+        items on screen   1     2     3  |   4     5     6     7+
+        really there    99.2% 93.3% 73.3%| 26.2% 14.7% 23.1%  6.8%
+    """
+
+    def test_a_crowded_frame_teaches_the_model_nothing(self):
+        world = running()
+        crowd = {(r, 1): "orange" for r in range(wm.BURST_ITEMS)}
+        world.observe(seen(items=crowd), shift=0)
+        self.assertEqual(world.believed_items(), {})
+        self.assertEqual(world.suspect_cells(), set(crowd))
+
+    def test_a_crowd_one_short_is_an_ordinary_frame(self):
+        world = running()
+        crowd = {(r, 1): "orange" for r in range(wm.BURST_ITEMS - 1)}
+        for _ in range(wm.CONFIRM_SIGHTINGS):
+            world.observe(seen(items=crowd), shift=0)
+        self.assertEqual(set(world.believed_items()), set(crowd))
+
+    def test_what_was_already_known_survives_the_burst(self):
+        """The point of the whole thing. The bot must keep the items it
+        already knows and refuse only what a burst tries to teach it -
+        a blindfold, never an eraser."""
+        world = running()
+        for _ in range(wm.CONFIRM_SIGHTINGS):
+            world.observe(seen(items={(0, 4): "orange"}), shift=1)
+        self.assertIn((0, 4), world.believed_items())
+        burst = {(r, 1): "orange" for r in range(wm.BURST_ITEMS)}
+        burst[(0, 4)] = "orange"
+        world.observe(seen(items=burst), shift=0)
+        self.assertIn((0, 4), world.believed_items())
+        self.assertNotIn((0, 4), world.suspect_cells())
+
+    def test_a_believed_item_does_not_age_under_the_burst(self):
+        """Blind, not absent: a track the burst is covering must neither
+        gain confidence nor accrue misses, or MAX_MISSES would quietly
+        delete real memory every time the bot picks something up."""
+        world = running()
+        for _ in range(wm.CONFIRM_SIGHTINGS):
+            world.observe(seen(items={(0, 4): "orange"}), shift=1)
+        burst = {(r, 1): "orange" for r in range(wm.BURST_ITEMS)}
+        burst[(0, 4)] = "orange"
+        for _ in range(wm.MAX_MISSES + 2):
+            world.observe(seen(items=burst), shift=0)
+        self.assertIn((0, 4), world.believed_items())
+
+    def test_the_burst_says_nothing_about_pyramids(self):
+        """Only pickups are drowned out. Pyramids are read as usual -
+        the cards are painted over the board, not instead of it."""
+        world = running()
+        burst = {(r, 1): "orange" for r in range(wm.BURST_ITEMS)}
+        world.observe(seen(items=burst, pyramids={(2, 3)}), shift=0)
+        self.assertIn((2, 3), world.believed_pyramids())
 
 
 class CollectionTests(unittest.TestCase):
@@ -375,16 +451,17 @@ class DashConfettiTests(unittest.TestCase):
         self.assertEqual(model.suspect_cells(),
                          {(1, 2), (1, 3), (1, 4)})
 
-    def test_a_real_item_is_believed_two_frames_later(self):
-        # The price of the doubt, stated exactly: an unexplained birth
-        # needs CONFIRM_SIGHTINGS=3, so a real item waits two more
-        # frames. The confetti never reaches the second sighting.
+    def test_a_real_item_is_believed_once_the_doubt_is_paid(self):
+        # The price of the doubt: an unexplained birth waits
+        # CONFIRM_SIGHTINGS sightings. The confetti beside it never
+        # reaches the second one.
         model = wm.WorldModel()
         model.observe({"items": {}, "pyramids": set()})
         model.observe({"items": {(1, 3): "orange", (1, 4): "orange"},
                        "pyramids": set()}, shift=3, edge_explains=False)
-        model.observe({"items": {(1, 3): "orange"}, "pyramids": set()})
-        self.assertEqual(model.believed_items(), {}, "todavia en duda")
+        for _ in range(wm.CONFIRM_SIGHTINGS - 2):
+            model.observe({"items": {(1, 3): "orange"}, "pyramids": set()})
+            self.assertEqual(model.believed_items(), {}, "todavia en duda")
         model.observe({"items": {(1, 3): "orange"}, "pyramids": set()})
         self.assertIn((1, 3), model.believed_items())
         self.assertNotIn((1, 4), model.believed_items())

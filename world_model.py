@@ -39,11 +39,36 @@ BOARD = 5
 # Confetti lives on the pickup frame and the one after it (measured
 # across the 2026-08-20/22 runs), so a third settled sighting means the
 # thing is real no matter how it was born.
-CONFIRM_SIGHTINGS = 3
+#
+# Re-priced to 2 on 2026-08-29, when BURST_ITEMS gave the model a CAUSAL
+# confetti detector and this statistical one could finally be measured
+# against it. Ground truth: the game's own energy counter over 761
+# recorded steps onto a cell the board showed as an orange, 45 runs,
+# split BY RUN. On the 15 held out:
+#
+#     rule                        real taken  deferred | confetti refused  taken
+#     three sightings, no burst           74        34 |         54            8
+#     burst + three sightings             64        44 |         59            3
+#     burst + TWO sightings               84        24 |         57            5
+#     burst + one sighting               105         3 |         45           17
+#     nothing at all                     108         0 |          0           62
+#
+# An orange is +125 energy and a wasted paw about 18, so burst+two beats
+# today on BOTH columns: ten more real oranges and three fewer confetti
+# steps. Burst+one scores higher still on that arithmetic, but nine of
+# this repo's own tests refuse it and the replay corpus flags real
+# STARVATION violations - so it is not taken. Waiting three frames was
+# never confetti-specific: it delayed every real pickup equally, and
+# confetti has a cause the frame itself can see.
+CONFIRM_SIGHTINGS = 2
 # A track survives this many consecutive unseen frames. Confetti cover
 # and detection flicker last one; three is the same tolerance the old
 # clean-miss decay converged on.
 MAX_MISSES = 3
+# Pickups on screen at which the frame stops being evidence about
+# pickups: a collection's confetti. Measured against the energy counter
+# over 761 steps onto a visible orange - see `observe`.
+BURST_ITEMS = 4
 
 
 @dataclass
@@ -108,6 +133,7 @@ class WorldModel:
         self.tracks: dict[tuple, Track] = {}
         self.frame = 0
         self.preview = [False] * BOARD
+        self._confetti: set = set()            # this frame's burst, if any
         self._predicted: dict[int, int] = {}   # row -> frame first promised
         self._confirmed: set[int] = set()
         self._updates = 0
@@ -131,6 +157,43 @@ class WorldModel:
         items = dict(detections.get("items") or {})
         pyramids = set(detections.get("pyramids") or ())
         revealed = {tuple(cell) for cell in revealed}
+        # A collection throws confetti cards across the board, and while
+        # they are in the air the frame says almost nothing true about
+        # items. Ground truth is the game's own energy counter: of the
+        # 761 recorded steps onto a cell the board showed as an orange
+        # (45 runs), the share that actually paid its +125 collapses
+        # with how crowded the frame was -
+        #
+        #     items on screen   1     2     3  |   4     5     6     7+
+        #     really there    99.2% 93.3% 73.3%| 26.2% 14.7% 23.1%  6.8%
+        #
+        # - a cliff between three and four, not a slope. So a frame
+        # showing BURST_ITEMS or more pickups is not evidence about
+        # pickups at all: it is unobservable, the same way the partner's
+        # own body makes its 3x3 unobservable. Tracks under it neither
+        # age nor gain confidence, and nothing new is born from it.
+        #
+        # What this deliberately does NOT do is forget. An item already
+        # believed stays believed straight through the burst - that is
+        # the whole point, and the reason this is a blindfold and not a
+        # veto: the bot must keep the items it already knows and refuse
+        # only what a burst frame tries to teach it.
+        if len(items) >= BURST_ITEMS:
+            confetti, items = set(items), {}
+        else:
+            confetti = set()
+        # Held for the planner to read back this frame: a cell the burst
+        # is showing, with no believed track under it, is a suspect. The
+        # blindfold alone would leave it merely unknown, and the
+        # strategy builds its goals from the raw colour scores - so it
+        # would walk to it anyway. This is what run 20260829T210131
+        # n=21-23 cost: one paw left onto a .07 orange in a frame with
+        # five weak readings, energy unchanged, and then the anti-back-
+        # step veto - correctly, nothing was picked up - sent it a
+        # second paw downwards rather than back.
+        self._confetti = {cell for cell in confetti
+                          if cell not in self.tracks
+                          or not self.tracks[cell].believed}
         seen_cells = set(items) | pyramids
 
         # ---- the belt moved and the ledger did not count it ------
@@ -219,7 +282,7 @@ class WorldModel:
         # empty: their colours are wiped precisely because they read as
         # false pickups, so a track under the sprite must neither age
         # nor gain confidence.
-        blind = {tuple(cell) for cell in occluded}
+        blind = {tuple(cell) for cell in occluded} | confetti
         for cell, track in list(self.tracks.items()):
             if cell in blind:
                 continue
@@ -396,8 +459,8 @@ class WorldModel:
                 if track.kind == "pyramid" and track.believed}
 
     def suspect_cells(self):
-        return {cell for cell, track in self.tracks.items()
-                if not track.believed}
+        return ({cell for cell, track in self.tracks.items()
+                 if not track.believed} | self._confetti)
 
     def stages(self):
         """Every track by confirmation stage - the memory surface the
