@@ -93,7 +93,8 @@ def should_hold_for_suspects(reason, item_goals, suspect_items, holds):
 
 
 def corridor_dash_due(action, last_attack, done, preview, dashes_enabled, ttl=4,
-                      suspect_cells=(), player=None, left_band_risk=False):
+                      suspect_cells=(), player=None, left_band_risk=False,
+                      attack_unresolved=False):
     """Second garra on the same row with another pyramid incoming: dash.
 
     Run 20260820T025148 events 84-87 spent two garras (400 shards) plus four
@@ -115,8 +116,27 @@ def corridor_dash_due(action, last_attack, done, preview, dashes_enabled, ttl=4,
       because holding a wall-clearing dash hostage to probable confetti
       cost six paws of dithering in run 20260823T074036
       (docs/review-2026-08-23.md).
+
+    Third guard (2026-08-29, user-reported: "primero hizo un ataque a una
+    piramide y despues hizo un dash donde no habia nada"). "Second garra"
+    means the first one BROKE something and a fresh pyramid took its place.
+    A garra whose tap showed no visual effect has broken nothing: the
+    strategy simply re-proposes the same attack on the same standing
+    pyramid, and the row still holds exactly one. Firing here throws the
+    charged garra away and buys with a dash what the retry was about to
+    get for half the price.
+
+    The corpus says the rule had never once done anything else: all four
+    corridor dashes ever recorded (20260824T051703 n=48, 20260827T215725
+    n=292, 20260829T170745 n=1, and 20260828T233043 n=85) crossed exactly
+    ONE pyramid, never the "up to three" the trade is priced on, and three
+    of the four fired on a garra still marked "no visual effect -
+    retrying". Only n=85 - where the previous garra broke (1,1) and (1,2)
+    scrolled in behind it - is the case this rule was written for.
     """
     if not dashes_enabled or action is None or action[0] != "attack":
+        return False
+    if attack_unresolved:
         return False
     if preview is None or last_attack is None:
         return False
@@ -2938,7 +2958,8 @@ def main():
             committed_wall = None
         if corridor_dash_due(action, last_attack, done, preview, dashes_enabled,
                              suspect_cells=suspect_items, player=player,
-                             left_band_risk=left_band_risk):
+                             left_band_risk=left_band_risk,
+                             attack_unresolved=attack_noeffect_streak > 0):
             action, reason = ("dash", player, "right"), "corridor dash"
         if (dashes_enabled and should_hold_for_wall(wall_now, wall_stable,
                                                     action, reason,

@@ -1975,6 +1975,27 @@ class CorridorDashRowTests(unittest.TestCase):
             action, (3, 84), 86, self._preview(3), True, player=(3, 1),
             left_band_risk=True))
 
+    def test_a_garra_that_broke_nothing_is_not_a_second_garra(self):
+        """Run 20260829T170745 n=0-1 (user: "primero hizo un ataque a una
+        piramide y despues hizo un dash donde no habia nada"). The garra
+        at (3,2) was charged (59 -> 58) and the pyramid stayed up:
+        `broken=False`, "no visual effect - retrying". The strategy
+        re-proposed the SAME attack on the SAME cell, and the row still
+        held exactly one pyramid - not the second one the rule prices."""
+        action = ("attack", (3, 2), "right")
+        self.assertFalse(runner.corridor_dash_due(
+            action, (3, 0), 1, self._preview(3), True, player=(3, 1),
+            attack_unresolved=True))
+
+    def test_a_garra_that_broke_still_opens_the_corridor(self):
+        """Run 20260828T233043 n=83-85, the case the rule was written
+        for: the garra broke (1,1), the bot stepped in, and (1,2)
+        scrolled in behind it with preview[1] lit."""
+        action = ("attack", (1, 2), "right")
+        self.assertTrue(runner.corridor_dash_due(
+            action, (1, 83), 85, self._preview(1), True, player=(1, 1),
+            attack_unresolved=False))
+
 
 class IncomingWallAlignmentTests(unittest.TestCase):
     """User directive 2026-08-22: the sixth-column preview exists
