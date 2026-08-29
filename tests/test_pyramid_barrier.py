@@ -113,5 +113,52 @@ class SixthColumnTuningTests(unittest.TestCase):
             self.assertEqual(preview, [False, False, False, True, False], name)
 
 
+class OneCellOneThingTests(unittest.TestCase):
+    """User law 2026-08-29: "No puede haber mas de una cosa en cada
+    celda. Las piramides no pueden tener items reales encima. Solo
+    pueden aparecer items si se destruyen con un ataque."
+
+    So a colour reading on a standing pyramid is confetti painted on it,
+    and the pyramid wins. Which colour matters, and the RGB cube says
+    why - swept exhaustively against this module's own glass test
+    (`b > 70 and r > 45 and b > g + 10`):
+
+        green  371,046 colours, of them glass       0  ( 0.00%)
+        orange 123,950 colours, of them glass   4,921  ( 3.97%)
+        pink   192,660 colours, of them glass 187,150  (97.14%)
+
+    Pink IS glass; that is what the veto was built for and it keeps it.
+    Green and orange are a different colour, so they were never the
+    pixels that made the pyramid score high.
+    """
+
+    def test_confetti_colours_do_not_hide_a_pyramid(self):
+        # Run 20260828T215949 n=77: a board mid-confetti-burst, glass
+        # pyramids handed to the planner as pickups. 101 such cells in
+        # 1,182 recorded frames.
+        covered = {"pyramid": .99, "item": .085, "pink": .0,
+                   "orange": .085, "green": .0, "claw": .0}
+        self.assertTrue(strategy.is_obstacle(covered))
+        self.assertIsNone(strategy.pickup_type(covered))
+
+    def test_a_purple_ticket_is_still_not_a_pyramid(self):
+        # Pink art IS pyramid glass by colour, so the veto stays.
+        ticket = {"pyramid": .60, "item": .09, "pink": .09,
+                  "orange": .0, "green": .0, "white": .06, "claw": .0}
+        self.assertFalse(strategy.is_obstacle(ticket))
+        self.assertEqual(strategy.pickup_type(ticket), "purple_ticket")
+
+    def test_a_covered_pyramid_is_never_offered_as_a_goal(self):
+        """The half that made the corpus flag STARVATION: `orange_items`
+        and `other_items` read the raw colour scores, so the planner
+        routed to a cell `unsafe_move_tap` then refused as a pyramid."""
+        info = read("pyramid_barrier.png", BOARD)
+        info[(3, 2)] = dict(info[(3, 2)], orange=.20, item=.20)
+        self.assertTrue(strategy.is_obstacle(info[(3, 2)]))
+        action, reason = strategy.choose(info, None, True, True,
+                                         player=(3, 1))
+        self.assertNotEqual((action[0], action[1]), ("move", (3, 2)), reason)
+
+
 if __name__ == "__main__":
     unittest.main()

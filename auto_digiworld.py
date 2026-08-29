@@ -28,8 +28,34 @@ PYRAMID_THRESHOLD = .45
 
 
 def is_obstacle(values):
-    """Detect clipped pyramids without mistaking purple/blue pickup art for one."""
-    return values["pyramid"] > PYRAMID_THRESHOLD and values["item"] <= .06
+    """Detect clipped pyramids without mistaking purple/blue pickup art for one.
+
+    The veto asks about PINK only, and the colour cube says why. Sweeping
+    every RGB triple against the pyramid-glass test this module uses
+    (`b > 70 and r > 45 and b > g + 10`):
+
+        green  colours: 371,046   also glass:       0  ( 0.00%)
+        orange colours: 123,950   also glass:   4,921  ( 3.97%)
+        pink   colours: 192,660   also glass: 187,150  (97.14%)
+
+    Pink IS glass - that is the whole reason this veto exists, and it
+    keeps it. Green and orange are a different colour entirely, so their
+    pixels are not the ones that made the pyramid score high. Under the
+    exclusivity law (user 2026-08-29: "no puede haber mas de una cosa en
+    cada celda; las piramides no pueden tener items reales encima; solo
+    pueden aparecer items si se destruyen con un ataque"), an orange or
+    green reading over a standing pyramid is confetti painted ON the
+    pyramid, and the pyramid wins.
+
+    Measured over 1,182 recorded frames: 101 cells read pyramid .63-.99
+    with no pink at all and were handed to the planner as PICKUPS - one
+    frame in twelve. Run 20260828T215949 n=77 is the picture of it: the
+    board mid-confetti-burst, plain glass pyramids outlined as items.
+    Each one is a tap onto a pyramid, which the game charges as a hidden
+    200-shard garra (run 20260822T160202 n=89).
+    """
+    return (values.get("pyramid", 0.0) > PYRAMID_THRESHOLD
+            and values.get("pink", values.get("item", 0.0)) <= .06)
 
 
 def cells(image, board):
@@ -422,6 +448,13 @@ def pickup_type(values):
     # cap is the case that made the gap bite - it can clear the claw
     # threshold on its own, and this function asks about the claw first,
     # so an orange came back a garra. A real claw's item score is ~.02.
+    if is_obstacle(values):
+        # One cell, one thing (user law 2026-08-29). A standing pyramid
+        # cannot be carrying a pickup, so whatever colour is on it is
+        # confetti. Saying otherwise here while `is_obstacle` says
+        # pyramid is how the planner ends up routing to a cell the tap
+        # gate then refuses - the STARVATION the replay corpus catches.
+        return None
     if values.get("claw", 0.0) > .10 and values.get("item", 0.0) <= .06:
         return "claw"
     if values.get("orange", 0.0) > .06:
@@ -764,10 +797,18 @@ def _choose(info, previous_direction=None, attacks_enabled=True, dashes_enabled=
 
     # Cells a loop breaker has banned are invisible as goals: an unreachable
     # or misdetected pickup must not keep the pathfinder pacing forever.
+    # One cell, one thing (user law 2026-08-29). These two sets read the
+    # raw colour scores, so without the obstacle guard a pyramid under
+    # confetti enters them as a goal - and `unsafe_move_tap` then refuses
+    # the tap as the pyramid it is. The planner paces, the gate says no:
+    # the STARVATION the replay corpus flags. `claw_items` below has had
+    # the guard since 2026-08-22; these never did.
     orange_items = {p for p, v in info.items()
-                    if v["orange"] > .06 and p != player and p not in ignored}
+                    if v["orange"] > .06 and not is_obstacle(v)
+                    and p != player and p not in ignored}
     other_items = {p for p, v in info.items()
-                   if v["item"] > .06 and p != player and p not in ignored}
+                   if v["item"] > .06 and not is_obstacle(v)
+                   and p != player and p not in ignored}
     # Mid-tier pickups sit between energy and tickets: claw +1 garra (200
     # shards), dash orb +1 dash (400), paws +5 steps (200). Tickets (+1,
     # negligible per the user) stay in the lowest tier and never justify
