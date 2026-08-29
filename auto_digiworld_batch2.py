@@ -1844,11 +1844,45 @@ def veto_with_blob(player, score, source, blob):
     return blob_cell, blob_score, "large-sprite"
 
 
-def attack_result(cell_values):
-    """Classify the cell of the previous attack: pyramid gone? drop revealed?"""
-    if strategy.is_obstacle(cell_values):
-        return {"broken": False, "revealed": None}
-    return {"broken": True, "revealed": item_category(cell_values)}
+# A pyramid does not vanish between two frames; it dissolves, and the
+# frame after the tap often catches it mid-animation, still above the
+# obstacle threshold.  Measured over the whole corpus - 273 attacks and
+# the 1,017 untouched pyramids standing in the SAME frame pairs, which
+# is the control the attacked cell needs (an attack does not scroll, so
+# the two frames are aligned cell for cell):
+#
+#   attacked cell   drops more than .25 in  96.0% of taps
+#   untouched ones  drop  more than .25 in   5.4%
+#
+# So the drop, not the absolute score, is what a tap looks like.
+BREAK_DROP = .25
+
+
+def attack_result(cell_values, before=None):
+    """Classify the cell of the previous attack: pyramid gone? drop revealed?
+
+    `before` is the same cell read on the frame that issued the tap. With
+    it, a pyramid caught mid-dissolve still counts as broken.
+
+    Reported by the user 2026-08-29 on run 20260829T170745 n=0-1 ("la
+    garra si rompio el bloque yo lo vi"): (3,2) read .93 before the tap
+    and .63 after, while the four pyramids it shared the screen with
+    moved by at most .03. The absolute rule called it "no visual effect".
+    Across the corpus it did that to 32 of 273 taps - one garra in nine
+    reported dead when it had worked - and never once the other way, so
+    the drop rule is a strict improvement, not a trade. The price of
+    each mistake is not just the 200 shards of the retry: two in a row
+    disable garras entirely (`should_disable_attacks`), which is how a
+    bot ends up walking circles in front of a wall it can no longer open.
+    """
+    if not strategy.is_obstacle(cell_values):
+        return {"broken": True, "revealed": item_category(cell_values)}
+    if (before is not None
+            and before.get("pyramid", 0) - cell_values["pyramid"] > BREAK_DROP):
+        # Mid-dissolve: broken, but the cell cannot be read for a drop
+        # yet - the sprite is still on top of whatever it was hiding.
+        return {"broken": True, "revealed": None}
+    return {"broken": False, "revealed": None}
 
 
 def dash_path_report(info, player, length=3):
@@ -2077,6 +2111,7 @@ def main():
     last_attack = None
     previous_action = None
     previous_attack_target = None
+    previous_attack_scores = None
     previous_dash_player = None
     previous_dash_obstacles = 0
     pending_dash = None
@@ -2806,7 +2841,8 @@ def main():
                                adaptive_batch_limit(args.batch_size,
                                                     item_goals)))
         if previous_action == "attack" and previous_attack_target is not None:
-            result = attack_result(info[previous_attack_target])
+            result = attack_result(info[previous_attack_target],
+                                   previous_attack_scores)
             inv_after = (read_drop_counters(image)
                          if pending_attack_inv is not None else None)
             event["pyramid_result"] = dict(result,
@@ -2840,6 +2876,7 @@ def main():
                     run_dir, f"phantom_attack_{done:04d}.png",
                     bot.diagnostic(image, det))
             previous_attack_target = None
+            previous_attack_scores = None
         if previous_action == "dash" and previous_dash_player is not None:
             dash_inv_before = (pending_dash or {}).get("inventory_before")
             if pending_dash is not None:
@@ -3267,6 +3304,8 @@ def main():
         previous_action = kind
         last_single_move = (kind == "move" and len(sent) == 1)
         previous_attack_target = target if kind == "attack" else None
+        previous_attack_scores = (dict(info[target]) if kind == "attack"
+                                  else None)
         if kind == "dash":
             previous_dash_player = player
             previous_dash_obstacles = consecutive_right_obstacles(info, player)

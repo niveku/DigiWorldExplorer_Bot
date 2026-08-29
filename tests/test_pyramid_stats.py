@@ -36,6 +36,29 @@ class AttackResultTests(unittest.TestCase):
         self.assertEqual(runner.attack_result(values),
                          {"broken": True, "revealed": None})
 
+    def test_a_pyramid_caught_mid_dissolve_is_broken(self):
+        """Run 20260829T170745 n=0-1, user: "la garra si rompio el bloque
+        yo lo vi". The cell read .93 before the tap and .63 after, while
+        the four pyramids sharing the screen moved by at most .03."""
+        before = {"pyramid": 0.93, "item": 0.0, "orange": 0.0, "pink": 0.0, "green": 0.0}
+        after = {"pyramid": 0.63, "item": 0.0, "orange": 0.0, "pink": 0.0, "green": 0.0}
+        self.assertEqual(runner.attack_result(after, before),
+                         {"broken": True, "revealed": None})
+
+    def test_a_pyramid_that_did_not_budge_is_still_not_broken(self):
+        """The 11 taps in the corpus that really hit nothing look like
+        this: the score sits where it was. Garras must still be disabled
+        on those, or a phantom target drains the stock."""
+        before = {"pyramid": 0.95, "item": 0.0, "orange": 0.0, "pink": 0.0, "green": 0.0}
+        after = {"pyramid": 0.94, "item": 0.0, "orange": 0.0, "pink": 0.0, "green": 0.0}
+        self.assertEqual(runner.attack_result(after, before),
+                         {"broken": False, "revealed": None})
+
+    def test_without_a_before_reading_the_absolute_rule_still_applies(self):
+        after = {"pyramid": 0.63, "item": 0.0, "orange": 0.0, "pink": 0.0, "green": 0.0}
+        self.assertEqual(runner.attack_result(after),
+                         {"broken": False, "revealed": None})
+
 
 class DashPathReportTests(unittest.TestCase):
     def test_counts_pyramids_and_items_in_dash_range(self):

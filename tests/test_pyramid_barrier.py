@@ -1,0 +1,91 @@
+"""The board of run 20260829T170745, read from the frames themselves.
+
+User report 2026-08-29: an unlogged session walked circles in front of a
+pyramid barrier - "empezo a dar vueltas acercandose a la piramide ...
+[0,3] -> [1,3] -> [1,2] -> [1,1] -> [0,1] -> [0,2] (era un loop amplio)".
+The barrier the debug session opened on is the same one, and it is the
+hardest shape the board can draw: every route right costs a garra.
+
+    col      0     1     2     3     4   | 5 (the sliver)
+    row 0    .     P     .     .     .   |  .
+    row 1    .     .     P     .     .   |  .
+    row 2    .     .     P     .     .   |  .
+    row 3    .    bot    P     .     .   |  P
+    row 4    .     P     .     P     .   |  .
+
+Column 2 is walled on rows 1-3; the two ways around it, row 0 and row 4,
+are corked at column 1. So there is no free path and never was - the
+loop was not indecision, it was a bot whose garras had been switched off
+walking the only cells left to it.
+"""
+import unittest
+from pathlib import Path
+
+from PIL import Image
+
+import auto_digiworld as strategy
+import auto_digiworld_batch2 as runner
+
+
+FIXTURES = Path(__file__).with_name("fixtures")
+BOARD = (77, 424, 624, 875)
+BOARD_AFTER = (77, 425, 624, 870)
+
+
+def read(name, board):
+    return strategy.cells(Image.open(FIXTURES / name).convert("RGB"), board)
+
+
+class PyramidBarrierTests(unittest.TestCase):
+    def setUp(self):
+        self.info = read("pyramid_barrier.png", BOARD)
+        self.after = read("pyramid_barrier_after_garra.png", BOARD_AFTER)
+        self.player = (3, 1)
+
+    def test_the_barrier_reads_as_the_user_described_it(self):
+        seen = {cell for cell, values in self.info.items()
+                if strategy.is_obstacle(values)}
+        self.assertEqual(seen, {(0, 1), (1, 2), (2, 2), (3, 2), (4, 1), (4, 3)})
+
+    def test_the_sliver_sees_the_pyramid_behind_the_wall(self):
+        preview = strategy.sixth_column_preview(
+            Image.open(FIXTURES / "pyramid_barrier.png").convert("RGB"), BOARD)
+        self.assertEqual(preview, [False, False, False, True, False])
+
+    def test_every_way_around_the_wall_is_corked(self):
+        """The reason no amount of walking solves this board."""
+        for row in (0, 4):
+            self.assertTrue(strategy.is_obstacle(self.info[(row, 1)]),
+                            f"row {row} was open at column 1")
+
+    def test_the_bot_opens_the_wall_instead_of_walking_around_it(self):
+        action, reason = strategy.choose(self.info, None, True, True,
+                                         player=self.player)
+        self.assertEqual(action[0], "attack")
+        self.assertEqual(action[1], (3, 2), reason)
+
+    def test_with_garras_off_there_is_nothing_but_walking(self):
+        """What the user watched. Not a planning bug: with attacks
+        disabled the board offers no move that reaches column 2, so
+        whatever the bot picks is a step it will have to take back."""
+        action, _ = strategy.choose(self.info, None, False, False,
+                                    player=self.player)
+        self.assertNotEqual(action[0], "attack")
+        self.assertNotIn(action[1], {(3, 2), (4, 1)})
+
+    def test_the_garra_that_landed_is_not_reported_dead(self):
+        """n=0 tapped (3,2); n=1 shows it mid-dissolve at .63 while the
+        four pyramids it shares the screen with have not moved. Calling
+        that "no visual effect" twice in a row is what switches garras
+        off - and switching them off on this board is the loop."""
+        before, after = self.info[(3, 2)], self.after[(3, 2)]
+        self.assertGreater(before["pyramid"], .90)
+        self.assertGreater(after["pyramid"], strategy.PYRAMID_THRESHOLD)
+        for cell in ((0, 1), (1, 2), (2, 2), (4, 1), (4, 3)):
+            self.assertLess(abs(self.info[cell]["pyramid"]
+                                - self.after[cell]["pyramid"]), .05, cell)
+        self.assertTrue(runner.attack_result(after, before)["broken"])
+
+
+if __name__ == "__main__":
+    unittest.main()
