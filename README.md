@@ -2,7 +2,7 @@
 
 # ⚡ DigiWorldExplorer_Bot ⚡
 
-![Version](https://img.shields.io/badge/version-0.3.1-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Tests](https://img.shields.io/badge/tests-598-green)
+![Version](https://img.shields.io/badge/version-0.4.0-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Tests](https://img.shields.io/badge/tests-638-green)
 
 ### 🦖 Exploración automatizada de DigiWorld para Digimon UP
 
@@ -19,8 +19,8 @@
 > **Este repositorio es un fork.** La base — detección de la cuadrícula por ADB,
 > exploración, launchers de Windows, empaquetado — es de
 > [RobinTh0r](https://github.com/RobinTh0r/DigiWorldExplorer_Bot), que la publicó en
-> julio de 2026. Encima van 127 commits míos: el recibo de paticas, el modelo del
-> mundo, el harness de replay y 598 tests.
+> julio de 2026. Encima van 156 commits míos: el recibo de paticas, el modelo del
+> mundo, el harness de replay y 638 tests.
 > Detalle en [`docs/UPSTREAM.md`](docs/UPSTREAM.md); autoría y estado de licencia
 > — el original **no declara licencia** — en [`NOTICE.md`](NOTICE.md).
 
@@ -194,7 +194,7 @@ Con items visibles el controlador planifica como máximo dos acciones hasta el s
 | `safe_tap.py` | Variación acotada del punto y el ritmo de cada tap |
 | `overlays.py` | Quién manda en el frame cuando algo tapa el tablero |
 | `SCREEN_LOOPS.md` | Cómo se enseña, se lanza y se acota un loop |
-| `tests/` | 598 tests offline, con fixtures de capturas reales |
+| `tests/` | 638 tests offline, con fixtures de capturas reales |
 | `requirements.txt` | Dependencias mínimas de Python |
 
 ## 📦 ¿Por qué no un paquete portable gigante?
@@ -231,6 +231,86 @@ Estos tests no envían entradas ADB.
 
 La versión actual está en `VERSION` y se muestra en el banner de la terminal y con
 `python auto_digiworld_batch2.py --version`.
+
+### v0.4.0 - 29.08.2026
+
+Una noche entera de corridas reportadas y arregladas una por una. Casi todo lo
+de abajo salió de un fallo concreto que el usuario vio en pantalla.
+
+**Ve lo que estaba viendo el jugador**
+
+- 🐾 **Una garra tras el hielo sigue siendo una garra.** El score de una
+  recogida es la fracción de amarillo de la celda, así que cualquier oclusión
+  lo diluye — y las losas de hielo del primer plano se comen el tercio inferior
+  de la fila 4. Una garra leyó 0.091 contra un umbral de 0.100 y el bot pasó de
+  largo. El área no se podía rescatar (0.091 cae dentro de la banda de
+  destellos de pirámide, percentil 99 = 0.094), así que ahora se **reconoce el
+  sprite**: ~500 píxeles a un tercio de llenado de su propia caja, y un
+  mordisco quita píxeles sin cambiar el llenado. 21 garras recuperadas en
+  12.250 capturas, revisadas una por una.
+- 🟢 **Y un orbe de dash mordido sigue siendo un orbe.** Mismo mecanismo, otro
+  canal: 0.0575 contra 0.060, un paso por debajo del bot. 20 recuperadas — 14
+  orbes y 6 tickets, sin confundirlos entre sí.
+- 🚫 Medir la fila 4 sobre su 80% superior se probó y se **refutó** sobre el
+  mismo corpus: gana 101 detecciones y pierde 77 reales, porque un sprite de
+  esa fila se dibuja bajo y el recorte lo corta.
+
+**Deja de dar pasos que no llevan a nada**
+
+- 🔄 **Una carta que se desliza sola no es la cinta.** El re-sync de scroll no
+  facturado exige ahora un segundo testigo con el mismo desplazamiento. Sin él,
+  una naranja recién comida le entregó sus seis avistamientos a una carta de
+  confeti y el bot caminó hacia atrás a recogerla.
+- ↩️ **El agarre libre no camina hacia atrás sobre una sospechosa.** En todo el
+  resto de la estrategia una sospechosa de la banda izquierda es confeti que no
+  se puede creer ni perseguir; esta regla era la única que igual iba.
+- 🧱 **La pared en formación no promete nada que el lanzamiento pueda cobrar.**
+  Caminar a un lanzamiento de la columna 0 no hace scroll, así que ni la
+  pirámide de la columna 4 ni la que promete el preview entran nunca en el
+  camino del dash. Contarlas rompía la regla que el propio archivo declara:
+  quien camina y quien dispara tienen que usar el mismo criterio. Costó cuatro
+  paticas y una garra en una corrida.
+- 🗺️ **No vuelvas a una celda que ya te dio su respuesta.** 351 de 3.062
+  cambios de celda eran un regreso estéril: unos 6.400 de energía.
+
+**No se queda tieso ni se muere**
+
+- 🩹 El primer cuadro moría con `UnboundLocalError`, y **nadie ejecutaba
+  `main()`** para verlo. Ahora hay pruebas de humo que corren el bucle de
+  verdad contra capturas grabadas.
+- 💤 Quedarse sin paticas **termina la corrida** con su propio código de salida
+  en vez de seguir tocando la pantalla: una corrida gastó sus últimos 17
+  cuadros así.
+- 🐞 Una variable local tapaba una función del módulo y el bot moría en la
+  acción 25.
+
+**Más rápido**
+
+- ⚡ La rejilla se busca **una vez**, no 29.600 veces por cuadro: 298 ms → 2,6 ms
+  (115×), y la suite de tests pasó de 303 s a ~52 s. Verificado bit a bit sobre
+  1.706 cuadros grabados.
+
+**Economía remedida**
+
+- 💱 Energía por shard: **paso 0,455 · garra 0,265 · dash 0,048.** Una garra
+  empata con rodear (84 contra 80 shards); un dash solo paga contra una pared
+  sin vuelta. Se retiraron 427 dashes de pareja pelada (~170.800 shards).
+- 🔋 Quema por acción recalculada tras una corrida que se quedó sin pasos
+  diciendo que no lo haría.
+
+**Medido y escrito, no arreglado**
+
+- 🔭 La **sexta columna** acierta casi todo lo que llega (recall 0,928) y se
+  inventa la mitad de lo que anuncia (precisión 0,509). No se pudo refinar:
+  blancura, luminancia, contraste, ventana estrecha, palpitación y persistencia
+  fallan todas contra un holdout partido por corrida. La rendija es el bisel
+  del tablero, no la columna siguiente, y le faltan píxeles que el juego no
+  dibuja. Su coste real está medido: **680 shards en 15.015 cuadros**, así que
+  se deja como está.
+
+- 🧪 638 tests offline, incluidas pruebas que ejecutan el bucle real del runner.
+
+Diario completo con las cifras en [`docs/review-2026-08-28.md`](docs/review-2026-08-28.md).
 
 ### v0.3.1 - 28.08.2026
 
