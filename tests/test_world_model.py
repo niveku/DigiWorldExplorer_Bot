@@ -157,6 +157,43 @@ class PyramidsSurviveTheirCoverTests(unittest.TestCase):
         self.assertIn((1, 1), world.believed_pyramids())
         self.assertNotIn((1, 1), world.believed_items())
 
+    def test_a_cover_that_never_lifts_is_not_a_cover(self):
+        """Run 20260829T201007 n=73-81 (user: "no recogio una energia, es
+        como si se hubiera descachado"). The pyramid at (1,4) left the
+        screen at n=73 and an orange took the cell. Being "seen" as an
+        item kept the dead track out of the decay pass, so it never
+        aged - it rode the belt left, (1,4) -> (1,3) -> (1,2), and the
+        covered-pyramid merge stamped pyramid=.9 over a REAL orange one
+        step from the bot. The planner walked away and spent four paws
+        coming back.
+
+        Confetti does not last: 87.8% of interior pickup sightings are
+        gone by the next frame and 95.4% within two (709 quiet frame
+        pairs). An item still there on the third frame is an item."""
+        world = running()
+        world.observe(seen(pyramids={(1, 4)}), shift=0)
+        self.assertIn((1, 4), world.believed_pyramids())
+        for frame in range(1, wm.MAX_MISSES):
+            world.observe(seen(items={(1, 4): "orange"}), shift=0)
+            self.assertIn((1, 4), world.believed_pyramids(),
+                          f"gave up after {frame} covered frame(s)")
+        world.observe(seen(items={(1, 4): "orange"}), shift=0)
+        self.assertNotIn((1, 4), world.believed_pyramids())
+        self.assertEqual(world.believed_items(), {(1, 4): "orange"})
+
+    def test_a_cover_that_lifts_leaves_the_pyramid_intact(self):
+        """The case this must not break: one frame of confetti, then the
+        glass again (run 20260822T160202 n=89)."""
+        world = running()
+        world.observe(seen(pyramids={(1, 1)}), shift=0)
+        world.observe(seen(items={(1, 1): "orange"}), shift=0)
+        world.observe(seen(pyramids={(1, 1)}), shift=0)
+        self.assertIn((1, 1), world.believed_pyramids())
+        for _ in range(wm.MAX_MISSES + 1):
+            world.observe(seen(items={(1, 1): "orange"}), shift=0)
+            world.observe(seen(pyramids={(1, 1)}), shift=0)
+        self.assertIn((1, 1), world.believed_pyramids())
+
     def test_a_broken_pyramid_leaves_at_once(self):
         # Vision reading the cell as plain empty is the break: pyramids
         # score 0.88-0.99, they do not flicker like items do.

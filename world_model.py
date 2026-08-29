@@ -221,7 +221,45 @@ class WorldModel:
         # nor gain confidence.
         blind = {tuple(cell) for cell in occluded}
         for cell, track in list(self.tracks.items()):
-            if cell in seen_cells or cell in blind:
+            if cell in blind:
+                continue
+            covered = (track.kind == "pyramid" and cell in items
+                       and cell not in pyramids)
+            if cell in seen_cells and not covered:
+                continue
+            if covered:
+                # A pickup reading on a pyramid's cell is confetti, and
+                # the pyramid outlives the card painted over it (run
+                # 20260822T160202 n=89). But only for as long as
+                # confetti lasts: measured over 709 quiet frame pairs,
+                # 87.8% of interior pickup sightings are gone by the
+                # next frame and 95.4% within two. An item still there
+                # on the third frame is an ITEM, and the pyramid that
+                # was on that cell is gone.
+                #
+                # Without this the track was immortal: being "seen" as
+                # an item kept it out of the decay loop below, so it
+                # never aged. Run 20260829T201007: the pyramid at (1,4)
+                # left the screen at n=73, an orange took the cell, and
+                # the dead track rode the belt left for four frames -
+                # (1,4) -> (1,3) -> (1,2) - until `covered_pyramids`
+                # stamped pyramid=.9 over a REAL orange at (1,2) one
+                # step from the bot. The planner walked away from it and
+                # spent four paws coming back (user: "no recogio una
+                # energia, es como si se hubiera descachado").
+                track.misses += 1
+                if track.misses >= MAX_MISSES:
+                    # Hand the cell to the item that was there all
+                    # along. Deleting the track instead would make the
+                    # pickup a newborn - unexplained, and three more
+                    # sightings before it can be acted on - for
+                    # something the screen has been showing since the
+                    # cover began. It cannot have arrived here: nothing
+                    # is born in the interior (user law 2026-08-29).
+                    track.kind = "item"
+                    track.category = items[cell]
+                    track.sightings = track.misses
+                    track.misses = 0
                 continue
             track.misses += 1
             # A pyramid that vision reports as plainly empty was broken:
@@ -278,7 +316,13 @@ class WorldModel:
             # 20260822T160202 n=89 tapped such a cell and paid a hidden
             # 200-shard garra; suspecting the whole neighbourhood was
             # the old, blunt answer.
-            track.misses = 0
+            #
+            # The cover is NOT a sighting, so the miss counter is left
+            # alone for `observe`'s decay pass to raise. Zeroing it here
+            # made the track immortal: it was "seen" (as an item), so
+            # the decay loop skipped it, and the reset undid the one
+            # miss it did accrue. See the covered-track note in
+            # `observe` for what that cost in run 20260829T201007.
             return
         origin = self._classify(cell, shift, first_frame, revealed,
                                 edge_explains)
