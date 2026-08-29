@@ -2761,6 +2761,22 @@ def main():
         if preview is not None and any(preview):
             event["sixth_column"] = preview
         item_goals = pickup_goals(info, player)
+        # The log records `detected_info` - the board BEFORE the merges -
+        # while every decision is taken on `info`, the board after them.
+        # Three forensic passes on 2026-08-28 ended at that seam with
+        # "the difference has to be state the log never showed", and the
+        # fourth is run 20260829T002643 n=103: the logged board carries
+        # an orange at (4,1) one step below the bot, the bot explored
+        # right past it (user: "decidio no recoger una energia"), and the
+        # batch sizer recorded "no visible items" on the same frame - so
+        # the planner's board had no pickup on it and the log cannot say
+        # which merge removed it. Replaying the frame every way the
+        # recorded state allows takes the orange, so the answer is not in
+        # the strategy. This line is what the next run needs to say it in
+        # one place: what the PLANNER saw, not what the eyes did.
+        if item_goals != {cell for cell, values in detected_info.items()
+                          if is_pickup(values) and cell != tuple(player)}:
+            event["planner_goals"] = sorted(list(c) for c in item_goals)
         # Batch-2 is adaptive: on an item-free board it may safely advance up
         # to three cells. Any visible pickup immediately restores the more
         # careful two-click limit.
