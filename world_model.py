@@ -40,35 +40,19 @@ BOARD = 5
 # across the 2026-08-20/22 runs), so a third settled sighting means the
 # thing is real no matter how it was born.
 #
-# Re-priced to 2 on 2026-08-29, when BURST_ITEMS gave the model a CAUSAL
-# confetti detector and this statistical one could finally be measured
-# against it. Ground truth: the game's own energy counter over 761
-# recorded steps onto a cell the board showed as an orange, 45 runs,
-# split BY RUN. On the 15 held out:
-#
-#     rule                        real taken  deferred | confetti refused  taken
-#     three sightings, no burst           74        34 |         54            8
-#     burst + three sightings             64        44 |         59            3
-#     burst + TWO sightings               84        24 |         57            5
-#     burst + one sighting               105         3 |         45           17
-#     nothing at all                     108         0 |          0           62
-#
-# An orange is +125 energy and a wasted paw about 18, so burst+two beats
-# today on BOTH columns: ten more real oranges and three fewer confetti
-# steps. Burst+one scores higher still on that arithmetic, but nine of
-# this repo's own tests refuse it and the replay corpus flags real
-# STARVATION violations - so it is not taken. Waiting three frames was
-# never confetti-specific: it delayed every real pickup equally, and
-# confetti has a cause the frame itself can see.
+# Re-priced to 2 on 2026-08-29, once `observe` learned to refuse confetti
+# by its CAUSE and this statistical stand-in could be measured against
+# it. Ground truth: the game's own energy counter over 916 recorded steps
+# onto a cell the board showed as an orange, 45 runs, split BY RUN.
+# Waiting three frames was never confetti-specific - it delayed every
+# real pickup equally, and a real pickup is worth +125 against the ~18 a
+# wasted paw costs. Two keeps a floor under detector flicker without
+# making the bot late for everything.
 CONFIRM_SIGHTINGS = 2
 # A track survives this many consecutive unseen frames. Confetti cover
 # and detection flicker last one; three is the same tolerance the old
 # clean-miss decay converged on.
 MAX_MISSES = 3
-# Pickups on screen at which the frame stops being evidence about
-# pickups: a collection's confetti. Measured against the energy counter
-# over 761 steps onto a visible orange - see `observe`.
-BURST_ITEMS = 4
 
 
 @dataclass
@@ -133,7 +117,7 @@ class WorldModel:
         self.tracks: dict[tuple, Track] = {}
         self.frame = 0
         self.preview = [False] * BOARD
-        self._confetti: set = set()            # this frame's burst, if any
+        self._confetti: set = set()   # this frame's refused confetti
         self._predicted: dict[int, int] = {}   # row -> frame first promised
         self._confirmed: set[int] = set()
         self._updates = 0
@@ -141,7 +125,8 @@ class WorldModel:
     # ---- observation -------------------------------------------------
 
     def observe(self, detections, shift=0, player=None, revealed=(),
-                preview=None, occluded=(), edge_explains=True):
+                preview=None, occluded=(), edge_explains=True,
+                collected=False):
         """Fold one frame of vision into the model.
 
         `detections` is {"items": {cell: category}, "pyramids": {cells}}
@@ -157,43 +142,44 @@ class WorldModel:
         items = dict(detections.get("items") or {})
         pyramids = set(detections.get("pyramids") or ())
         revealed = {tuple(cell) for cell in revealed}
-        # A collection throws confetti cards across the board, and while
-        # they are in the air the frame says almost nothing true about
-        # items. Ground truth is the game's own energy counter: of the
-        # 761 recorded steps onto a cell the board showed as an orange
-        # (45 runs), the share that actually paid its +125 collapses
-        # with how crowded the frame was -
+        # CONFETTI, stated as the game states it (user law 2026-08-29):
+        # it exists only where something was just collected - a step
+        # onto a pickup, or a dash, which sweeps everything in its lane.
+        # Nowhere else, ever. And it is only ever NOISE ADDED: it paints
+        # new cards over the board, it does not remove what is there.
         #
-        #     items on screen   1     2     3  |   4     5     6     7+
-        #     really there    99.2% 93.3% 73.3%| 26.2% 14.7% 23.1%  6.8%
+        # So the answer is not "how crowded is the frame" - a board CAN
+        # hold five real drops at once, and counting them punished
+        # exactly the frames worth having (run 20260829T234223 n=421:
+        # four real pickups, energy flat for three frames, all four
+        # refused). The answer is: on a frame that collected something,
+        # refuse the sightings that are NEW where nothing can legally be
+        # born - and touch nothing else.
         #
-        # - a cliff between three and four, not a slope. So a frame
-        # showing BURST_ITEMS or more pickups is not evidence about
-        # pickups at all: it is unobservable, the same way the partner's
-        # own body makes its 3x3 unobservable. Tracks under it neither
-        # age nor gain confidence, and nothing new is born from it.
+        # Measured against the game's own energy counter, 916 recorded
+        # steps onto a cell the board showed as an orange:
         #
-        # What this deliberately does NOT do is forget. An item already
-        # believed stays believed straight through the burst - that is
-        # the whole point, and the reason this is a blindfold and not a
-        # veto: the bot must keep the items it already knows and refuse
-        # only what a burst frame tries to teach it.
-        if len(items) >= BURST_ITEMS:
-            confetti, items = set(items), {}
-        else:
-            confetti = set()
-        # Held for the planner to read back this frame: a cell the burst
-        # is showing, with no believed track under it, is a suspect. The
-        # blindfold alone would leave it merely unknown, and the
-        # strategy builds its goals from the raw colour scores - so it
-        # would walk to it anyway. This is what run 20260829T210131
-        # n=21-23 cost: one paw left onto a .07 orange in a frame with
-        # five weak readings, energy unchanged, and then the anti-back-
-        # step veto - correctly, nothing was picked up - sent it a
-        # second paw downwards rather than back.
-        self._confetti = {cell for cell in confetti
-                          if cell not in self.tracks
-                          or not self.tracks[cell].believed}
+        #     >=4 items, nothing collected in 3 frames :   4 real,   0 fake
+        #     >=4 items, collected on the last frame   :  60 real, 240 fake
+        #     <=3 items, nothing collected in 3 frames :  31 real,   1 fake
+        #     <=3 items, collected on the last frame   : 541 real,  36 fake
+        #
+        # A crowded board with no collection behind it was real every
+        # single time. The cause separates them; the crowd does not.
+        #
+        # What this deliberately does NOT do is forget. A track already
+        # believed stays believed and stays a target straight through
+        # the burst - the bot goes and gets what it already knows is
+        # there, because confetti cannot make a real pickup vanish.
+        confetti = set()
+        if collected:
+            for cell in list(items):
+                if (cell in self.tracks or cell in revealed
+                        or first_frame or self._edge_born(cell, shift)):
+                    continue
+                confetti.add(cell)
+                del items[cell]
+        self._confetti = confetti
         seen_cells = set(items) | pyramids
 
         # ---- the belt moved and the ledger did not count it ------
@@ -395,6 +381,17 @@ class WorldModel:
             row = cell[0]
             if row in self._predicted:
                 self._confirmed.add(row)
+
+    def _edge_born(self, cell, shift):
+        """True where the belt can legally have just delivered this cell.
+
+        The board's only door. After a one-column scroll that is column
+        4; after a three-column dash it is columns 2 to 4 - which is
+        also why a dash is the one case worth holding a frame for, since
+        the far columns are genuinely unknown while the near ones are
+        not.
+        """
+        return bool(shift) and cell[1] >= BOARD - shift
 
     def _classify(self, cell, shift, first_frame, revealed,
                   edge_explains=True):

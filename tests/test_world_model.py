@@ -250,66 +250,96 @@ class BeliefIsNotRelitigatedTests(unittest.TestCase):
         self.assertNotIn((3, 1), world.believed_items())
 
 
-class ConfettiBurstTests(unittest.TestCase):
-    """A collection throws cards across the board. While they are in the
-    air the frame says almost nothing true about items, and it says so
-    LOUDLY: the crowd itself is the signal.
+class ConfettiTests(unittest.TestCase):
+    """Confetti, stated the way the game makes it (user law 2026-08-29).
 
-    Ground truth is the game's own energy counter over 761 recorded
-    steps onto a cell the board showed as an orange (45 runs). The share
-    that actually paid its +125 falls off a cliff, not a slope:
+    It exists only where something was just collected - a step onto a
+    pickup, or a dash, which sweeps its whole lane and so always
+    collects. Nowhere else. And it is only ever noise ADDED: it paints
+    new cards over the board, it never removes what is there.
 
-        items on screen   1     2     3  |   4     5     6     7+
-        really there    99.2% 93.3% 73.3%| 26.2% 14.7% 23.1%  6.8%
+    So the signal is the CAUSE, not the crowd. Measured against the
+    game's own energy counter over 916 recorded steps onto a cell the
+    board showed as an orange:
+
+        >=4 items, nothing collected in 3 frames :   4 real,   0 fake
+        >=4 items, collected on the last frame   :  60 real, 240 fake
+        <=3 items, nothing collected in 3 frames :  31 real,   1 fake
+        <=3 items, collected on the last frame   : 541 real,  36 fake
+
+    A crowded board with no collection behind it was real every single
+    time - counting items punished exactly the frames worth having.
     """
 
-    def test_a_crowded_frame_teaches_the_model_nothing(self):
+    def test_a_rich_board_with_no_collection_behind_it_is_believed(self):
+        """Run 20260829T234223 n=421: three oranges and a steps card on
+        screen at once, energy flat for three frames, and the bot
+        refused all four and walked past them."""
         world = running()
-        crowd = {(r, 1): "orange" for r in range(wm.BURST_ITEMS)}
-        world.observe(seen(items=crowd), shift=0)
-        self.assertEqual(world.believed_items(), {})
-        self.assertEqual(world.suspect_cells(), set(crowd))
-
-    def test_a_crowd_one_short_is_an_ordinary_frame(self):
-        world = running()
-        crowd = {(r, 1): "orange" for r in range(wm.BURST_ITEMS - 1)}
+        rich = {(0, 2): "orange", (1, 3): "orange",
+                (3, 4): "orange", (4, 2): "steps"}
         for _ in range(wm.CONFIRM_SIGHTINGS):
-            world.observe(seen(items=crowd), shift=0)
-        self.assertEqual(set(world.believed_items()), set(crowd))
+            world.observe(seen(items=rich), shift=0, collected=False)
+        self.assertEqual(set(world.believed_items()), set(rich))
+        self.assertEqual(world.suspect_cells(), set())
 
-    def test_what_was_already_known_survives_the_burst(self):
-        """The point of the whole thing. The bot must keep the items it
-        already knows and refuse only what a burst tries to teach it -
-        a blindfold, never an eraser."""
+    def test_a_collection_frame_refuses_what_is_new(self):
+        world = running()
+        cards = {(r, 1): "orange" for r in range(4)}
+        world.observe(seen(items=cards), shift=0, collected=True)
+        self.assertEqual(world.believed_items(), {})
+        self.assertEqual(world.suspect_cells(), set(cards))
+
+    def test_what_was_already_known_survives_the_confetti(self):
+        """The half the user asked for by name: the bot must go and get
+        what it already knows is there. Confetti cannot make a real
+        pickup vanish, so it must not make the model forget one."""
         world = running()
         for _ in range(wm.CONFIRM_SIGHTINGS):
             world.observe(seen(items={(0, 4): "orange"}), shift=1)
         self.assertIn((0, 4), world.believed_items())
-        burst = {(r, 1): "orange" for r in range(wm.BURST_ITEMS)}
-        burst[(0, 4)] = "orange"
-        world.observe(seen(items=burst), shift=0)
+        cards = {(r, 1): "orange" for r in range(4)}
+        cards[(0, 4)] = "orange"
+        world.observe(seen(items=cards), shift=0, collected=True)
         self.assertIn((0, 4), world.believed_items())
         self.assertNotIn((0, 4), world.suspect_cells())
 
-    def test_a_believed_item_does_not_age_under_the_burst(self):
-        """Blind, not absent: a track the burst is covering must neither
-        gain confidence nor accrue misses, or MAX_MISSES would quietly
-        delete real memory every time the bot picks something up."""
+    def test_a_known_item_does_not_age_under_the_confetti(self):
         world = running()
         for _ in range(wm.CONFIRM_SIGHTINGS):
             world.observe(seen(items={(0, 4): "orange"}), shift=1)
-        burst = {(r, 1): "orange" for r in range(wm.BURST_ITEMS)}
-        burst[(0, 4)] = "orange"
+        cards = {(r, 1): "orange" for r in range(4)}
+        cards[(0, 4)] = "orange"
         for _ in range(wm.MAX_MISSES + 2):
-            world.observe(seen(items=burst), shift=0)
+            world.observe(seen(items=cards), shift=0, collected=True)
         self.assertIn((0, 4), world.believed_items())
 
-    def test_the_burst_says_nothing_about_pyramids(self):
-        """Only pickups are drowned out. Pyramids are read as usual -
-        the cards are painted over the board, not instead of it."""
+    def test_the_edge_still_delivers_during_a_collection(self):
+        """A scroll and a pickup can land on the same frame. Column 4 is
+        the board's door and stays open: refusing it would drop real
+        arrivals every time the bot walks onto something."""
         world = running()
-        burst = {(r, 1): "orange" for r in range(wm.BURST_ITEMS)}
-        world.observe(seen(items=burst, pyramids={(2, 3)}), shift=0)
+        world.observe(seen(items={(2, 4): "orange", (2, 1): "orange"}),
+                      shift=1, collected=True)
+        self.assertIn((2, 4), world.believed_items())
+        self.assertNotIn((2, 1), world.believed_items())
+
+    def test_a_dash_leaves_the_far_columns_in_doubt(self):
+        """A dash scrolls three columns AND collects, so columns 2-4 are
+        both newly arrived and freshly littered. That is the one case
+        worth holding a frame for."""
+        world = running()
+        world.observe(seen(items={(1, 2): "orange", (1, 3): "orange",
+                                  (1, 4): "orange"}),
+                      shift=3, collected=True, edge_explains=False)
+        self.assertEqual(world.believed_items(), {})
+        self.assertEqual(world.suspect_cells(), {(1, 2), (1, 3), (1, 4)})
+
+    def test_confetti_says_nothing_about_pyramids(self):
+        world = running()
+        cards = {(r, 1): "orange" for r in range(4)}
+        world.observe(seen(items=cards, pyramids={(2, 3)}), shift=0,
+                      collected=True)
         self.assertIn((2, 3), world.believed_pyramids())
 
 

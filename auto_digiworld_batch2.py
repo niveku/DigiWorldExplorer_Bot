@@ -2790,7 +2790,12 @@ def main():
                       revealed=live_reveal_cells(pending_reveals,
                                                  frame_clock.now),
                       preview=preview, occluded=occluded_cells,
-                      edge_explains=previous_action != "dash")
+                      edge_explains=previous_action != "dash",
+                      # Confetti has exactly two sources: a step that
+                      # collected something, and a dash, which sweeps
+                      # everything in its lane and so always collects.
+                      collected=(pending_picked
+                                 or previous_action == "dash"))
         suspect_items = world.suspect_cells()
         # Memory is simply the believed tracks vision cannot see right
         # now - no separate store, no TTL, no ghost-dropping rules.
