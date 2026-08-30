@@ -25,6 +25,13 @@ DIRS = ((0, 1, "right"), (1, 0, "down"), (-1, 0, "up"), (0, -1, "left"))
 # while border decor, sprite parts, and apex remnants stay at or below 0.24.
 # The old 0.18 threshold sat inside the noise band and flickered constantly.
 PYRAMID_THRESHOLD = .40
+# Below this a cell is plainly EMPTY - the only way a pyramid leaves,
+# short of scrolling off. Between the two the glass is still there and
+# the reading is merely dim, which on this scale happens: measured over
+# 509 obstacles that stopped being obstacles with no scroll and no
+# attack, the next frame reads below .15 in 454 of them and the pyramid
+# comes back in 2%, while in the .25-.40 band it comes back in 45%.
+PYRAMID_DIM = .15
 
 
 def is_obstacle(values):

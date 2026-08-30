@@ -126,7 +126,7 @@ class WorldModel:
 
     def observe(self, detections, shift=0, player=None, revealed=(),
                 preview=None, occluded=(), edge_explains=True,
-                collected=False):
+                collected=False, dim=()):
         """Fold one frame of vision into the model.
 
         `detections` is {"items": {cell: category}, "pyramids": {cells}}
@@ -268,7 +268,31 @@ class WorldModel:
         # empty: their colours are wiped precisely because they read as
         # false pickups, so a track under the sprite must neither age
         # nor gain confidence.
-        blind = {tuple(cell) for cell in occluded} | confetti
+        # A cell whose glass is merely DIM is not an empty cell. The
+        # rule below deletes an unseen pyramid on the spot, because "a
+        # pyramid leaves only by being broken, which reads as a plainly
+        # EMPTY cell" - true when a pyramid read 0.88-0.99, and no
+        # longer true now that the walkable highlight has left the mask
+        # and a solid one reads about .54 against a .40 threshold. A
+        # marginal pyramid - half scrolled off the left edge, say - now
+        # dips under the line for a frame.
+        #
+        # Measured over 509 obstacles that stopped being obstacles with
+        # no scroll and no attack: the next frame reads below .15 in 454
+        # of them and the pyramid comes back in 2%, while in the
+        # .25-.40 band it comes back in 45%. So the dim band is a track
+        # the eyes lost, not a cell that was cleared, and it is blind
+        # rather than empty.
+        #
+        # Run 20260830T001653 frame 0068 is what the old rule cost: the
+        # pyramid at (2,0) read .51/.55/.51/.57 for four frames and then
+        # .3957 - five thousandths under the line. The track was deleted,
+        # the planner routed THROUGH the cell, and the move tap onto a
+        # pyramid executed a hidden 200-shard garra (user: "decide sin
+        # ninguna razon romper la piramide"). The garra dropped a claw
+        # the bot then spent two more paws going back for.
+        blind = ({tuple(cell) for cell in occluded} | confetti
+                 | {tuple(cell) for cell in dim})
         for cell, track in list(self.tracks.items()):
             if cell in blind:
                 continue

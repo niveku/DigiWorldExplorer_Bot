@@ -2389,6 +2389,18 @@ def main():
         # Per-frame energy timeline: makes milestone rewards (+1000 spikes)
         # distinguishable from gradual per-meter accrual in the log.
         event["energy"] = read_energy_counter(image)
+        # The game's own receipt for a collection, and the only one that
+        # cannot be wrong. `confirmed_pickup` is VISION deciding it
+        # stepped on something, and it under-reports: run 20260830T001653
+        # frame 0084 collected +125 and did not say so, so the confetti
+        # it threw was taken for a real orange at (2,0) and the bot spent
+        # two paws walking left to nothing (user: "decide devolverse
+        # donde no hay nada"). The smallest pickup in the game is the
+        # +125 orange; per-meter accrual never moves the counter by that
+        # much between two frames.
+        energy_rose = (event["energy"] is not None
+                       and last_loop_energy is not None
+                       and event["energy"] - last_loop_energy >= 100)
         if event["energy"] is not None:
             # Kept for the closing summary: a pickup animation can cover
             # the counter exactly when the run ends (see final_energy).
@@ -2794,8 +2806,14 @@ def main():
                       # Confetti has exactly two sources: a step that
                       # collected something, and a dash, which sweeps
                       # everything in its lane and so always collects.
-                      collected=(pending_picked
-                                 or previous_action == "dash"))
+                      collected=(pending_picked or energy_rose
+                                 or previous_action == "dash"),
+                      # Cells whose glass is dim rather than gone: the
+                      # eyes lost the pyramid, they did not see it
+                      # cleared.
+                      dim={cell for cell, values in info.items()
+                           if strategy.PYRAMID_DIM < values["pyramid"]
+                           <= strategy.PYRAMID_THRESHOLD})
         suspect_items = world.suspect_cells()
         # Memory is simply the believed tracks vision cannot see right
         # now - no separate store, no TTL, no ghost-dropping rules.

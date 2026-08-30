@@ -343,6 +343,48 @@ class ConfettiTests(unittest.TestCase):
         self.assertIn((2, 3), world.believed_pyramids())
 
 
+class DimPyramidTests(unittest.TestCase):
+    """A pyramid leaves only by being broken, and a broken cell reads
+    plainly EMPTY. That justified deleting an unseen pyramid track on the
+    spot - while a pyramid read 0.88-0.99. Since the walkable highlight
+    left the mask a solid one reads about .54 against a .40 threshold,
+    and a marginal pyramid - half scrolled off the left edge - dips under
+    the line for a frame.
+
+    Measured over 509 obstacles that stopped being obstacles with no
+    scroll and no attack: the next frame reads below .15 in 454 of them
+    and the pyramid comes back in 2%, while in the .25-.40 band it comes
+    back in 45%. Dim is a track the eyes lost, not a cell that was
+    cleared.
+
+    Run 20260830T001653 frame 0068 is what the old rule cost: (2,0) read
+    .51/.55/.51/.57 and then .3957 - five thousandths under the line. The
+    track was deleted, the planner routed THROUGH the cell, and the move
+    tap executed a hidden 200-shard garra."""
+
+    def test_a_dim_cell_keeps_its_pyramid(self):
+        world = running()
+        world.observe(seen(pyramids={(2, 0)}), shift=0)
+        self.assertIn((2, 0), world.believed_pyramids())
+        world.observe(seen(), shift=0, dim={(2, 0)})
+        self.assertIn((2, 0), world.believed_pyramids())
+
+    def test_a_plainly_empty_cell_still_drops_it_at_once(self):
+        world = running()
+        world.observe(seen(pyramids={(2, 0)}), shift=0)
+        world.observe(seen(), shift=0)
+        self.assertNotIn((2, 0), world.believed_pyramids())
+
+    def test_a_dim_cell_does_not_confirm_anything_either(self):
+        """Blind, not seen: a dim frame must not feed a track evidence,
+        or a flicker would keep a dead pyramid alive forever."""
+        world = running()
+        world.observe(seen(pyramids={(2, 0)}), shift=0)
+        before = world.at((2, 0)).sightings
+        world.observe(seen(), shift=0, dim={(2, 0)})
+        self.assertEqual(world.at((2, 0)).sightings, before)
+
+
 class CollectionTests(unittest.TestCase):
     """Standing on a cell collects it: the track ends there, with no
     separate memory-pop, phantom-drop and contradiction rule."""
