@@ -1,74 +1,95 @@
-# Qué cambió respecto al proyecto original
+# What this fork changed
 
-Trazabilidad del fork. El historial de git es la fuente de verdad; esto es
-el resumen legible.
+Fork traceability. Git history is the source of truth; this is the readable
+summary.
 
 - **Base**: [RobinTh0r/DigiWorldExplorer_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Bot),
-  último commit del autor original `d7d8548` (2026-07-31).
-- **Este fork**: 169 commits encima, +23.093 / −484 líneas en 76 archivos.
-- Para ver exactamente la diferencia:
+  last commit by the original author `d7d8548` (2026-07-31).
+- **This fork**: everything after it. Ask git rather than trusting a number
+  written here:
 
   ```bash
   git remote add upstream https://github.com/RobinTh0r/DigiWorldExplorer_Bot.git
   git fetch upstream
-  git log --oneline upstream/main..HEAD     # los 169 commits
-  git diff --stat upstream/main..HEAD       # el alcance
+  git rev-list --count upstream/main..HEAD   # how many commits
+  git diff --stat upstream/main..HEAD        # how much they touched
+  git log --oneline upstream/main..HEAD      # what they were
   ```
 
-## Lo que ya venía del original
+## Where the numbers live
 
-Detección automática de la cuadrícula 5×5 por ADB, exploración con
-prioridades (naranjas, items, derecha, pirámides, dash), paradas de
-seguridad ante tablero u overlay dudoso, los launchers de Windows
-(`INSTALL.cmd`, `START.cmd`, `CHECK.cmd` y sus `.ps1`), el empaquetado con
-entorno local de Python y el esquema de releases. Esa es la columna
-vertebral y no la escribí yo.
+Counts that change go in exactly one place, and this file is it. Anything
+else that wants one links here instead of repeating it, because the same
+count written into four documents drifts in four directions: on 2026-08-31
+the test total read 638 in the README badge, 638 in the fork note, 520 in
+CONTRIBUTING and 607 in an old changelog entry, all at once.
 
-## Lo que se construyó encima
+Two rules keep it that way:
 
-**El recibo de paticas (`step_ledger.py`).** La pieza que cambió todo lo
-demás. El contador de paticas del HUD es la autoridad sobre lo que el juego
-cobró: si no cobró, el tap no existió. Antes el bot creía en sus propios
-taps, y de esa fe salían casi todos los desincronismos. Orden de autoridad:
-recibo → píxeles → suposición.
+- **A count git can answer is not written down.** Commit totals and diff
+  stats are the commands above, not figures. A figure would be stale by the
+  next commit.
+- **A count inside a dated changelog entry stays.** "638 tests" under v0.4.0
+  is a fact about that release, and history does not go out of date.
 
-**Física de la banda transportadora.** La cuadrícula es mobiliario fijo; lo
-que se mueve es su contenido, y avanza exactamente una columna cuando un
-paso COBRADO lleva al jugador de la columna 1 a la 2. Toda la memoria del
-mundo (items recordados, obstáculos fantasma, vetos, baneos) se desplaza con
-esa regla en vez de con un heurístico de píxeles.
+The one live figure stated here is the test total, and
+`tests/test_docs_numbers.py` fails when it stops being true:
 
-**Modelo del mundo (`world_model.py`).** Las celdas dejaron de re-juzgarse
-cada frame: ahora son pistas con identidad, clasificadas por su ORIGEN al
-nacer. Un item que entra por el borde derecho está explicado y se cree en el
-acto; lo que nace sin explicación (confeti de recogida) queda en sospecha.
+**673 tests** (`python -m unittest discover -s tests`), with fixtures cut
+from real captures of the game.
 
-**Harness de replay (`replay_harness.py`).** Cada corrida guardada se vuelve
-un test de regresión de punta a punta: reproduce los PNG reales y audita
-invariantes — GHOST, PLAYER-LAW, STARVATION, BLIND-TOUR, PING-PONG,
-INDECISION, BACKSTEP. Es lo que permite arreglar un defecto de planificación
-y comprobar contra footage real que no volvió.
+## What already came from the original
 
-**Planificación con economía medida.** Un tour sobre todos los pickups en
-vez de rescates de pánico; precios reales (paso 40 fragmentos, garra 200,
-dash 400) y presupuestos de scroll para no erosionar lo perecedero; vetos de
-retroceso respaldados por el recibo.
+Automatic detection of the visible 5x5 grid over ADB, exploration by
+priority (oranges, items, right, pyramids, dash), safety stops on a doubtful
+board or overlay, the Windows launchers (`INSTALL.cmd`, `START.cmd`,
+`CHECK.cmd` and their `.ps1`), packaging with a local Python environment,
+and the release scheme. That is the backbone, and RobinTh0r wrote it.
 
-**Ritmo adaptativo.** Las esperas entre taps responden al aparato: cada tap
-tragado estira el ritmo, cada frame limpio lo relaja hasta la base medida.
+## What this fork built on top
 
-**Suite de tests.** 668 tests (`python -m unittest discover -s tests`), con
-fixtures de capturas reales del juego.
+**The paw receipt (`step_ledger.py`).** The piece that changed everything
+else. The HUD paw counter is the authority on what the game charged: if it
+did not charge, the tap never happened. The bot used to believe its own
+taps, and nearly every desync came out of that faith. Order of authority:
+receipt, then pixels, then guess.
 
-**Lanzador.** Estimación de recursos antes de tocar nada (dice cuántas
-paticas, garras y dashes cuesta el run planeado y si alcanzan), interfaz en
-español, y el arreglo del prompt que cancelaba respondiera lo que
-respondiera.
+**Conveyor physics.** The grid is fixed furniture; its contents move, and
+they advance exactly one column when a CHARGED step carries the player from
+column 1 to column 2. All world memory (remembered items, phantom
+obstacles, vetoes, bans) shifts by that rule instead of by a pixel
+heuristic.
 
-## Diario de trabajo
+**World model (`world_model.py`).** Cells stopped being re-judged every
+frame. They are tracks with identity, classified by their ORIGIN at birth:
+an item entering through the right edge is explained and believed on sight,
+while anything born without an explanation (pickup confetti) stays a
+suspect.
 
-Los `docs/review-*.md` son el registro
-durable: cada defecto encontrado en corridas en vivo, la evidencia que lo
-probó, el arreglo, y también lo que se intentó y se **descartó con
-medición** (un candado de fila que causó un bloqueo nuevo, un atajo de
-espera que la telemetría demostró inútil).
+**Replay harness (`replay_harness.py`).** Every saved run becomes an
+end-to-end regression test: it replays the real PNGs and audits the
+invariants GHOST, PLAYER-LAW, STARVATION, BLIND-TOUR, PING-PONG, INDECISION
+and BACKSTEP. That is what lets a planning defect be fixed and checked
+against real footage.
+
+**Planning on measured economy.** A tour over every pickup instead of panic
+rescues; real prices (step 40 shards, garra 200, dash 400) and scroll
+budgets so perishable items are not eroded; back-step vetoes backed by the
+receipt.
+
+**Adaptive pacing.** Waits between taps answer the device: a swallowed tap
+stretches the rhythm, a clean frame relaxes it back to the measured floor.
+
+**Test suite.** See the count above, with fixtures from real captures.
+
+**Launcher.** A resource estimate before anything is touched (how many
+paws, garras and dashes the planned run costs, and whether they are
+enough), a Spanish interface, and the fix to the prompt that cancelled
+whatever you answered.
+
+## Work log
+
+The `docs/review-*.md` files are the durable record: every defect found in a
+live run, the evidence that proved it, the fix, and also what was tried and
+**dropped with a measurement** (a row lock that caused a new deadlock, a
+wait shortcut the telemetry showed was useless).

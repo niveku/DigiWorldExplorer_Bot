@@ -1,63 +1,67 @@
-# Origen, autoría y estado de licencia
+# Origin, authorship and licence status
 
-Este repositorio es un **fork** de
+This repository is a **fork** of
 [RobinTh0r/DigiWorldExplorer_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Bot).
 
-## Quién escribió qué
+*Written in English because its readers are the original author and anyone
+weighing up whether they may reuse this code.*
 
-| Parte | Autor |
+## Who wrote what
+
+| Part | Author |
 | --- | --- |
-| Base del proyecto: detección de la cuadrícula por ADB, exploración, launchers PowerShell, empaquetado | **RobinTh0r** (`mail@robinthor.de`) — 11 commits, hasta `d7d8548` (2026-07-31) |
-| Todo lo construido encima desde 2026-08 (ver [`docs/UPSTREAM.md`](docs/UPSTREAM.md)) | **Niveku / Kevin Henao** (`kevin.henao@gmail.com`) |
+| Project base: grid detection over ADB, exploration, PowerShell launchers, packaging | **RobinTh0r** (`mail@robinthor.de`), 11 commits up to `d7d8548` (2026-07-31) |
+| Everything built on top from 2026-08 onward (see [`docs/UPSTREAM.md`](docs/UPSTREAM.md)) | **Niveku / Kevin Henao** (`kevin.henao@gmail.com`) |
 
-El historial de git está **intacto**: `upstream/main` sigue siendo ancestro
-directo de esta rama, así que `git log` distingue commit por commit qué vino
-del proyecto original y qué se agregó después. Nada fue reescrito, aplastado
-ni re-atribuido.
+Git history is **intact**: `upstream/main` is still a direct ancestor of
+this branch, so `git log` tells you commit by commit what came from the
+original project and what was added later. Nothing was rewritten, squashed
+or re-attributed.
 
-## Estado de licencia — léelo antes de reutilizar esto
+## Licence status, read this before reusing anything
 
-El repositorio original **no declara ninguna licencia**. Según la
-documentación de GitHub, sin licencia *"the default copyright laws apply,
-meaning that you retain all rights to your source code and no one may
-reproduce, distribute, or create derivative works from your work"*. Es decir:
-los derechos sobre la base siguen siendo enteramente de RobinTh0r.
+The original repository **declares no licence**. Per GitHub's own
+documentation, without one *"the default copyright laws apply, meaning that
+you retain all rights to your source code and no one may reproduce,
+distribute, or create derivative works from your work"*. The rights to the
+base remain entirely RobinTh0r's.
 
-Lo único que permite el Términos de Servicio de GitHub (§D.5) es **ver y
-forkear dentro de GitHub**:
+GitHub's Terms of Service (§D.5) permit one thing, **viewing and forking
+inside GitHub**:
 
 > By making a repository public, you grant other Users a nonexclusive,
 > worldwide license to use, display, perform and reproduce (by forking) Your
 > Content through the Service as permitted by GitHub's functionality.
 
-Este fork existe exactamente dentro de ese permiso: vive en GitHub, es un
-fork real (no una copia con el historial borrado) y enlaza al original.
+This fork lives exactly inside that permission: it is hosted on GitHub, it
+is a real fork rather than a copy with the history deleted, and it links
+back to the original.
 
-Consecuencias prácticas:
+What follows from that:
 
-- **No hay archivo `LICENSE`** en este fork, y no puede haberlo: nadie puede
-  licenciar código ajeno. Ponerle una licencia abierta a este repositorio
-  sería afirmar un derecho que no tengo.
-- **No redistribuyas esto fuera de GitHub** (ZIP, otro host, mirror) sin
-  permiso de RobinTh0r. El permiso del ToS no llega hasta ahí.
-- Si eres RobinTh0r y quieres que este fork desaparezca, se borra: escribe a
-  `kevin.henao@gmail.com`. Si en cambio quieres los arreglos de vuelta,
-  están todos aquí y encantado de mandarte los PR.
-- Si algún día el proyecto original adopta una licencia (MIT sería lo
-  natural), este archivo se actualiza y el fork la hereda.
+- **There is no `LICENSE` file here, and there cannot be one.** Nobody can
+  licence someone else's code. Putting an open licence on this repository
+  would claim a right I do not hold.
+- **Do not redistribute this outside GitHub** (a ZIP elsewhere, another
+  host, a mirror) without RobinTh0r's permission. The ToS grant does not
+  reach that far.
+- If you are RobinTh0r and want this fork gone, it goes: write to
+  `kevin.henao@gmail.com`. If instead you want the fixes back, they are all
+  here and I will gladly send the PRs.
+- If the original project ever adopts a licence (MIT would be the natural
+  one), this file gets updated and the fork inherits it.
 
-## Marca
+## Branding
 
-El branding del proyecto original (banner `ROBINTHOR`, «Guild Edition»,
-«Exclusive for Germon Members», títulos de ventana) fue reemplazado por el
-de este fork. No es un intento de borrar autoría — la autoría está arriba,
-en el historial de git y en el enlace al repo original — sino lo contrario:
-evitar que una versión modificada siga firmando con el nombre de su autor y
-parezca respaldada por él.
+The original project's branding (the `ROBINTHOR` banner, "Guild Edition",
+"Exclusive for Germon Members", window titles) was replaced with this
+fork's. That is not an attempt to erase authorship, which is stated above,
+in the git history and in the link to the original repo. It is the
+opposite: a modified version should not keep signing with its author's name
+and look endorsed by him.
 
-## Sobre el juego
+## About the game
 
-Esto automatiza *Digimon UP*, de Bandai Namco. No está afiliado ni
-respaldado por ellos, y automatizar el juego probablemente viole sus
-términos de servicio. Úsalo bajo tu propia responsabilidad, con la cuenta
-que estés dispuesto a perder.
+This automates *Digimon UP*, by Bandai Namco. It is neither affiliated with
+nor endorsed by them, and automating the game probably violates their terms
+of service. Use it at your own risk, on an account you are willing to lose.

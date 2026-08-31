@@ -3,6 +3,20 @@
 Cambios por versión. El detalle técnico de cada arreglo, con la corrida que lo
 probó, está en los diarios de `docs/review-*.md`.
 
+## Sin publicar
+
+- 🌍 **README bilingüe.** `README.md` en español y `README.en.md` en inglés,
+  enlazados entre sí. `NOTICE.md` y `docs/UPSTREAM.md` pasaron a inglés y se
+  quedan solo en inglés: sus lectores son el autor original y quien evalúa si
+  puede reutilizar este código.
+- 🔢 **Un conteo vivo, un solo documento.** El total de tests se leía 638 en el
+  badge, 638 en la nota del fork, 520 en CONTRIBUTING y 607 en una entrada
+  vieja del changelog, todo a la vez. Ahora vive solo en `docs/UPSTREAM.md` y
+  lo demás enlaza. Lo que git puede contestar (commits, líneas cambiadas) ya no
+  se escribe: se pone el comando. `tests/test_docs_numbers.py` falla si el
+  número deja de ser cierto, si un badge se desvía de `VERSION`, o si los dos
+  README dejan de tener las mismas secciones.
+
 ## v0.5.1 - 31.08.2026
 
 - 📊 **La cotización del run estaba mal repartida.** Decía que un run gasta

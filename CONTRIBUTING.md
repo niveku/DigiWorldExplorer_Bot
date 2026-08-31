@@ -13,8 +13,10 @@ para documentar los que ya se arreglaron a mano.
 PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -m unittest discover -s tests
 ```
 
-Son 668 tests y tardan alrededor de un minuto; el replay del corpus es la
-parte lenta y es la que más vale.
+La suite tarda alrededor de un minuto; el replay del corpus es la parte
+lenta y es la que más vale. Cuántos tests son está en
+[`docs/UPSTREAM.md`](docs/UPSTREAM.md), que es el único sitio donde se
+escribe un conteo vivo.
 
 **2. La evidencia manda sobre la teoría.** Un arreglo se justifica con una
 corrida real, un log o un PNG — no con un razonamiento plausible. Si la
@@ -51,9 +53,18 @@ Las corridas limpias que cubren un caso nuevo se agregan al corpus de
 
 ## Estilo
 
-- Código, comentarios, commits y documentación en el idioma que ya usa el
-  archivo: el código y los comentarios en inglés, la interfaz de usuario y
-  los documentos en español.
+- Código, comentarios y commits en **inglés**. La interfaz de usuario (el
+  runner y los lanzadores) en **español**.
+- Documentos: `README.md` en español con espejo en `README.en.md`, y los dos
+  se actualizan juntos — un test lo comprueba. `NOTICE.md` y
+  `docs/UPSTREAM.md` van solo en inglés: sus lectores son el autor original
+  y quien evalúa si puede reutilizar esto. El changelog y los diarios de
+  `docs/review-*.md` van solo en español, porque cambian cada semana y
+  traducirlos cada vez es el costo que no se acaba nunca.
+- **Un conteo vivo se escribe en un solo sitio**, `docs/UPSTREAM.md`; lo
+  demás enlaza. Lo que git puede contestar (commits, líneas) no se escribe:
+  se pone el comando. Un número dentro de una entrada fechada del changelog
+  sí se queda, porque describe esa versión y no envejece.
 - Los comentarios explican **por qué**, con la corrida que lo probó
   (`run 20260823T155501 n=51`). Un comentario que solo repite lo que hace la
   línea siguiente sobra.

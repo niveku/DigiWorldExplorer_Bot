@@ -2,7 +2,9 @@
 
 # ⚡ DigiWorldExplorer_Bot ⚡
 
-![Version](https://img.shields.io/badge/version-0.5.1-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Tests](https://img.shields.io/badge/tests-668-green)
+![Version](https://img.shields.io/badge/version-0.5.1-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Tests](https://img.shields.io/badge/tests-passing-green)
+
+**Español** · [English](README.en.md)
 
 ### 🦖 Exploración automatizada de DigiWorld para Digimon UP
 
@@ -16,7 +18,7 @@
 > Proyecto de fans, sin relación con los desarrolladores de Digimon UP. Automatizar el juego puede violar sus reglas. Úsalo bajo tu responsabilidad.
 
 > [!IMPORTANT]
-> **Este repositorio es un fork.** La base es de [RobinTh0r](https://github.com/RobinTh0r/DigiWorldExplorer_Bot), publicada en julio de 2026. Encima van 170 commits míos. Detalle en [`docs/UPSTREAM.md`](docs/UPSTREAM.md); autoría y licencia (el original **no declara licencia**) en [`NOTICE.md`](NOTICE.md).
+> **Este repositorio es un fork.** La base es de [RobinTh0r](https://github.com/RobinTh0r/DigiWorldExplorer_Bot), publicada en julio de 2026; encima va todo lo de este fork. Qué cambió, en [`docs/UPSTREAM.md`](docs/UPSTREAM.md); autoría y licencia (el original **no declara licencia**) en [`NOTICE.md`](NOTICE.md).
 
 > [!NOTE]
 > 🔗 Proyecto hermano del autor original: [DigiWorldExplorer_Android_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Android_Bot), el port nativo a Android, sin PC ni BlueStacks.
@@ -113,7 +115,7 @@ Dos decisiones sostienen el resto:
 - **El contador del HUD manda sobre la fe.** El juego cobra el tap o no lo cobra, y ahí se sabe si la banda avanzó. El bot le cree al contador, no a haber enviado el tap.
 - **El tablero es memoria, no una foto.** Cada casilla es una pista con historia: cuántas veces se vio, de dónde salió, si es de fiar. Una animación corta ya no le hace olvidar una energía que lleva rato viendo.
 
-Los 668 tests offline corren con capturas reales, y `replay_harness.py` convierte cada run grabado en un caso de regresión.
+Los tests offline corren con capturas reales del juego, y `replay_harness.py` convierte cada run grabado en un caso de regresión. Cuántos son, en [`docs/UPSTREAM.md`](docs/UPSTREAM.md).
 
 ## 📂 Archivos
 
