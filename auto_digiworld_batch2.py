@@ -149,33 +149,40 @@ def corridor_dash_due(action, last_attack, done, preview, dashes_enabled, ttl=4,
             and bool(preview[row]))
 
 
-# Net burn per executed action. Re-measured 2026-08-28 after a run
-# starved on steps with the plan saying it would not (user report).
+# Net burn per executed action. Re-measured 2026-08-31 over 20 recorded
+# runs / 4,690 actions, all of them on the current rules. The figures
+# before this were fitted on two runs and 158 actions, and the user
+# called the shape of the error: "se gastan muchos mas DASH que garras".
 #
-# STEPS, from the per-frame paw counter (the reading the ledger already
-# trusts), 10 runs / 3,556 actions: 0.821 on average, 0.854 across the
-# two runs on today's code, and 0.910 in the worst single run. The old
-# 0.78 was ~9% optimistic, which is a whole pack of 50 on a 600-action
-# plan. Rounded UP to 0.85: starving mid-run costs the session, while
-# over-reserving costs nothing but a bigger number on screen.
+# Measured over actions SENT, the definition the 2026-08-28 numbers
+# used:
 #
-# GARRAS and DASHES fell on purpose. Garras were cut by the 2026-08-21
-# rules ('garras para nada'); dashes by the 2026-08-28 finding that a
-# dash does not collect what it breaks, which retired the bare-pair
-# dash. Measured over actions SENT: garras 0.0242 all-time but 0.0127 on
-# today's code, dashes 0.0340 all-time and 0.0253 today.
+#     steps   0.8588   (per-frame paw counter, worst run 0.9092)
+#     garras  0.0100   (worst run 0.0240)
+#     dashes  0.0207   (worst run 0.0317)
 #
-# The new rates lean on a thin sample - two runs, 158 actions - so they
-# are set above what today measured rather than at it, and the worst-case
-# row keeps the older, higher numbers.
-BURN_PER_ACTION = {"steps": 0.85, "attacks": 0.020, "dashes": 0.025}
-#: The same rates in the single worst recorded run. A run that leans
-#: hard on garras burns several times the average, so a single confident
-#: number would be a lie: the launcher reports both ends. Steps re-read
-#: 2026-08-28 (0.910 in the worst of 10 runs); garras and dashes keep the
-#: older, higher figures on purpose, because the policies that lowered
-#: them are days old and two runs are not enough to promise a floor.
-WORST_BURN_PER_ACTION = {"steps": 0.91, "attacks": 0.080, "dashes": 0.056}
+# So a dash is spent about twice as often as a garra, while the shipped
+# constants said 0.020 against 0.025 - near parity, and both wrong. The
+# garra rate is the one that drifted: the 2026-08-21 'garras para nada'
+# rules plus this week's pyramid fixes took it to half of what was
+# reserved.
+#
+# The game's own receipt (HUD inventory at start minus at end, 12 runs /
+# 3,915 actions) reads LOWER still: garras 0.0041, dashes 0.0161. The
+# difference is refunds - a claw pickup gives a garra back, a dash orb a
+# dash - and reserving against the refunded rate would starve any run
+# that finds no drops. So these constants stay on the gross number and
+# round UP: over-reserving costs a bigger number on screen, starving
+# mid-run costs the session.
+BURN_PER_ACTION = {"steps": 0.86, "attacks": 0.012, "dashes": 0.022}
+#: The same rates in the single worst recorded run of 30 actions or
+#: more. A run that meets a wall leans on dashes several times harder
+#: than the average, so a single confident number would be a lie: the
+#: launcher reports both ends. Re-measured 2026-08-31 over the same 20
+#: runs (0.9092 / 0.0240 / 0.0317) and set a little above each, which is
+#: what retired the old 0.080 garras: that ceiling came from a run in
+#: August under rules that no longer exist.
+WORST_BURN_PER_ACTION = {"steps": 0.91, "attacks": 0.030, "dashes": 0.035}
 SHOP = {"steps": {"unit": 50, "cost": 2000},   # pack of 50 steps
         "attacks": {"unit": 1, "cost": 200},
         "dashes": {"unit": 1, "cost": 400}}
@@ -295,7 +302,15 @@ def format_purchase_advice(rec):
             parts.append(f"{entry['deficit']} {label} "
                          f"({entry['cost']:,} shards)".replace(",", "."))
     total = f"{rec['total_shards']:,}".replace(",", ".")
-    return ("Compra recomendada (ratio medido 24 pasos : 1 garra : 0,8 dashes): "
+    # The ratio is derived, not typed: it was wrong within a week of
+    # being written down, and it is the same three numbers the
+    # recommendation above already spends.
+    per_garra = BURN_PER_ACTION["attacks"]
+    ratio = (f"{BURN_PER_ACTION['steps'] / per_garra:.0f} pasos : "
+             f"1 garra : "
+             f"{BURN_PER_ACTION['dashes'] / per_garra:.1f} dashes"
+             ).replace(".", ",")
+    return (f"Compra recomendada (ratio medido {ratio}): "
             + ", ".join(parts) + f" | total ~{total} shards")
 
 

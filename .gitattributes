@@ -4,3 +4,13 @@
 *.ps1 text eol=crlf
 *.cmd text eol=crlf
 *.png binary
+
+# Lo que NO viaja en el ZIP de release (Build-Release.ps1 usa git archive).
+# El jugador baja un lanzador, no un entorno de desarrollo: las fixtures
+# de tests son 9,5 de los 11 MB que git rastrea. Los docs si van: el
+# changelog los enlaza, y un enlace roto dentro del ZIP es peor que 100 KB.
+tests/ export-ignore
+CONTRIBUTING.md export-ignore
+Build-Release.ps1 export-ignore
+.gitattributes export-ignore
+.gitignore export-ignore

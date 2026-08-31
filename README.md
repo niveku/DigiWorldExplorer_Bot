@@ -2,7 +2,7 @@
 
 # ⚡ DigiWorldExplorer_Bot ⚡
 
-![Version](https://img.shields.io/badge/version-0.5.0-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Tests](https://img.shields.io/badge/tests-668-green)
+![Version](https://img.shields.io/badge/version-0.5.1-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Tests](https://img.shields.io/badge/tests-668-green)
 
 ### 🦖 Exploración automatizada de DigiWorld para Digimon UP
 
@@ -137,6 +137,8 @@ Empaquetar Python, NumPy y Pillow completos haría el release enorme. En vez de 
 ## 📝 Versiones
 
 La versión actual está en `VERSION`, en el banner de la terminal y en `python auto_digiworld_batch2.py --version`.
+
+**v0.5.1 (31.08.2026)**: la cotización del run ya reparte bien lo que gasta. Medido sobre 20 corridas, un run quema dos dashes por cada garra, y los números que traía reservaban casi lo mismo de cada uno.
 
 **v0.5.0 (31.08.2026)**: el bot deja de confundirse con dos cosas que el juego pinta encima del tablero: la luz que marca una casilla como pisable, que leía como pirámide, y el confeti de una recogida, que leía como items nuevos. Además recuerda mejor lo que ya vio, distingue antes las pirámides que entran por la derecha y deja de gastar dashes que no rompen nada.
 

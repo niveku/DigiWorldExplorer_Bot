@@ -3,6 +3,32 @@
 Cambios por versión. El detalle técnico de cada arreglo, con la corrida que lo
 probó, está en los diarios de `docs/review-*.md`.
 
+## v0.5.1 - 31.08.2026
+
+- 📊 **La cotización del run estaba mal repartida.** Decía que un run gasta
+  casi tantas garras como dashes, y el jugador lo notó antes que la medición:
+  «se gastan muchos más DASH que garras». Remedido sobre 20 corridas y 4.690
+  acciones, todas con las reglas de hoy, un dash se gasta el doble de veces
+  que una garra. Los números que había salían de dos corridas y 158 acciones.
+
+  | por acción | antes | ahora | peor corrida |
+  | --- | ---: | ---: | ---: |
+  | pasos | 0,85 | **0,86** | 0,909 |
+  | garras | 0,020 | **0,012** | 0,024 |
+  | dashes | 0,025 | **0,022** | 0,032 |
+
+  El recibo del juego (inventario del HUD al empezar contra al terminar, 12
+  corridas) da todavía menos, 0,004 garras y 0,016 dashes, porque una garra
+  recogida devuelve una garra. La reserva se queda en el número bruto: pasarse
+  cuesta un número más grande en pantalla, quedarse corto cuesta la sesión.
+- 🧮 **El ratio que imprime el lanzador ya se calcula.** Estaba escrito a mano
+  («24 pasos : 1 garra : 0,8 dashes») y quedó desactualizado en una semana.
+  Ahora sale de las mismas constantes que gasta la recomendación.
+- 📦 **`Build-Release.ps1`**: arma el ZIP del release con `git archive`, así
+  que lleva exactamente lo que git rastrea y nada de `.venv`, `runs/`,
+  `outputs/` ni configuración local. Las fixtures de tests se quedan fuera por
+  `.gitattributes` (son 9,5 de los 11 MB): el ZIP pesa 0,22 MB.
+
 ## v0.5.0 - 31.08.2026
 
 Nueve revisiones seguidas. Cada una la abrió el usuario parando una corrida y
@@ -221,5 +247,5 @@ En cada versión se actualizan juntos:
 1. `VERSION`
 2. Este changelog
 3. Tag de git `vX.Y.Z`
-4. Release de GitHub con las mismas notas
-5. ZIP sin `.venv`, sin runs y sin configuración local
+4. `.\Build-Release.ps1` (empaqueta el tag, no el árbol de trabajo)
+5. Release de GitHub con las mismas notas y el ZIP adjunto
