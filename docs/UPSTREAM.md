@@ -5,13 +5,13 @@ el resumen legible.
 
 - **Base**: [RobinTh0r/DigiWorldExplorer_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Bot),
   último commit del autor original `d7d8548` (2026-07-31).
-- **Este fork**: 111 commits encima, +11.872 / −358 líneas en 41 archivos.
+- **Este fork**: 169 commits encima, +23.093 / −484 líneas en 76 archivos.
 - Para ver exactamente la diferencia:
 
   ```bash
   git remote add upstream https://github.com/RobinTh0r/DigiWorldExplorer_Bot.git
   git fetch upstream
-  git log --oneline upstream/main..HEAD     # los 111 commits
+  git log --oneline upstream/main..HEAD     # los 169 commits
   git diff --stat upstream/main..HEAD       # el alcance
   ```
 
@@ -57,7 +57,7 @@ retroceso respaldados por el recibo.
 **Ritmo adaptativo.** Las esperas entre taps responden al aparato: cada tap
 tragado estira el ritmo, cada frame limpio lo relaja hasta la base medida.
 
-**Suite de tests.** 520 tests (`python -m unittest discover -s tests`), con
+**Suite de tests.** 668 tests (`python -m unittest discover -s tests`), con
 fixtures de capturas reales del juego.
 
 **Lanzador.** Estimación de recursos antes de tocar nada (dice cuántas
@@ -67,7 +67,7 @@ respondiera.
 
 ## Diario de trabajo
 
-`docs/review-2026-08-22.md` y `docs/review-2026-08-23.md` son el registro
+Los `docs/review-*.md` son el registro
 durable: cada defecto encontrado en corridas en vivo, la evidencia que lo
 probó, el arreglo, y también lo que se intentó y se **descartó con
 medición** (un candado de fila que causó un bloqueo nuevo, un atajo de

@@ -13,8 +13,8 @@ para documentar los que ya se arreglaron a mano.
 PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -m unittest discover -s tests
 ```
 
-Son ~520 tests y tardan unos 4 minutos; el replay del corpus es la parte
-lenta y es justo la que más vale.
+Son 668 tests y tardan alrededor de un minuto; el replay del corpus es la
+parte lenta y es la que más vale.
 
 **2. La evidencia manda sobre la teoría.** Un arreglo se justifica con una
 corrida real, un log o un PNG — no con un razonamiento plausible. Si la

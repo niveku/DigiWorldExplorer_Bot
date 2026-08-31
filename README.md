@@ -2,398 +2,152 @@
 
 # ⚡ DigiWorldExplorer_Bot ⚡
 
-![Version](https://img.shields.io/badge/version-0.4.0-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Tests](https://img.shields.io/badge/tests-638-green)
+![Version](https://img.shields.io/badge/version-0.5.0-yellow) ![Status](https://img.shields.io/badge/status-beta-orange) ![Platform](https://img.shields.io/badge/platform-Windows-blue) ![Tests](https://img.shields.io/badge/tests-668-green)
 
 ### 🦖 Exploración automatizada de DigiWorld para Digimon UP
 
 **✨ Fork de [Niveku](https://github.com/niveku) · base de [RobinTh0r](https://github.com/RobinTh0r/DigiWorldExplorer_Bot) ✨**
 
-`Local` · `Determinista` · `Solo ADB` · `Sin IA en la nube` · `Safety first`
+`Local` · `Determinista` · `Solo ADB` · `Sin IA en la nube`
 
 </div>
 
 > [!WARNING]
-> Este proyecto privado de fans no está vinculado a los desarrolladores de Digimon UP. La automatización del juego puede violar sus reglas. Uso exclusivamente bajo tu propia responsabilidad y sin garantía.
+> Proyecto de fans, sin relación con los desarrolladores de Digimon UP. Automatizar el juego puede violar sus reglas. Úsalo bajo tu responsabilidad.
 
 > [!IMPORTANT]
-> **Este repositorio es un fork.** La base — detección de la cuadrícula por ADB,
-> exploración, launchers de Windows, empaquetado — es de
-> [RobinTh0r](https://github.com/RobinTh0r/DigiWorldExplorer_Bot), que la publicó en
-> julio de 2026. Encima van 156 commits míos: el recibo de paticas, el modelo del
-> mundo, el harness de replay y 638 tests.
-> Detalle en [`docs/UPSTREAM.md`](docs/UPSTREAM.md); autoría y estado de licencia
-> — el original **no declara licencia** — en [`NOTICE.md`](NOTICE.md).
+> **Este repositorio es un fork.** La base es de [RobinTh0r](https://github.com/RobinTh0r/DigiWorldExplorer_Bot), publicada en julio de 2026. Encima van 170 commits míos. Detalle en [`docs/UPSTREAM.md`](docs/UPSTREAM.md); autoría y licencia (el original **no declara licencia**) en [`NOTICE.md`](NOTICE.md).
 
 > [!NOTE]
-> 🔗 Proyecto hermano del autor original: [DigiWorldExplorer_Android_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Android_Bot)
-> es el port nativo a Android – corre directo en el dispositivo sin PC, BlueStacks ni ADB.
+> 🔗 Proyecto hermano del autor original: [DigiWorldExplorer_Android_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Android_Bot), el port nativo a Android, sin PC ni BlueStacks.
 
-## 🌟 ¿Qué hace el bot?
+## 🌟 ¿Qué hace?
 
-El DigiWorldExplorer_Bot observa el tablero directamente por Android Debug Bridge (ADB), reconoce la **cuadrícula 5×5** visible y planifica movimientos seguros. Todas las entradas se calculan relativas al tablero detectado automáticamente – sin importar dónde esté la ventana de BlueStacks en el escritorio.
+Juega DigiWorld por ti. Mira el tablero 5×5, decide a dónde ir y toca la pantalla.
 
-El bot intenta explorar el mayor tiempo posible y prioriza:
+Va por lo que más rinde, en este orden:
 
-1. 🟠 piezas naranjas
-2. 🟣 items lilas y 🟢 verdes en rutas que valgan la pena
-3. ➡️ exploración segura hacia la derecha
-4. 🔺 desvíos o ataques ante pirámides
-5. 💨 dash solo con al menos dos obstáculos directamente consecutivos
+1. 🟠 energía
+2. 🟣 items lilas y 🟢 verdes que estén de camino
+3. ➡️ avanzar a la derecha
+4. 🔺 rodear o romper pirámides
+5. 💨 dash sólo cuando hay dos pirámides seguidas
 
-## 🛡️ Principio de seguridad
+También repite las pantallas que se repiten solas, como dungeons y lost sector, con `LOOP.cmd`.
 
-- 📸 Antes de cada decisión se evalúa un screenshot ADB nuevo.
-- 🧭 Sin coordenadas fijas de Windows, ratón ni ventana.
-- 🛑 Con cuadrícula dudosa, overlay o detección insegura del jugador se espera o se detiene.
-- 🔁 Tras ataques, dash y animaciones se vuelve a verificar.
-- 🚫 Un ataque o dash sin efecto queda desactivado por el resto del run.
-- 👁️ `CHECK.cmd` es modo de solo observación y garantiza que no envía taps.
-- ☁️ Sin API en la nube ni modelo de IA durante la ejecución.
+## 🛡️ Seguridad
 
-## 🚀 Inicio rápido
+- Mira una captura nueva antes de cada decisión.
+- Si la cuadrícula, el jugador o un overlay no se ven claros, espera o para.
+- `CHECK.cmd` sólo observa: nunca toca la pantalla.
+- `Ctrl+C` corta de inmediato.
+- Nada sale de tu PC. Sin nube, sin cuentas, sin telemetría.
 
-### Requisitos
+## 🚀 Empezar
 
-- Windows 10 u 11
-- BlueStacks 5
-- Digimon UP
-- Python 3.10 o superior
+Necesitas Windows 10 u 11, BlueStacks 5, Digimon UP y Python 3.10 o superior. Si falta Python, `INSTALL.cmd` te ofrece instalarlo con `winget`, y sin tu confirmación no instala nada.
 
-Si falta Python, `INSTALL.cmd` pregunta si puede instalar **Python 3.12 vía `winget`**. Sin confirmación no se instala nada.
+### BlueStacks
 
-### Configurar BlueStacks
-
-| Ajuste | Valor recomendado |
+| Ajuste | Valor |
 |---|---:|
 | Orientación | Portrait |
 | Resolución | 720 × 1280 |
-| Densidad de píxeles | 240 DPI |
+| Densidad | 240 DPI |
 | Escalado de interfaz | 100 % |
 | Android Debug Bridge | Activado |
 
 > [!TIP]
-> **Recomendación para la beta:** usa en lo posible **Botamon**. Su sprite pequeño
-> y de color nítido es hoy el que se detecta con más fiabilidad. Otras formas de
-> Digimon pueden funcionar, pero en esta beta aún no están igual de bien calibradas.
+> En esta beta **Botamon** es el que mejor se detecta: sprite pequeño y de color nítido. Otros Digimon funcionan, pero están menos calibrados.
 
-### Instalación e inicio
+### Pasos
 
 1. Descarga o clona el repositorio.
 2. Doble clic en `INSTALL.cmd`.
-3. Inicia BlueStacks y abre DigiWorld por completo.
-4. Ejecuta `CHECK.cmd` – no envía **ninguna entrada**.
-5. Revisa la imagen de diagnóstico en `runs/checks/`: la cuadrícula verde debe enmarcar correctamente las 25 celdas.
-6. Ejecuta `START.cmd`.
+3. Abre BlueStacks y entra a DigiWorld.
+4. Ejecuta `CHECK.cmd` y mira la imagen en `runs/checks/`: la cuadrícula verde debe enmarcar las 25 celdas.
+5. Ejecuta `START.cmd`.
 
-## 🎮 Inicio interactivo
+## 🎮 Usarlo
 
-`START.cmd` pregunta cuántas acciones debe ejecutar el bot y luego **cotiza el run
-antes de tocar nada**: lee el HUD y dice cuántas paticas, garras y dashes cuesta lo
-que pediste, cuánto tienes y si alcanza. Se puede teclear otro número ahí mismo y
-vuelve a cotizar; Enter o `s` arranca, `n` cancela. Al terminar puede lanzarse otro run.
+`START.cmd` te pregunta cuántas acciones quieres y **cotiza el run antes de tocar nada**: cuántas paticas, garras y dashes cuesta, cuánto tienes y si te alcanza. Puedes teclear otro número y vuelve a cotizar. Enter arranca, `n` cancela.
 
-Los tiempos entre acciones ya no se preguntan: los fija el propio bot según lo que el
-juego anima, y se estiran solos cuando el aparato se traga taps. Con `Ctrl+C` se
-detiene de inmediato. En modo normal aparece cada 2 % una actualización compacta con
-progreso, tiempo transcurrido y restante. Al final se muestran el tiempo total, la
-energía inicial y final, la diferencia real, la energía por minuto y proyectada por
-hora, y una línea de eficiencia: taps cobrados contra reclamados, esperas, segundos
-por acción y energía por patica. Si el contador del HUD no puede leerse con certeza,
-se indica explícitamente **no legible con certeza**.
+Las esperas las pone el bot solo, según lo que el juego anima, y se estiran cuando el aparato se traga taps. Durante el run ves el progreso cada 2 %. Al final tienes el tiempo total, la energía ganada, la energía por minuto y proyectada por hora, y cuántos taps te cobró el juego contra los que pediste.
 
-### 🔧 Modo debug
-
-**Un run normal no escribe nada en disco.** Ni capturas, ni diagnósticos, ni
-registro: `START.cmd` y `LOOP.cmd` sólo dejan lo que ves en la terminal.
-
-`START_DEBUG.cmd` y `LOOP_DEBUG.cmd` encienden lo demás. El bot crea entonces
-`runs/<id-del-run>/` con `events.jsonl` (una línea por decisión), una captura
-anotada por acción, los diagnósticos de las paradas de seguridad y las dos
-imágenes finales. Además imprime una línea de estado en cada escaneo, del tipo
-`10/100: ¡Energía a la vista! Recalculando ruta`.
-
-Cuenta unos 57 MB por cada 200 acciones. Enciéndelo cuando algo vaya mal y
-quieras diagnosticarlo, o cuando quieras convertir el run en un caso de
-regresión: `replay_harness.py` y `tests/test_replay.py` se alimentan de esas
-carpetas.
-
-| | `START.cmd` / `LOOP.cmd` | `START_DEBUG.cmd` / `LOOP_DEBUG.cmd` |
-|---|---|---|
-| Capturas y diagnósticos | no | sí |
-| `events.jsonl` | no | sí |
-| Estado por escaneo | cada 2 % | cada escaneo |
-
-## 🔁 Loops de pantalla
-
-Un dungeon que se repite es una secuencia de cuatro pantallas: oferta,
-batalla, recompensa, oferta otra vez. `LOOP.cmd` las recorre. Tiene entrada
-propia porque las preguntas del explorador (cuántas acciones, cuánto cuesta)
-no significan nada aquí.
-
-Doble clic en **`LOOP.cmd`**: eliges el perfil (sólo pregunta si hay más de
-uno), comprueba durante 12 s que reconoce lo que hay en pantalla y te hace
-**una** pregunta, `Arrancar [S/n]`. Corre sin límite de vueltas hasta que lo
-pares con `Ctrl+C`.
+`LOOP.cmd` corre las pantallas repetidas. Eliges perfil, comprueba durante 12 segundos que reconoce lo que hay y arranca. Vienen dos perfiles listos, `lost_sector` y `dungeon`. Enseñarle uno nuevo son seis capturas y un comando: [`SCREEN_LOOPS.md`](SCREEN_LOOPS.md).
 
 ```powershell
 .\LOOP.cmd -Loop lost_sector -Yes            # sin preguntas
 .\LOOP.cmd -Loop dungeon -Yes -Cycles 50     # acotado
 ```
 
-Vienen dos perfiles: `lost_sector` y `dungeon`, que cubre los tres tipos que
-el juego rota (Attack, Defense y SP Type). Ninguno trae constantes de píxeles.
-Cada loop **aprende** las pantallas de capturas que tomas en tu propio
-BlueStacks, así que enseñarle uno nuevo son seis capturas y un comando:
-[`SCREEN_LOOPS.md`](SCREEN_LOOPS.md) lo explica, junto con las reglas de
-seguridad y lo que rinde cada modo.
+### 🔧 Modo debug
 
-`LOOP_DEBUG.cmd` hace lo mismo guardando el registro de cada frame.
-
-## 🧠 Flujo de decisión
-
-```text
-Screenshot ADB
-      ↓
-Detectar automáticamente el tablero 5×5
-      ↓
-Evaluar jugador, items, rutas y pirámides
-      ↓
-Elegir la acción más segura relativa a la cuadrícula
-      ↓
-Enviar tap ADB
-      ↓
-Verificar el efecto y el nuevo estado
-```
-
-Con items visibles el controlador planifica como máximo dos acciones hasta el siguiente screenshot. Sin item visible son posibles hasta tres acciones seguras. Ataque y dash fuerzan siempre una verificación inmediata.
-
-## 📂 Estructura del proyecto
-
-| Archivo | Función |
-|---|---|
-| `INSTALL.cmd` | Iniciar la instalación simple |
-| `CHECK.cmd` | Verificar ADB y cuadrícula sin enviar entradas |
-| `START.cmd` | Iniciar el modo bot tranquilo con branding |
-| `START_DEBUG.cmd` | Lo mismo que `START.cmd`, guardando capturas, diagnósticos y `events.jsonl` |
-| `LOOP.cmd` | Loops de pantalla repetible (dungeon, defensa, invocación); ver `SCREEN_LOOPS.md` |
-| `LOOP_DEBUG.cmd` | Lo mismo que `LOOP.cmd`, guardando el registro de cada frame |
-| `Setup.ps1` | Verificar Python y preparar el entorno local |
-| `Check-Setup.ps1` | Ejecutar el modo de diagnóstico seguro |
-| `Start-Bot.ps1` | Preguntar opciones de inicio y lanzar el run |
-| `Start-Loop.ps1` | Elegir perfil de loop, simular y luego ejecutarlo |
-| `NivekuBanner.ps1` | El banner que comparten los dos lanzadores |
-| `digiworld_bot.py` | ADB, screenshots, detección de cuadrícula y taps |
-| `auto_digiworld.py` | Detección de jugador, items y obstáculos |
-| `auto_digiworld_batch2.py` | Planificación adaptativa y control de seguridad |
-| `step_ledger.py` | El recibo del juego: qué taps cobró y cuánto avanzó la banda |
-| `world_model.py` | Pistas con identidad: qué se cree, qué se sospecha y por qué |
-| `replay_harness.py` | Convierte corridas guardadas en tests de regresión con invariantes |
-| `analyze_breaks.py` | Análisis offline de los logs de corridas |
-| `screen_loop.py` | Motor de los loops: reconocer pantalla, decidir, contar vueltas |
-| `screen_loops.py` | CLI de los loops: capturar, aprender, simular, ejecutar |
-| `safe_tap.py` | Variación acotada del punto y el ritmo de cada tap |
-| `overlays.py` | Quién manda en el frame cuando algo tapa el tablero |
-| `SCREEN_LOOPS.md` | Cómo se enseña, se lanza y se acota un loop |
-| `tests/` | 638 tests offline, con fixtures de capturas reales |
-| `requirements.txt` | Dependencias mínimas de Python |
-
-## 📦 ¿Por qué no un paquete portable gigante?
-
-Empaquetar Python, NumPy y Pillow completos sería técnicamente posible, pero haría el release mucho más grande y difícil de mantener. En su lugar la descarga se mantiene pequeña:
-
-- `INSTALL.cmd` crea una `.venv` local.
-- Solo se instalan NumPy y Pillow.
-- `.venv`, screenshots, logs y datos de desarrollo nunca entran a Git.
-- En un PC nuevo el entorno se reconstruye de forma reproducible.
-
-## 🧪 Probar offline
-
-Tras una instalación exitosa:
-
-```powershell
-.\.venv\Scripts\python.exe -m py_compile digiworld_bot.py auto_digiworld.py auto_digiworld_batch2.py
-.\.venv\Scripts\python.exe -m unittest discover -s tests
-```
-
-Estos tests no envían entradas ADB.
+**Un run normal no escribe nada en disco.** `START_DEBUG.cmd` y `LOOP_DEBUG.cmd` guardan en `runs/<id>/` una captura anotada por acción, los diagnósticos de las paradas y un registro de cada decisión. Cuesta unos 57 MB por cada 200 acciones. Enciéndelo cuando algo salga mal y quieras reportarlo.
 
 ## 🧯 Problemas frecuentes
 
 | Problema | Solución |
 |---|---|
-| Falta Python | Ejecutar `INSTALL.cmd` y confirmar la instalación opcional con `winget` |
-| ADB no encontrado | Activar ADB en BlueStacks en **Ajustes → Avanzado** |
-| Ningún dispositivo | Iniciar BlueStacks por completo y volver a ejecutar `CHECK.cmd` |
-| Cuadrícula mal ubicada | No iniciar; verificar Portrait, 720×1280 y 240 DPI |
-| Jugador no detectado | Esperar la animación y volver a ejecutar `CHECK.cmd` |
+| Falta Python | Ejecuta `INSTALL.cmd` y acepta la instalación con `winget` |
+| ADB no encontrado | Actívalo en BlueStacks, **Ajustes → Avanzado** |
+| Ningún dispositivo | Abre BlueStacks del todo y repite `CHECK.cmd` |
+| Cuadrícula mal ubicada | No arranques. Revisa Portrait, 720×1280 y 240 DPI |
+| Jugador no detectado | Espera a que acabe la animación y repite `CHECK.cmd` |
 
-## 📝 Versiones y changelog
+## 🔬 Cómo funciona
 
-La versión actual está en `VERSION` y se muestra en el banner de la terminal y con
-`python auto_digiworld_batch2.py --version`.
+Todo pasa por **ADB**, el canal de depuración que Android ya trae de fábrica. El bot le pide una captura y le envía un tap con coordenadas, igual que haría un dedo. No lee la memoria del juego, no modifica el APK y no habla con los servidores: para el juego, un tap del bot y uno tuyo son la misma cosa. Por eso el bot es lento comparado con un cheat, y por eso no hay nada que parchear.
 
-### v0.4.0 - 29.08.2026
+Nada está fijo a la ventana de Windows. En cada captura el bot **busca la cuadrícula** y calcula todo relativo a ella, así que puedes mover BlueStacks por el escritorio sin romper nada.
 
-Una noche entera de corridas reportadas y arregladas una por una. Casi todo lo
-de abajo salió de un fallo concreto que el usuario vio en pantalla.
+```text
+Captura ADB → encuentra el tablero 5×5 → lee jugador, items y pirámides
+   → elige la acción más segura → tap ADB → verifica que el juego la cobró
+```
 
-**Ve lo que estaba viendo el jugador**
+Con items a la vista planifica dos acciones antes de volver a mirar; sin items, tres. Un ataque o un dash siempre fuerzan una captura nueva.
 
-- 🐾 **Una garra tras el hielo sigue siendo una garra.** El score de una
-  recogida es la fracción de amarillo de la celda, así que cualquier oclusión
-  lo diluye — y las losas de hielo del primer plano se comen el tercio inferior
-  de la fila 4. Una garra leyó 0.091 contra un umbral de 0.100 y el bot pasó de
-  largo. El área no se podía rescatar (0.091 cae dentro de la banda de
-  destellos de pirámide, percentil 99 = 0.094), así que ahora se **reconoce el
-  sprite**: ~500 píxeles a un tercio de llenado de su propia caja, y un
-  mordisco quita píxeles sin cambiar el llenado. 21 garras recuperadas en
-  12.250 capturas, revisadas una por una.
-- 🟢 **Y un orbe de dash mordido sigue siendo un orbe.** Mismo mecanismo, otro
-  canal: 0.0575 contra 0.060, un paso por debajo del bot. 20 recuperadas — 14
-  orbes y 6 tickets, sin confundirlos entre sí.
-- 🚫 Medir la fila 4 sobre su 80% superior se probó y se **refutó** sobre el
-  mismo corpus: gana 101 detecciones y pierde 77 reales, porque un sprite de
-  esa fila se dibuja bajo y el recorte lo corta.
+Dos decisiones sostienen el resto:
 
-**Deja de dar pasos que no llevan a nada**
+- **El contador del HUD manda sobre la fe.** El juego cobra el tap o no lo cobra, y ahí se sabe si la banda avanzó. El bot le cree al contador, no a haber enviado el tap.
+- **El tablero es memoria, no una foto.** Cada casilla es una pista con historia: cuántas veces se vio, de dónde salió, si es de fiar. Una animación corta ya no le hace olvidar una energía que lleva rato viendo.
 
-- 🔄 **Una carta que se desliza sola no es la cinta.** El re-sync de scroll no
-  facturado exige ahora un segundo testigo con el mismo desplazamiento. Sin él,
-  una naranja recién comida le entregó sus seis avistamientos a una carta de
-  confeti y el bot caminó hacia atrás a recogerla.
-- ↩️ **El agarre libre no camina hacia atrás sobre una sospechosa.** En todo el
-  resto de la estrategia una sospechosa de la banda izquierda es confeti que no
-  se puede creer ni perseguir; esta regla era la única que igual iba.
-- 🧱 **La pared en formación no promete nada que el lanzamiento pueda cobrar.**
-  Caminar a un lanzamiento de la columna 0 no hace scroll, así que ni la
-  pirámide de la columna 4 ni la que promete el preview entran nunca en el
-  camino del dash. Contarlas rompía la regla que el propio archivo declara:
-  quien camina y quien dispara tienen que usar el mismo criterio. Costó cuatro
-  paticas y una garra en una corrida.
-- 🗺️ **No vuelvas a una celda que ya te dio su respuesta.** 351 de 3.062
-  cambios de celda eran un regreso estéril: unos 6.400 de energía.
+Los 668 tests offline corren con capturas reales, y `replay_harness.py` convierte cada run grabado en un caso de regresión.
 
-**No se queda tieso ni se muere**
+## 📂 Archivos
 
-- 🩹 El primer cuadro moría con `UnboundLocalError`, y **nadie ejecutaba
-  `main()`** para verlo. Ahora hay pruebas de humo que corren el bucle de
-  verdad contra capturas grabadas.
-- 💤 Quedarse sin paticas **termina la corrida** con su propio código de salida
-  en vez de seguir tocando la pantalla: una corrida gastó sus últimos 17
-  cuadros así.
-- 🐞 Una variable local tapaba una función del módulo y el bot moría en la
-  acción 25.
+| Archivo | Función |
+|---|---|
+| `INSTALL.cmd` · `Setup.ps1` | Instalación y entorno local |
+| `CHECK.cmd` · `Check-Setup.ps1` | Diagnóstico sin enviar taps |
+| `START.cmd` · `START_DEBUG.cmd` | El explorador, tranquilo o con registro |
+| `LOOP.cmd` · `LOOP_DEBUG.cmd` | Loops de pantalla, ver [`SCREEN_LOOPS.md`](SCREEN_LOOPS.md) |
+| `digiworld_bot.py` | ADB, capturas, cuadrícula y taps |
+| `auto_digiworld.py` | Detección de jugador, items y pirámides |
+| `auto_digiworld_batch2.py` | Planificación y control de seguridad |
+| `world_model.py` · `step_ledger.py` | La memoria del tablero y el recibo del juego |
+| `replay_harness.py` · `tests/` | Regresión sobre runs grabados |
+| `screen_loop.py` · `screen_loops.py` | Motor y CLI de los loops |
 
-**Más rápido**
+## 📦 ¿Por qué no un ejecutable portable?
 
-- ⚡ La rejilla se busca **una vez**, no 29.600 veces por cuadro: 298 ms → 2,6 ms
-  (115×), y la suite de tests pasó de 303 s a ~52 s. Verificado bit a bit sobre
-  1.706 cuadros grabados.
+Empaquetar Python, NumPy y Pillow completos haría el release enorme. En vez de eso `INSTALL.cmd` crea una `.venv` local con dos dependencias, y en un PC nuevo el entorno se reconstruye igual.
 
-**Economía remedida**
+## 📝 Versiones
 
-- 💱 Energía por shard: **paso 0,455 · garra 0,265 · dash 0,048.** Una garra
-  empata con rodear (84 contra 80 shards); un dash solo paga contra una pared
-  sin vuelta. Se retiraron 427 dashes de pareja pelada (~170.800 shards).
-- 🔋 Quema por acción recalculada tras una corrida que se quedó sin pasos
-  diciendo que no lo haría.
+La versión actual está en `VERSION`, en el banner de la terminal y en `python auto_digiworld_batch2.py --version`.
 
-**Medido y escrito, no arreglado**
+**v0.5.0 (31.08.2026)**: el bot deja de confundirse con dos cosas que el juego pinta encima del tablero: la luz que marca una casilla como pisable, que leía como pirámide, y el confeti de una recogida, que leía como items nuevos. Además recuerda mejor lo que ya vio, distingue antes las pirámides que entran por la derecha y deja de gastar dashes que no rompen nada.
 
-- 🔭 La **sexta columna** acierta casi todo lo que llega (recall 0,928) y se
-  inventa la mitad de lo que anuncia (precisión 0,509). No se pudo refinar:
-  blancura, luminancia, contraste, ventana estrecha, palpitación y persistencia
-  fallan todas contra un holdout partido por corrida. La rendija es el bisel
-  del tablero, no la columna siguiente, y le faltan píxeles que el juego no
-  dibuja. Su coste real está medido: **680 shards en 15.015 cuadros**, así que
-  se deja como está.
+Historia completa en [`docs/CHANGELOG.md`](docs/CHANGELOG.md). Diario de defectos con la evidencia de cada arreglo en [`docs/`](docs/).
 
-- 🧪 638 tests offline, incluidas pruebas que ejecutan el bucle real del runner.
+## 🔗 Proyectos relacionados
 
-Diario completo con las cifras en [`docs/review-2026-08-28.md`](docs/review-2026-08-28.md).
-
-### v0.3.1 - 28.08.2026
-
-- 🍊 **Una energía vale 125, no 20.** El +20 con el que se tasaba desde el
-  20.08 era el tick de regeneración pasiva, no la recogida. Remedido sobre
-  todas las grabaciones (n=623 frames cuyo plan pisó un naranja conocido: el
-  salto es +125 y nunca +20 más de lo que sube un frame que no recoge nada).
-  Un paso cuesta 18,2 de energía de media sobre 3.014 pasos cobrados.
-- 🐛 **Ya no se salta una energía adyacente.** El guard que la descartaba
-  cuando el resto de objetivos quedaba al otro lado de la fila salía de esa
-  cuenta invertida: el rodeo cuesta dos paticas (~36) y la energía da 125.
-  Caso de campo, run `20260828T150835` n=12: el bot tomó una del par, la
-  cinta puso la otra justo debajo, y se fue por un dash orb; dos pasos
-  después la energía se había salido del tablero.
-- 🧹 Con el guard se va su andamiaje: el compromiso de objetivo de v0.3.0
-  existía solo para cancelar sus falsos positivos. El A/B del harness sobre
-  cuatro corridas grabadas da violaciones idénticas antes y después.
-
-### v0.3.0 - 27.08.2026 (fork de Niveku)
-
-- 🧾 **Recibo de paticas**: el contador del HUD es la autoridad sobre qué taps cobró
-  el juego; la banda transportadora avanza con el recibo, no con la fe en los taps.
-- 🌍 **Modelo del mundo**: las celdas son pistas clasificadas por su origen, no
-  juicios rehechos cada frame.
-- 🔁 **Harness de replay**: cada corrida guardada es un test de punta a punta con
-  invariantes (GHOST, PLAYER-LAW, STARVATION, BLIND-TOUR, PING-PONG, INDECISION).
-- 💰 **Economía medida**: tour planificado sobre todos los pickups, precios reales
-  (paso 40, garra 200, dash 400) y presupuestos de scroll para lo perecedero.
-- ⏱️ **Ritmo adaptativo**: las esperas responden al aparato — un tap tragado las
-  estira, un frame limpio las relaja.
-- 💸 El lanzador cotiza el run antes de empezar y ya no cancela por error.
-- 🤫 **Silencio por defecto**: un run ya no deja nada en disco. Las capturas de
-  diagnóstico venían encendidas en el arranque normal (`if (-not $NoDebugShots)`),
-  así que cada run escribía cientos de PNG y un log que nadie había pedido. Ahora
-  eso vive en `START_DEBUG.cmd` y `LOOP_DEBUG.cmd`.
-- 🔁 **Loops de pantalla** (`LOOP.cmd`): motor genérico para las pantallas que
-  se repiten, con perfiles aprendidos de capturas propias. Una pantalla que otro
-  proceso dejó abierta no se toca; el frame que detiene un loop se guarda.
-- 🎯 **Compromiso de objetivo**: llegar al lado de un item ya no es lo que lo
-  descarta. Medido sobre 857 frames: 20 de los 40 encogimientos de plan eran esa
-  forma, y el A/B sobre las mismas grabaciones cambia 51 decisiones. (Retirado
-  en v0.3.1 junto con el guard cuyos falsos positivos corregía.)
-- 🧪 607 tests offline.
-- 🗣️ Interfaz de usuario completa en español (runner, launchers PowerShell y esta README).
-
-Diario completo de defectos y evidencia en [`docs/`](docs/).
-
-### v0.2.0 – 29.07.2026
-
-- 🟢 El inicio normal muestra aproximadamente cada 2 % el progreso, tiempo transcurrido y tiempo restante estimado.
-- 📊 Al final del run aparecen el tiempo total y la energía inicial, final y su diferencia real.
-- 🔎 El OCR de energía trabaja local y descarta valores inseguros.
-- 🚀 Tras el número de acciones arranca el estándar seguro con una sola pregunta experimental breve.
-- 🔁 Al terminar puede lanzarse directamente otro run con nuevo número de acciones.
-- ⚡ La estadística final muestra energía por minuto y proyectada por hora.
-
-### v0.1.0 – 29.07.2026
-
-- 🧭 Detección automática de la cuadrícula 5×5 visible de DigiWorld
-- 🟠 Recolección priorizada de energía e items visibles
-- 🔺 Manejo seguro de pirámides, ataques y dash
-- 🛑 Paradas de seguridad ante cuadrícula, jugador u overlay inseguros
-- 🔧 Inicio de debug separado con mensaje de estado en cada escaneo y replanificación
-- ⚡ Branding de terminal RobinTh0r / Germon
-- 📦 ZIP de release ligero con preparación local automática de Python
-
-### Reglas para futuros releases
-
-En cada versión nueva se actualizan en conjunto:
-
-1. Número de versión en `VERSION`
-2. Changelog en esta README
-3. Tag de Git en formato `vX.Y.Z`
-4. Release de GitHub con el mismo changelog como release notes
-5. ZIP recién construido sin `.venv`, datos de runs, screenshots ni configuración local
-
-## 🔗 Proyecto relacionado
-
-| Proyecto | Plataforma | Repo |
-| --- | --- | --- |
-| DigiWorldExplorer_Bot (este fork) | Windows + BlueStacks, ADB | – |
-| DigiWorldExplorer_Bot (original) | Windows + BlueStacks, ADB | [RobinTh0r/DigiWorldExplorer_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Bot) |
-| DigiWorldExplorer Android Bot | Android, nativo, sin ADB | [RobinTh0r/DigiWorldExplorer_Android_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Android_Bot) |
+| Proyecto | Plataforma |
+|---|---|
+| [RobinTh0r/DigiWorldExplorer_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Bot) (original) | Windows + BlueStacks |
+| [RobinTh0r/DigiWorldExplorer_Android_Bot](https://github.com/RobinTh0r/DigiWorldExplorer_Android_Bot) | Android nativo |
 
 ---
 <div align="center">
